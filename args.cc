@@ -1,0 +1,41 @@
+
+#include <string>
+
+#include <gflags/gflags.h>
+#include <spdlog/spdlog.h>
+#include <fmt/format.h>
+
+#include "args.h"
+
+DEFINE_string(db_path, "/mnt/work/rocksdb_test_db",
+          "Database Path");
+DEFINE_int32(db_threads, 4,
+          "Number of threads used by RocksDB");
+DEFINE_string(db_config_file, "",
+          "Database Configuration File");
+DEFINE_uint64(db_memtables_budget, 256,
+          "Memory budget for memtables");
+DEFINE_string(log_level, "warn",
+          "Log level (debug,info,warn,error,critical,off)");
+
+Args::Args(int argc, char** argv){
+	gflags::SetUsageMessage(std::string("\nUSAGE:\n\t") + std::string(argv[0]) +
+				" [OPTIONS]...");
+	gflags::ParseCommandLineFlags(&argc, &argv, true);
+
+	spdlog::info("Program Arguments: --db_path={}, --db_threads={}, --db_config_file={}, --db_memtables_budget={}, --log_level={}",
+			FLAGS_db_path, FLAGS_db_threads, FLAGS_db_config_file, FLAGS_db_memtables_budget, FLAGS_log_level);
+
+	if      (FLAGS_log_level == "debug"   ) spdlog::set_level(spdlog::level::debug);
+	else if (FLAGS_log_level == "info"    ) spdlog::set_level(spdlog::level::info);
+	else if (FLAGS_log_level == "warn"    ) spdlog::set_level(spdlog::level::warn);
+	else if (FLAGS_log_level == "error"   ) spdlog::set_level(spdlog::level::err);
+	else if (FLAGS_log_level == "critical") spdlog::set_level(spdlog::level::critical);
+	else if (FLAGS_log_level == "off"     ) spdlog::set_level(spdlog::level::off);
+	else throw new std::string(fmt::format("invalid --log_level={}", FLAGS_log_level));
+
+	db_path             = FLAGS_db_path;
+	db_threads          = FLAGS_db_threads;
+	db_memtables_budget = FLAGS_db_memtables_budget;
+	db_config_file      = FLAGS_db_config_file;
+}
