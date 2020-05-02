@@ -19,5 +19,5 @@ cc_binary(
     srcs = ["rocksdb_test.cc"],
     copts = ["-std=c++11"],
     linkopts = ["-std=c++11"],
-    deps = [":args", ":util", "@rocksdb//:main", "@spdlog//:main", "@fmt//:main"],
+    deps = [":args", ":util", "@spdlog//:main", "@fmt//:main"],
 )

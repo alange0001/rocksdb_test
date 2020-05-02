@@ -7,14 +7,21 @@
 
 #include "args.h"
 
-DEFINE_string(db_path, "/mnt/work/rocksdb_test_db",
+DEFINE_string(db_path, "/mnt/work/rocksdb",
           "Database Path");
-DEFINE_int32(db_threads, 4,
-          "Number of threads used by RocksDB");
-DEFINE_string(db_config_file, "",
+DEFINE_string(db_config_file, "files/rocksdb.options",
           "Database Configuration File");
-DEFINE_uint64(db_memtables_budget, 256,
-          "Memory budget for memtables");
+DEFINE_bool(db_create, false,
+          "Create the database");
+
+DEFINE_uint64(db_num_keys, 50000000,
+          "Number of keys in the database");
+DEFINE_uint64(db_cache_size, 256 * 1024 * 1024,
+          "Database cache size");
+
+DEFINE_uint32(hours, 2,
+          "Hours of experiment");
+
 DEFINE_string(log_level, "warn",
           "Log level (debug,info,warn,error,critical,off)");
 
@@ -23,8 +30,8 @@ Args::Args(int argc, char** argv){
 				" [OPTIONS]...");
 	gflags::ParseCommandLineFlags(&argc, &argv, true);
 
-	spdlog::info("Program Arguments: --db_path={}, --db_threads={}, --db_config_file={}, --db_memtables_budget={}, --log_level={}",
-			FLAGS_db_path, FLAGS_db_threads, FLAGS_db_config_file, FLAGS_db_memtables_budget, FLAGS_log_level);
+	//spdlog::info("Program Arguments: --db_path={}, --db_threads={}, --db_config_file={}, --db_memtables_budget={}, --log_level={}",
+	//		FLAGS_db_path, FLAGS_db_threads, FLAGS_db_config_file, FLAGS_db_memtables_budget, FLAGS_log_level);
 
 	if      (FLAGS_log_level == "debug"   ) spdlog::set_level(spdlog::level::debug);
 	else if (FLAGS_log_level == "info"    ) spdlog::set_level(spdlog::level::info);
@@ -35,7 +42,9 @@ Args::Args(int argc, char** argv){
 	else throw new std::string(fmt::format("invalid --log_level={}", FLAGS_log_level));
 
 	db_path             = FLAGS_db_path;
-	db_threads          = FLAGS_db_threads;
-	db_memtables_budget = FLAGS_db_memtables_budget;
 	db_config_file      = FLAGS_db_config_file;
+	db_create           = FLAGS_db_create;
+	db_num_keys         = FLAGS_db_num_keys;
+	db_cache_size       = FLAGS_db_cache_size;
+	hours               = FLAGS_hours;
 }

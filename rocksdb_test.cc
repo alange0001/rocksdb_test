@@ -1,150 +1,199 @@
 
 #include <string>
 #include <vector>
+#include <map>
+#include <queue>
+#include <memory>
+#include <regex>
+
+#include <chrono>
+#include <atomic>
+#include <thread>
 
 #include <spdlog/spdlog.h>
-
-#include <rocksdb/db.h>
-#include <rocksdb/slice.h>
-#include <rocksdb/options.h>
-#include <rocksdb/utilities/options_util.h>
+#include <fmt/format.h>
 
 #include "args.h"
 #include "util.h"
 
 ////////////////////////////////////////////////////////////////////////////////////
 
-class KeySpace {
-	public:
-	KeySpace(uint64_t size_);
+struct DBBenchStats {
+	std::map<std::string, std::string> stats;
 
-	private:
-	uint64_t size;
+	DBBenchStats() {}
+	DBBenchStats(const DBBenchStats& src) {stats = src.stats;}
+	DBBenchStats& operator= (const DBBenchStats& src) {stats = src.stats; return *this;}
+	void clear() {stats.clear();}
+	bool parseLine(const char *buffer) {
+		std::cmatch cm;
+
+		std::regex_match(buffer, cm, std::regex("\\s*Interval writes: ([0-9.]+) writes, ([0-9.]+) keys, ([0-9.]+) commit groups, ([0-9.]+) writes per commit group, ingest: ([0-9.]+) MB, ([0-9.]+) MB/s\\s*"));
+		//spdlog::debug("cm.size() = {}", cm.size());
+		if( cm.size() >= 7 ){
+			stats["Writes"] = cm.str(1);
+			stats["Write keys"] = cm.str(2);
+			stats["Write commit groups"] = cm.str(3);
+			stats["Ingest MB"] = cm.str(5);
+			stats["Ingest MB/s"] = cm.str(6);
+			return false;
+		}
+		std::regex_match(buffer, cm, std::regex("\\s*Interval WAL: ([0-9.]+) writes, ([0-9.]+) syncs, ([0-9.]+) writes per sync, written: ([0-9.]+) MB, ([0-9.]+) MB/s\\s*"));
+		//spdlog::debug("cm.size() = {}", cm.size());
+		if( cm.size() >= 5 ){
+			stats["WAL writes"] = cm.str(1);
+			stats["WAL syncs"] = cm.str(2);
+			stats["WAL MB written"] = cm.str(4);
+			stats["WAL MB written/s"] = cm.str(5);
+			return false;
+		}
+		std::regex_match(buffer, cm, std::regex("\\s*Interval stall: ([0-9:.]+) H:M:S, ([0-9.]+) percent\\s*"));
+		//spdlog::debug("cm.size() = {}", cm.size());
+		if( cm.size() >= 3 ){
+			stats["Stall"] = cm.str(1);
+			stats["Stall percent"] = cm.str(2);
+			return true;
+		}
+		return false;
+	}
+	std::string str() {
+		std::string s;
+		for (auto i : stats)
+			s += fmt::format("{}{}={}", (s.length() > 0)?", ":"", i.first, i.second);
+		return s;
+	}
 };
-
-KeySpace::KeySpace(uint64_t size_) {
-	size = size_;
-}
 
 ////////////////////////////////////////////////////////////////////////////////////
 
-class DB {
-	public:
-	DB(Args *args_);
-	~DB();
-	void Open();
-	void setKeySpace(KeySpace* key_space_);
-	void BulkLoad();
+std::atomic_flag stats_queue_lock = ATOMIC_FLAG_INIT;
 
-	private:
+class DBBench {
 	Args* args;
-	rocksdb::DB* db = nullptr;
-	bool is_open = false;
+	std::queue<DBBenchStats> stats_queue;
 
-	rocksdb::Options  options;
-	rocksdb::DBOptions db_opt;
-	std::vector<rocksdb::ColumnFamilyDescriptor> cf_descs;
-	std::vector<rocksdb::ColumnFamilyHandle*> handles;
+	std::string getCommandCreate() {
+		const char *template_cmd =
+		"db_bench                                         \\\n"
+		"	--db={}                                       \\\n"
+		"	--options_file={}                             \\\n"
+		"	--num={}                                      \\\n"
+		"	--benchmarks=fillrandom                       \\\n"
+		"	--perf_level=3                                \\\n"
+		"	--use_direct_io_for_flush_and_compaction=true \\\n"
+		"	--use_direct_reads=true                       \\\n"
+		"	--cache_size={}                               \\\n"
+		"	--key_size=48                                 \\\n"
+		"	--value_size=43                               ";
+		std::string ret = fmt::format(template_cmd,
+			args->db_path,
+			args->db_config_file,
+			args->db_num_keys,
+			args->db_cache_size);
 
-	rocksdb::WriteOptions write_options;
-	rocksdb::ReadOptions read_options;
+		spdlog::debug("Command Run:\n{}", ret);
+		return ret;
+	}
 
-	KeySpace* key_space = nullptr;
+	std::string getCommandRun() {
+		uint32_t duration = args->hours * 60 * 60; /*hours to seconds*/
+		double   sine_b   = 0.000073 * (24.0/static_cast<double>(args->hours)); /*adjust the sine cycle*/
 
-	rocksdb::CompressionType getCompressionType();
-	void loadOptionsFile();
-	void setDefaultOptions();
+		const char *template_cmd =
+		"db_bench                                         \\\n"
+		"	--db=\"{}\"                                   \\\n"
+		"	--use_existing_db=true                        \\\n"
+		"	--options_file=\"{}\"                         \\\n"
+		"	--num={}                                      \\\n"
+		"	--key_size=48                                 \\\n"
+		"	--perf_level=2                                \\\n"
+		"	--stats_interval_seconds=5                    \\\n"
+		"	--stats_per_interval=1                        \\\n"
+		"	--benchmarks=mixgraph                         \\\n"
+		"	--use_direct_io_for_flush_and_compaction=true \\\n"
+		"	--use_direct_reads=true                       \\\n"
+		"	--cache_size={}                               \\\n"
+		"	--key_dist_a=0.002312                         \\\n"
+		"	--key_dist_b=0.3467                           \\\n"
+		"	--keyrange_dist_a=14.18                       \\\n"
+		"	--keyrange_dist_b=-2.917                      \\\n"
+		"	--keyrange_dist_c=0.0164                      \\\n"
+		"	--keyrange_dist_d=-0.08082                    \\\n"
+		"	--keyrange_num=30                             \\\n"
+		"	--value_k=0.2615                              \\\n"
+		"	--value_sigma=25.45                           \\\n"
+		"	--iter_k=2.517                                \\\n"
+		"	--iter_sigma=14.236                           \\\n"
+		"	--mix_get_ratio=0.83                          \\\n"
+		"	--mix_put_ratio=0.14                          \\\n"
+		"	--mix_seek_ratio=0.03                         \\\n"
+		"	--sine_mix_rate_interval_milliseconds=5000    \\\n"
+		"	--duration={}                                 \\\n"
+		"	--sine_a=1000                                 \\\n"
+		"	--sine_b={}                                   \\\n"
+		"	--sine_d=4500            2>&1                 ";
+		std::string ret = fmt::format(template_cmd,
+			args->db_path,
+			args->db_config_file,
+			args->db_num_keys,
+			args->db_cache_size,
+			duration,
+			sine_b);
+		spdlog::debug("Command Run:\n{}", ret);
+		return ret;
+	}
+
+public:
+	bool finished = false;
+	DBBench(Args* args_) : args(args_) {}
+
+	void create() {
+		auto cmd = getCommandCreate();
+		auto ret = std::system(cmd.c_str());
+		if (ret != 0)
+			throw new std::string("database creation error");
+	}
+
+	void run() {
+		const int max_buffer = 512;
+		char buffer[max_buffer];
+		auto cmd = getCommandRun();
+
+		DBBenchStats stats;
+		FILE* f = popen(cmd.c_str(), "r");
+		if (f == nullptr)
+			throw new std::string("error executing db_bench");
+
+		while (fgets(buffer, max_buffer, f)){
+			buffer[max_buffer -1] = '\0';
+			if (stats.parseLine(buffer)) { // if last line was parsed
+				while (stats_queue_lock.test_and_set(std::memory_order_acquire));
+				stats_queue.push(stats);
+				stats_queue_lock.clear();
+				stats.clear();
+			}
+		}
+
+		auto exit_code = pclose(f);
+		finished = true;
+		if (exit_code != 0)
+			throw new std::string(fmt::format("db_bench exit error {}: {}", exit_code, buffer));
+	}
+
+	bool getStats(std::string& ret) {
+		while (stats_queue_lock.test_and_set(std::memory_order_acquire));
+		if (stats_queue.size() > 0) {
+			DBBenchStats s = stats_queue.front();
+			stats_queue.pop();
+			stats_queue_lock.clear();
+			ret = s.str();
+			return true;
+		}
+		stats_queue_lock.clear();
+		return false;
+	}
+
 };
-
-DB::DB(Args *args_) {
-	spdlog::debug("create class DB");
-	args = args_;
-}
-
-DB::~DB(){
-	if (is_open){
-		for (auto* handle : handles) {
-			delete handle;
-		}
-		delete db;
-	}
-}
-
-void DB::Open(){
-	rocksdb::Status  s;
-
-	options.create_if_missing = true;
-	options.IncreaseParallelism(args->db_threads);
-
-	if (args->db_config_file.length() > 0) {
-		loadOptionsFile();
-		s = rocksdb::DB::Open(db_opt, args->db_path, cf_descs, &handles, &db);
-	} else {
-		setDefaultOptions();
-		s = rocksdb::DB::Open(options, args->db_path, &db);
-	}
-	if (! s.ok() ) throw new std::string(s.getState());
-
-	spdlog::debug("open database OK!");
-	is_open = true;
-
-	s = db->Put(write_options, "key1", "value1");
-	if (! s.ok() ) throw new std::string(s.getState());
-}
-
-void DB::loadOptionsFile() {
-	rocksdb::Status s;
-
-	spdlog::debug("open database using config file");
-
-	s = rocksdb::LoadOptionsFromFile(args->db_config_file, rocksdb::Env::Default(), &db_opt,
-            &cf_descs);
-	if (! s.ok() ) throw new std::string(s.getState());
-}
-
-void DB::setDefaultOptions() {
-	spdlog::debug("open database using default parameters");
-	//using options.OptimizeLevelStyleCompaction()
-
-	options.compaction_style = rocksdb::kCompactionStyleLevel;
-	options.num_levels = 7;
-	options.max_bytes_for_level_multiplier = 10;
-	options.write_buffer_size = (args->db_memtables_budget * 1024 * 1024) / 4;
-	options.target_file_size_base = (args->db_memtables_budget * 1024 * 1024) / 8;
-	options.max_bytes_for_level_base = (args->db_memtables_budget * 1024 * 1024);
-
-	options.min_write_buffer_number_to_merge = 2;
-	options.max_write_buffer_number = 6;
-	options.max_background_compactions = 4;
-	options.level0_file_num_compaction_trigger = 2;
-	options.level0_slowdown_writes_trigger = 4;
-	options.level0_stop_writes_trigger = 6;
-
-	// compress levels >= 2
-	options.compression_per_level.resize(options.num_levels);
-	auto compression_type = getCompressionType();
-	for (int i = 0; i < options.num_levels; ++i) {
-		if (i < 2) {
-			options.compression_per_level[i] = rocksdb::kNoCompression;
-		} else {
-			options.compression_per_level[i] = compression_type;
-		}
-	}
-}
-
-rocksdb::CompressionType DB::getCompressionType() {
-	spdlog::debug("using kLZ4Compression in getCompressionType()");
-	return rocksdb::kLZ4Compression;
-}
-
-void DB::setKeySpace(KeySpace* key_space_) {
-	key_space = key_space_;
-}
-
-void DB::BulkLoad() {
-
-}
-
 
 ////////////////////////////////////////////////////////////////////////////////////
 
@@ -152,15 +201,26 @@ int main(int argc, char** argv) {
 	spdlog::info("Initializing program {}", argv[0]);
 
 	try {
-		auto args = Args(argc, argv);
-		auto db = DB(&args);
-		db.Open();
+		Args args(argc, argv);
+		DBBench db_bench(&args); auto db_bench_ptr = &db_bench;
+		if (args.db_create)
+			db_bench.create();
+
+		std::thread thread_db_bench ( [db_bench_ptr] {db_bench_ptr->run();} );
+		std::string stats_db_bench;
+		while (!db_bench.finished) {
+			if (db_bench.getStats(stats_db_bench)) {
+				spdlog::info("db_bench stats: {}", stats_db_bench);
+			}
+			std::this_thread::sleep_for(std::chrono::milliseconds(500));
+		}
+		thread_db_bench.join();
 	}
-	catch (std::string *str_error) {
+	catch (std::string* str_error) {
 		spdlog::error(*str_error);
 		return 1;
 	}
 
-	spdlog::info("exit {}", 0);
+	spdlog::info("exit 0");
 	return 0;
 }
