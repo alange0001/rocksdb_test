@@ -10,6 +10,10 @@
 #include <atomic>
 #include <thread>
 
+#include <stdexcept>
+
+#include <csignal>
+
 #include <spdlog/spdlog.h>
 #include <fmt/format.h>
 
@@ -66,11 +70,16 @@ struct DBBenchStats {
 
 ////////////////////////////////////////////////////////////////////////////////////
 
-std::atomic_flag stats_queue_lock = ATOMIC_FLAG_INIT;
+std::atomic_flag DBBench_stats_lock = ATOMIC_FLAG_INIT;
 
 class DBBench {
+	bool finished_ = false;
+	std::exception_ptr exception = nullptr;
 	Args* args;
-	std::queue<DBBenchStats> stats_queue;
+
+	DBBenchStats stats;
+	uint64_t stats_produced = 0;
+	uint64_t stats_consumed = 0;
 
 	std::string getCommandCreate() {
 		const char *template_cmd =
@@ -143,81 +152,137 @@ class DBBench {
 		return ret;
 	}
 
-public:
-	bool finished = false;
+	public: //---------------------------------------------------------------------
+	std::thread thread;
+
 	DBBench(Args* args_) : args(args_) {}
+	~DBBench() {
+		if (thread.joinable())
+			thread.join();
+	}
 
 	void create() {
 		auto cmd = getCommandCreate();
 		auto ret = std::system(cmd.c_str());
 		if (ret != 0)
-			throw new std::string("database creation error");
+			throw std::runtime_error("database creation error");
 	}
 
-	void run() {
-		const int max_buffer = 512;
-		char buffer[max_buffer];
-		auto cmd = getCommandRun();
+	void launchThread() {
+		thread = std::thread( [this]{this->threadMain();} );
+	}
+	void threadMain() noexcept { // secondary thread to control the db_bench and handle its output
+		try {
+			const int buffer_size = 512;
+			char buffer[buffer_size]; buffer[0] = '\0'; buffer[buffer_size -1] = '\0';
+			auto cmd = getCommandRun();
 
-		DBBenchStats stats;
-		FILE* f = popen(cmd.c_str(), "r");
-		if (f == nullptr)
-			throw new std::string("error executing db_bench");
+			Popen2 subprocess(cmd.c_str());
 
-		while (fgets(buffer, max_buffer, f)){
-			buffer[max_buffer -1] = '\0';
-			if (stats.parseLine(buffer)) { // if last line was parsed
-				while (stats_queue_lock.test_and_set(std::memory_order_acquire));
-				stats_queue.push(stats);
-				stats_queue_lock.clear();
-				stats.clear();
+			DBBenchStats collect_stats;
+			while (subprocess.gets(buffer, buffer_size -1)){
+				//spdlog::debug("buffer={}", buffer);
+				if (collect_stats.parseLine(buffer)) { // if last line was parsed
+					// produce stats
+					while (DBBench_stats_lock.test_and_set(std::memory_order_acquire));
+					stats = collect_stats;
+					stats_produced++;
+					DBBench_stats_lock.clear();
+					collect_stats.clear();
+				}
 			}
-		}
 
-		auto exit_code = pclose(f);
-		finished = true;
-		if (exit_code != 0)
-			throw new std::string(fmt::format("db_bench exit error {}: {}", exit_code, buffer));
+		} catch (...) {
+			exception = std::current_exception();
+		}
+		finished_ = true;
 	}
 
-	bool getStats(std::string& ret) {
-		while (stats_queue_lock.test_and_set(std::memory_order_acquire));
-		if (stats_queue.size() > 0) {
-			DBBenchStats s = stats_queue.front();
-			stats_queue.pop();
-			stats_queue_lock.clear();
-			ret = s.str();
+	bool consumeStats(DBBenchStats& ret) { // call from the main thread
+		while (DBBench_stats_lock.test_and_set(std::memory_order_acquire));
+		if (stats_consumed < stats_produced) {
+			ret = stats;
+			stats_consumed = stats_produced;
+			DBBench_stats_lock.clear();
 			return true;
 		}
-		stats_queue_lock.clear();
+		DBBench_stats_lock.clear();
 		return false;
+	}
+
+	bool finished() { // call from the main thread
+		if (exception)
+			std::rethrow_exception(exception);
+		return finished_;
 	}
 
 };
 
 ////////////////////////////////////////////////////////////////////////////////////
 
+class Program {
+	std::unique_ptr<Args> args;
+
+	public: //---------------------------------------------------------------------
+	Program(int argc, char** argv) {
+		spdlog::debug("Program constructor");
+		args.reset(new Args(argc, argv));
+	}
+	~Program() {
+		spdlog::debug("Program destructor");
+	}
+
+	void main() {
+		DBBench db_bench(args.get());
+
+		if (args->db_create)
+			db_bench.create();
+
+		db_bench.launchThread();
+
+		DBBenchStats stats_db_bench;
+		while (!db_bench.finished()) {
+
+			if (db_bench.consumeStats(stats_db_bench)) {
+				spdlog::info("db_bench stats: {}", stats_db_bench.str());
+			}
+
+			std::this_thread::sleep_for(std::chrono::milliseconds(500));
+		}
+	}
+};
+
+////////////////////////////////////////////////////////////////////////////////////
+
+void signal_handler(int signal) {
+	auto group = getpgrp();
+	spdlog::warn("received signal {}, process group = {}", signal, group);
+	std::signal(signal, SIG_DFL);
+	killpg(group, signal);
+}
+
+////////////////////////////////////////////////////////////////////////////////////
+
 int main(int argc, char** argv) {
 	spdlog::info("Initializing program {}", argv[0]);
 
-	try {
-		Args args(argc, argv);
-		DBBench db_bench(&args); auto db_bench_ptr = &db_bench;
-		if (args.db_create)
-			db_bench.create();
-
-		std::thread thread_db_bench ( [db_bench_ptr] {db_bench_ptr->run();} );
-		std::string stats_db_bench;
-		while (!db_bench.finished) {
-			if (db_bench.getStats(stats_db_bench)) {
-				spdlog::info("db_bench stats: {}", stats_db_bench);
-			}
-			std::this_thread::sleep_for(std::chrono::milliseconds(500));
-		}
-		thread_db_bench.join();
+	if (setpgrp() < 0) {
+		spdlog::error("failed to create process group");
+		return 1;
 	}
-	catch (std::string* str_error) {
-		spdlog::error(*str_error);
+	std::signal(SIGTERM, signal_handler);
+	std::signal(SIGSEGV, signal_handler);
+	std::signal(SIGINT, signal_handler);
+	std::signal(SIGILL, signal_handler);
+	std::signal(SIGABRT, signal_handler);
+	std::signal(SIGFPE, signal_handler);
+
+	try {
+		Program(argc, argv).main();
+	}
+	catch (const std::exception& e) {
+		spdlog::error(e.what());
+		std::raise(SIGTERM);
 		return 1;
 	}
 

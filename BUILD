@@ -12,6 +12,7 @@ cc_library(
     srcs = ["util.cc"],
     hdrs = ["util.h"],
     copts = ["-std=c++11"],
+    deps = ["@spdlog//:main", "@fmt//:main"],
 )
 
 cc_binary(

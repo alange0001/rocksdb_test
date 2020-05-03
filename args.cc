@@ -4,6 +4,7 @@
 #include <gflags/gflags.h>
 #include <spdlog/spdlog.h>
 #include <fmt/format.h>
+#include <stdexcept>
 
 #include "args.h"
 
@@ -39,7 +40,7 @@ Args::Args(int argc, char** argv){
 	else if (FLAGS_log_level == "error"   ) spdlog::set_level(spdlog::level::err);
 	else if (FLAGS_log_level == "critical") spdlog::set_level(spdlog::level::critical);
 	else if (FLAGS_log_level == "off"     ) spdlog::set_level(spdlog::level::off);
-	else throw new std::string(fmt::format("invalid --log_level={}", FLAGS_log_level));
+	else throw std::invalid_argument(fmt::format("invalid --log_level={}", FLAGS_log_level));
 
 	db_path             = FLAGS_db_path;
 	db_config_file      = FLAGS_db_config_file;

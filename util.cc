@@ -1,6 +1,11 @@
 
 #include "util.h"
+
 #include <cstdarg>
+#include <stdexcept>
+
+#include <spdlog/spdlog.h>
+#include <fmt/format.h>
 
 ////////////////////////////////////////////////////////////////////////////////////
 
@@ -19,3 +24,20 @@ std::shared_ptr<char[]> formatString(const char* format, ...) {
 	return buffer;
 }
 
+////////////////////////////////////////////////////////////////////////////////////
+
+Popen2::Popen2(const char* cmd) {
+	f = popen(cmd, "r");
+	if (f == nullptr)
+		throw std::runtime_error(fmt::format("error executing program ({})", cmd));
+}
+
+Popen2::~Popen2() noexcept(false) {
+	auto exit_code = pclose(f);
+	if (exit_code != 0)
+		throw std::runtime_error(fmt::format("db_bench exit error {}", exit_code));
+}
+
+char* Popen2::gets(char* buffer, int size) {
+	return fgets(buffer, size, f);
+}
