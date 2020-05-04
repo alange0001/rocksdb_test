@@ -22,10 +22,6 @@
 
 ////////////////////////////////////////////////////////////////////////////////////
 
-//DEBUG_COMMAND_OUTPUT(format, ...) fmt::print(stderr, __CLASS__ "[" __LINE__ "]" format, )
-
-////////////////////////////////////////////////////////////////////////////////////
-
 #undef __CLASS__
 #define __CLASS__ "DBBenchStats::"
 struct DBBenchStats {
@@ -252,8 +248,11 @@ class DBBench {
 class SystemStats {
 	public:
 	std::map<std::string, std::string> data;
+	bool debug_out = false;
 
-	SystemStats(bool debug_out_=false) : debug_out(debug_out_) {getStats();}
+	SystemStats(bool debug_out=false) {
+		getStatsLoad(debug_out);
+	}
 	SystemStats(const SystemStats& src) {*this = src;}
 	SystemStats& operator= (const SystemStats& src) {
 		data = src.data;
@@ -269,13 +268,7 @@ class SystemStats {
 	}
 
 	private: //---------------------------------------------------------------------
-	bool debug_out = false;
-
-	void getStats() {
-		getStatsLoad();
-	}
-
-	void getStatsLoad() {
+	void getStatsLoad(bool debug_out) {
 		auto flags = std::regex_constants::match_any;
 		std::string ret;
 		std::string aux;
@@ -297,6 +290,74 @@ class SystemStats {
 ////////////////////////////////////////////////////////////////////////////////////
 
 #undef __CLASS__
+#define __CLASS__ "IOStats::"
+class IOStats {
+	public:
+	std::map<std::string, std::string> data;
+
+	IOStats() {}
+	IOStats(std::string& src, bool debug_out_=false) {
+		//TODO: rotina para consumir a saída do iostat
+	}
+	IOStats(const IOStats& src) {*this = src;}
+	IOStats& operator= (const IOStats& src) {
+		data = src.data;
+		return *this;
+	}
+	std::string str() {
+		std::string s;
+		for (auto i : data)
+			s += fmt::format("{}{}={}", (s.length() > 0) ? ", " : "", i.first, i.second);
+		return s;
+	}
+};
+
+////////////////////////////////////////////////////////////////////////////////////
+
+std::atomic_flag IOStats_stats_lock = ATOMIC_FLAG_INIT;
+
+#undef __CLASS__
+#define __CLASS__ "IOStatsThread::"
+class IOStatsThread {
+	Args* args;
+	std::thread thread;
+	std::exception_ptr  exception = nullptr;
+
+	uint64_t stats_consumed = 0;
+	uint64_t stats_produced = 0;
+	IOStats stats;
+
+
+	public: //---------------------------------------------------------------------
+	IOStatsThread(Args* args_) : args(args_) {
+		thread = std::thread( [this]{this->threadMain();} );
+	}
+	~IOStatsThread() {
+		if (thread.joinable())
+			thread.join();
+	}
+	void threadMain() { // thread function to control the iostat output
+		//TODO: implementar subprocess para monitorar o iostat
+	}
+	bool consumeStats(IOStats& ret) { // call from the main thread
+		if (exception)
+			std::rethrow_exception(exception);
+
+		while (IOStats_stats_lock.test_and_set(std::memory_order_acquire));
+		if (stats_consumed < stats_produced) {
+			ret = stats;
+			stats_consumed = stats_produced;
+			IOStats_stats_lock.clear();
+			return true;
+		}
+		IOStats_stats_lock.clear();
+		return false;
+	}
+};
+
+////////////////////////////////////////////////////////////////////////////////////
+
+#undef __CLASS__
 #define __CLASS__ "Program::"
 class Program {
 	std::unique_ptr<Args> args;
@@ -309,6 +370,7 @@ class Program {
 	void main() {
 		DEBUG_MSG("initialized");
 		DBBench db_bench(args.get());
+		IOStatsThread iostat(args.get());
 
 		if (args->db_create)
 			db_bench.createDB();
@@ -316,10 +378,14 @@ class Program {
 		db_bench.launchThread();
 
 		DBBenchStats stats_db_bench;
+		IOStats stats_io;
 		while (!db_bench.finished()) {
+
+			iostat.consumeStats(stats_io);
 
 			if (db_bench.consumeStats(stats_db_bench)) {
 				spdlog::info("system   stats: {}", SystemStats(args->debug_output).str());
+				spdlog::info("I/O      stats: {}", stats_io.str());
 				spdlog::info("db_bench stats: {}", stats_db_bench.str());
 			}
 

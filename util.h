@@ -2,6 +2,7 @@
 #pragma once
 #include <memory>
 #include <algorithm>
+#include <functional>
 
 ////////////////////////////////////////////////////////////////////////////////////
 
@@ -33,8 +34,8 @@ inline std::string& str_replace(std::string& dest, const std::string& src, const
 ////////////////////////////////////////////////////////////////////////////////////
 
 struct Defer {
-	void (*method)();
-	Defer(void (*method_)()) : method(method_) {}
+	std::function<void()> method;
+	Defer(std::function<void()> method_) : method(method_) {}
 	~Defer() noexcept(false) {method();}
 };
 

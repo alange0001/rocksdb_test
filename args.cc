@@ -32,6 +32,9 @@ DEFINE_uint64(db_cache_size, 256 * 1024 * 1024,
 DEFINE_uint32(hours, 2,
           "Hours of experiment");
 
+DEFINE_string(io_device, "",
+          "I/O device to monitor in iostat");
+
 DEFINE_string(log_level, DEFAULT_log_level,
           "Log level (debug,info,warn,error,critical,off)");
 DEFINE_bool(debug_output, DEFAULT_debug_output,
@@ -61,4 +64,5 @@ Args::Args(int argc, char** argv){
 	db_num_keys         = FLAGS_db_num_keys;
 	db_cache_size       = FLAGS_db_cache_size;
 	hours               = FLAGS_hours;
+	io_device           = FLAGS_io_device;
 }
