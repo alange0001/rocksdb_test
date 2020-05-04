@@ -22,48 +22,67 @@
 
 ////////////////////////////////////////////////////////////////////////////////////
 
+//DEBUG_COMMAND_OUTPUT(format, ...) fmt::print(stderr, __CLASS__ "[" __LINE__ "]" format, )
+
+////////////////////////////////////////////////////////////////////////////////////
+
+#undef __CLASS__
+#define __CLASS__ "DBBenchStats::"
 struct DBBenchStats {
-	std::map<std::string, std::string> stats;
+	std::map<std::string, std::string> data;
 
 	DBBenchStats() {}
-	DBBenchStats(const DBBenchStats& src) {stats = src.stats;}
-	DBBenchStats& operator= (const DBBenchStats& src) {stats = src.stats; return *this;}
-	void clear() {stats.clear();}
-	bool parseLine(const char *buffer) {
+	DBBenchStats(const DBBenchStats& src) {data = src.data;}
+	DBBenchStats& operator= (const DBBenchStats& src) {data = src.data; return *this;}
+	void clear() {data.clear();}
+	bool parseLine(const char *buffer, bool debug_out=false) {
+		auto flags = std::regex_constants::match_any;
 		std::cmatch cm;
 
-		std::regex_match(buffer, cm, std::regex("\\s*Interval writes: ([0-9.]+) writes, ([0-9.]+) keys, ([0-9.]+) commit groups, ([0-9.]+) writes per commit group, ingest: ([0-9.]+) MB, ([0-9.]+) MB/s\\s*"));
-		//spdlog::debug("cm.size() = {}", cm.size());
+		std::regex_search(buffer, cm, std::regex("thread [0-9]+: \\(([0-9.]+),([0-9.]+)\\) ops and \\(([0-9.]+),([0-9.]+)\\) ops/second in \\(([0-9.]+),([0-9.]+)\\) seconds"), flags);
 		if( cm.size() >= 7 ){
-			stats["Writes"] = cm.str(1);
-			stats["Write keys"] = cm.str(2);
-			stats["Write commit groups"] = cm.str(3);
-			stats["Ingest MB"] = cm.str(5);
-			stats["Ingest MB/s"] = cm.str(6);
+			data["ops"] = cm.str(1);
+			data["ops_total"] = cm.str(2);
+			data["ops_per_s"] = cm.str(3);
+			data["ops_per_s_total"] = cm.str(4);
+			data["stats_interval"] = cm.str(5);
+			data["stats_total"] = cm.str(5);
+			DEBUG_OUT(debug_out, "line parsed    : {}", buffer);
 			return false;
 		}
-		std::regex_match(buffer, cm, std::regex("\\s*Interval WAL: ([0-9.]+) writes, ([0-9.]+) syncs, ([0-9.]+) writes per sync, written: ([0-9.]+) MB, ([0-9.]+) MB/s\\s*"));
-		//spdlog::debug("cm.size() = {}", cm.size());
+		std::regex_search(buffer, cm, std::regex("Interval writes: ([0-9.]+[KMGT]*) writes, ([0-9.]+[KMGT]*) keys, ([0-9.]+[KMGT]*) commit groups, ([0-9.]+[KMGT]*) writes per commit group, ingest: ([0-9.]+) [KMGT]*B, ([0-9.]+) [KMGT]*B/s"), flags);
+		if( cm.size() >= 7 ){
+			data["writes"] = cm.str(1);
+			data["written_keys"] = cm.str(2);
+			data["written_commit_groups"] = cm.str(3);
+			data["ingest_MBps"] = cm.str(5);
+			data["ingest_MBps"] = cm.str(6);
+			DEBUG_OUT(debug_out, "line parsed    : {}", buffer);
+			return false;
+		}
+		std::regex_search(buffer, cm, std::regex("Interval WAL: ([0-9.]+[KMGT]*) writes, ([0-9.]+[KMGT]*) syncs, ([0-9.]+[KMGT]*) writes per sync, written: ([0-9.]+) [KMGT]*B, ([0-9.]+) [KMGT]*B/s"), flags);
 		if( cm.size() >= 5 ){
-			stats["WAL writes"] = cm.str(1);
-			stats["WAL syncs"] = cm.str(2);
-			stats["WAL MB written"] = cm.str(4);
-			stats["WAL MB written/s"] = cm.str(5);
+			data["WAL_writes"] = cm.str(1);
+			data["WAL_syncs"] = cm.str(2);
+			data["WAL_written_MB"] = cm.str(4);
+			data["WAL_written_MBps"] = cm.str(5);
+			DEBUG_OUT(debug_out, "line parsed    : {}", buffer);
 			return false;
 		}
-		std::regex_match(buffer, cm, std::regex("\\s*Interval stall: ([0-9:.]+) H:M:S, ([0-9.]+) percent\\s*"));
-		//spdlog::debug("cm.size() = {}", cm.size());
+		std::regex_search(buffer, cm, std::regex("Interval stall: ([0-9:.]+) H:M:S, ([0-9.]+) percent"), flags);
 		if( cm.size() >= 3 ){
-			stats["Stall"] = cm.str(1);
-			stats["Stall percent"] = cm.str(2);
+			data["stall"] = cm.str(1);
+			data["stall_percent"] = cm.str(2);
+			DEBUG_OUT(debug_out, "line parsed    : {}", buffer);
 			return true;
 		}
+		DEBUG_OUT(debug_out, "line not parsed: {}", buffer);
 		return false;
 	}
 	std::string str() {
 		std::string s;
-		for (auto i : stats)
-			s += fmt::format("{}{}={}", (s.length() > 0)?", ":"", i.first, i.second);
+		for (auto i : data)
+			s += fmt::format("{}{}={}", (s.length() > 0) ? ", " : "", i.first, i.second);
 		return s;
 	}
 };
@@ -72,16 +91,19 @@ struct DBBenchStats {
 
 std::atomic_flag DBBench_stats_lock = ATOMIC_FLAG_INIT;
 
+#undef __CLASS__
+#define __CLASS__ "DBBench::"
 class DBBench {
-	bool finished_ = false;
-	std::exception_ptr exception = nullptr;
-	Args* args;
+	std::thread         thread;
+	bool                finished_ = false;
+	std::exception_ptr  exception = nullptr;
+	Args*               args;
 
-	DBBenchStats stats;
-	uint64_t stats_produced = 0;
-	uint64_t stats_consumed = 0;
+	DBBenchStats        stats;
+	uint64_t            stats_produced = 0;
+	uint64_t            stats_consumed = 0;
 
-	std::string getCommandCreate() {
+	std::string commandCreateDB() {
 		const char *template_cmd =
 		"db_bench                                         \\\n"
 		"	--db={}                                       \\\n"
@@ -100,11 +122,11 @@ class DBBench {
 			args->db_num_keys,
 			args->db_cache_size);
 
-		spdlog::debug("Command Run:\n{}", ret);
+		DEBUG_MSG("=\n{}", ret);
 		return ret;
 	}
 
-	std::string getCommandRun() {
+	std::string commandRun() {
 		uint32_t duration = args->hours * 60 * 60; /*hours to seconds*/
 		double   sine_b   = 0.000073 * (24.0/static_cast<double>(args->hours)); /*adjust the sine cycle*/
 
@@ -148,21 +170,20 @@ class DBBench {
 			args->db_cache_size,
 			duration,
 			sine_b);
-		spdlog::debug("Command Run:\n{}", ret);
+
+		DEBUG_MSG("=\n{}", ret);
 		return ret;
 	}
 
 	public: //---------------------------------------------------------------------
-	std::thread thread;
-
 	DBBench(Args* args_) : args(args_) {}
 	~DBBench() {
 		if (thread.joinable())
 			thread.join();
 	}
 
-	void create() {
-		auto cmd = getCommandCreate();
+	void createDB() {
+		auto cmd = commandCreateDB();
 		auto ret = std::system(cmd.c_str());
 		if (ret != 0)
 			throw std::runtime_error("database creation error");
@@ -172,17 +193,22 @@ class DBBench {
 		thread = std::thread( [this]{this->threadMain();} );
 	}
 	void threadMain() noexcept { // secondary thread to control the db_bench and handle its output
+		DEBUG_MSG("db_bench controller thread initiated");
 		try {
 			const int buffer_size = 512;
 			char buffer[buffer_size]; buffer[0] = '\0'; buffer[buffer_size -1] = '\0';
-			auto cmd = getCommandRun();
+			auto cmd = commandRun();
 
-			Popen2 subprocess(cmd.c_str());
+			DEBUG_MSG("starting db_bench");
+			Subprocess subprocess(cmd.c_str());
 
+			DEBUG_MSG("collecting output stats");
 			DBBenchStats collect_stats;
 			while (subprocess.gets(buffer, buffer_size -1)){
-				//spdlog::debug("buffer={}", buffer);
-				if (collect_stats.parseLine(buffer)) { // if last line was parsed
+				for (char* i = buffer; *i != '\0'; i++) { // removing '\n'
+					if (*i == '\n') *i = '\0';
+				}
+				if (collect_stats.parseLine(buffer, args->debug_output)) { // if last line was parsed
 					// produce stats
 					while (DBBench_stats_lock.test_and_set(std::memory_order_acquire));
 					stats = collect_stats;
@@ -196,6 +222,7 @@ class DBBench {
 			exception = std::current_exception();
 		}
 		finished_ = true;
+		DEBUG_MSG("finished");
 	}
 
 	bool consumeStats(DBBenchStats& ret) { // call from the main thread
@@ -220,23 +247,71 @@ class DBBench {
 
 ////////////////////////////////////////////////////////////////////////////////////
 
+#undef __CLASS__
+#define __CLASS__ "SystemStats::"
+class SystemStats {
+	public:
+	std::map<std::string, std::string> data;
+
+	SystemStats(bool debug_out_=false) : debug_out(debug_out_) {getStats();}
+	SystemStats(const SystemStats& src) {*this = src;}
+	SystemStats& operator= (const SystemStats& src) {
+		data = src.data;
+		debug_out = src.debug_out;
+		return *this;
+	}
+
+	std::string str() {
+		std::string s;
+		for (auto i : data)
+			s += fmt::format("{}{}={}", (s.length() > 0) ? ", " : "", i.first, i.second);
+		return s;
+	}
+
+	private: //---------------------------------------------------------------------
+	bool debug_out = false;
+
+	void getStats() {
+		getStatsLoad();
+	}
+
+	void getStatsLoad() {
+		auto flags = std::regex_constants::match_any;
+		std::string ret;
+		std::string aux;
+		std::smatch sm;
+		if (Subprocess("uptime").getAll(ret) > 0) {
+			std::regex_search(ret, sm, std::regex("load average:\\s+([0-9]+[.,][0-9]+),\\s+([0-9]+[.,][0-9]+),\\s+([0-9]+[.,][0-9]+)"), flags);
+			if( sm.size() >= 4 ){
+				data["load1"]  = str_replace(aux, sm.str(1), ',', '.');
+				data["load5"]  = str_replace(aux, sm.str(2), ',', '.');
+				data["load15"] = str_replace(aux, sm.str(3), ',', '.');
+				DEBUG_OUT(debug_out, "line parsed    : {}", ret);
+			} else {
+				DEBUG_OUT(debug_out, "line not parsed: {}", ret);
+			}
+		}
+	}
+};
+
+////////////////////////////////////////////////////////////////////////////////////
+
+#undef __CLASS__
+#define __CLASS__ "Program::"
 class Program {
 	std::unique_ptr<Args> args;
 
 	public: //---------------------------------------------------------------------
 	Program(int argc, char** argv) {
-		spdlog::debug("Program constructor");
 		args.reset(new Args(argc, argv));
-	}
-	~Program() {
-		spdlog::debug("Program destructor");
 	}
 
 	void main() {
+		DEBUG_MSG("initialized");
 		DBBench db_bench(args.get());
 
 		if (args->db_create)
-			db_bench.create();
+			db_bench.createDB();
 
 		db_bench.launchThread();
 
@@ -244,15 +319,19 @@ class Program {
 		while (!db_bench.finished()) {
 
 			if (db_bench.consumeStats(stats_db_bench)) {
+				spdlog::info("system   stats: {}", SystemStats(args->debug_output).str());
 				spdlog::info("db_bench stats: {}", stats_db_bench.str());
 			}
 
 			std::this_thread::sleep_for(std::chrono::milliseconds(500));
 		}
+		DEBUG_MSG("finished");
 	}
 };
 
 ////////////////////////////////////////////////////////////////////////////////////
+#undef __CLASS__
+#define __CLASS__ ""
 
 void signal_handler(int signal) {
 	auto group = getpgrp();
@@ -286,6 +365,6 @@ int main(int argc, char** argv) {
 		return 1;
 	}
 
-	spdlog::info("exit 0");
+	spdlog::info("exit OK!");
 	return 0;
 }

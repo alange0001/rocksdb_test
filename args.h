@@ -12,4 +12,5 @@ struct Args {
 	uint64_t    db_num_keys;
 	uint64_t    db_cache_size;
 	uint32_t    hours;
+	bool        debug_output;
 };

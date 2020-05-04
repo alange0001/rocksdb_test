@@ -26,18 +26,30 @@ std::shared_ptr<char[]> formatString(const char* format, ...) {
 
 ////////////////////////////////////////////////////////////////////////////////////
 
-Popen2::Popen2(const char* cmd) {
+Subprocess::Subprocess(const char* cmd) {
 	f = popen(cmd, "r");
 	if (f == nullptr)
 		throw std::runtime_error(fmt::format("error executing program ({})", cmd));
 }
 
-Popen2::~Popen2() noexcept(false) {
+Subprocess::~Subprocess() noexcept(false) {
 	auto exit_code = pclose(f);
 	if (exit_code != 0)
-		throw std::runtime_error(fmt::format("db_bench exit error {}", exit_code));
+		throw std::runtime_error(fmt::format("program exit error {}", exit_code));
 }
 
-char* Popen2::gets(char* buffer, int size) {
+char* Subprocess::gets(char* buffer, int size) {
 	return fgets(buffer, size, f);
+}
+
+uint32_t Subprocess::getAll(std::string& ret) {
+	const int buffer_size = 512;
+	char buffer[buffer_size]; buffer[0] = '\0'; buffer[buffer_size -1] = '\0';
+	ret = "";
+
+	while (gets(buffer, buffer_size -1)) {
+		ret += buffer;
+	}
+
+	return ret.length();
 }
