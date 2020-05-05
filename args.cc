@@ -11,7 +11,7 @@
 #define DEBUG
 #ifdef DEBUG
 #	define DEFAULT_log_level "debug"
-#	define DEFAULT_debug_output true
+#	define DEFAULT_debug_output false
 #else
 #	define DEFAULT_log_level "warn"
 #	define DEFAULT_debug_output false
@@ -32,13 +32,20 @@ DEFINE_uint64(db_cache_size, 256 * 1024 * 1024,
 DEFINE_uint32(hours, 2,
           "Hours of experiment");
 
+DEFINE_uint32(stats_interval, 5,
+          "Statistics interval (seconds)");
+
 DEFINE_string(io_device, "",
           "I/O device to monitor in iostat");
 
 DEFINE_string(log_level, DEFAULT_log_level,
           "Log level (debug,info,warn,error,critical,off)");
 DEFINE_bool(debug_output, DEFAULT_debug_output,
-          "Debug subprocesses' output");
+          "Debug the output of all subprocesses");
+DEFINE_bool(debug_output_db_bench, DEFAULT_debug_output,
+          "Debug db_bench output");
+DEFINE_bool(debug_output_iostat, DEFAULT_debug_output,
+          "Debug iostat output");
 
 Args::Args(int argc, char** argv){
 	gflags::SetUsageMessage(std::string("\nUSAGE:\n\t") + std::string(argv[0]) +
@@ -56,7 +63,9 @@ Args::Args(int argc, char** argv){
 	else if (FLAGS_log_level == "off"     ) spdlog::set_level(spdlog::level::off);
 	else throw std::invalid_argument(fmt::format("invalid --log_level={}", FLAGS_log_level));
 
-	debug_output        = FLAGS_debug_output;
+	debug_output           = FLAGS_debug_output;
+	debug_output_db_bench  = debug_output || FLAGS_debug_output_db_bench;
+	debug_output_iostat    = debug_output || FLAGS_debug_output_iostat;
 
 	db_path             = FLAGS_db_path;
 	db_config_file      = FLAGS_db_config_file;
@@ -64,5 +73,6 @@ Args::Args(int argc, char** argv){
 	db_num_keys         = FLAGS_db_num_keys;
 	db_cache_size       = FLAGS_db_cache_size;
 	hours               = FLAGS_hours;
+	stats_interval      = FLAGS_stats_interval;
 	io_device           = FLAGS_io_device;
 }

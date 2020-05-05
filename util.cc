@@ -3,6 +3,7 @@
 
 #include <cstdarg>
 #include <stdexcept>
+#include <regex>
 
 #include <spdlog/spdlog.h>
 #include <fmt/format.h>
@@ -24,18 +25,72 @@ std::shared_ptr<char[]> formatString(const char* format, ...) {
 	return buffer;
 }
 
+int split_columns(std::vector<std::string>& ret, const char* str, const char* prefix) {
+	std::cmatch cm;
+	auto flags = std::regex_constants::match_any;
+	std::string str_aux;
+
+	ret.clear();
+
+	if (prefix != nullptr) {
+		std::regex_search(str, cm, std::regex(fmt::format("{}\\s+(.+)", prefix).c_str()), flags);
+		//print_cm(cm);
+		if (cm.size() < 2)
+			return 0;
+
+		str_aux = cm[1].str();
+		str = str_aux.c_str();
+	}
+
+	for (const char* i = str;;) {
+		std::regex_search(i, cm, std::regex("([^\\s]+)\\s*(.*)"), flags);
+		//print_cm(cm);
+		if (cm.size() >= 3) {
+			ret.push_back(cm[1].str());
+			i = cm[2].first;
+		} else {
+			break;
+		}
+	}
+
+	return ret.size();
+}
+
 ////////////////////////////////////////////////////////////////////////////////////
 
-Subprocess::Subprocess(const char* cmd) {
+#undef __CLASS__
+#define __CLASS__ "Subprocess::"
+
+Subprocess::Subprocess(const char* name_, const char* cmd) : name(name_) {
+	DEBUG_MSG("popen process {}", name);
 	f = popen(cmd, "r");
-	if (f == nullptr)
-		throw std::runtime_error(fmt::format("error executing program ({})", cmd));
+	if (f == NULL)
+		throw Exception(fmt::format("error executing subprocess {}, command: {}", name, cmd));
 }
 
 Subprocess::~Subprocess() noexcept(false) {
-	auto exit_code = pclose(f);
-	if (exit_code != 0)
-		throw std::runtime_error(fmt::format("program exit error {}", exit_code));
+	if (f) {
+		DEBUG_MSG("pclose process {}", name);
+		auto exit_code = pclose(f);
+		if (exit_code != 0) {
+			if (noexceptions_ || std::current_exception() != nullptr)
+				spdlog::error(fmt::format("subprocess {} exit error {}", name, exit_code));
+			else
+				throw Exception(fmt::format("subprocess {} exit error {}", name, exit_code));
+		}
+	}
+}
+
+void Subprocess::close() {
+	if (f) {
+		DEBUG_MSG("pclose process {}", name);
+		pclose(f);
+		f = NULL;
+	}
+}
+
+void Subprocess::noexceptions(bool v) {
+	noexceptions_ = v;
 }
 
 char* Subprocess::gets(char* buffer, int size) {
@@ -52,4 +107,26 @@ uint32_t Subprocess::getAll(std::string& ret) {
 	}
 
 	return ret.length();
+}
+
+////////////////////////////////////////////////////////////////////////////////////
+
+#undef __CLASS__
+#define __CLASS__ "Exception::"
+
+Exception::Exception(const char* msg_) : msg(msg_) {
+	DEBUG_MSG("Exception created: {}", msg_);
+}
+Exception::Exception(const std::string& msg_) : msg(msg_) {
+	DEBUG_MSG("Exception created: {}", msg_);
+}
+Exception::Exception(const Exception& src) {
+	*this = src;
+}
+Exception& Exception::operator=(const Exception& src) {
+	msg = src.msg;
+	return *this;
+}
+const char* Exception::what() const noexcept {
+	return msg.c_str();
 }

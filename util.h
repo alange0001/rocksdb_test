@@ -3,6 +3,8 @@
 #include <memory>
 #include <algorithm>
 #include <functional>
+#include <vector>
+#include <exception>
 
 ////////////////////////////////////////////////////////////////////////////////////
 
@@ -16,6 +18,8 @@
 ////////////////////////////////////////////////////////////////////////////////////
 
 std::shared_ptr<char[]> formatString(const char* format, ...);
+
+int split_columns(std::vector<std::string>& ret, const char* str, const char* prefix=nullptr);
 
 ////////////////////////////////////////////////////////////////////////////////////
 
@@ -42,9 +46,25 @@ struct Defer {
 ////////////////////////////////////////////////////////////////////////////////////
 
 struct Subprocess {
+	bool noexceptions_ = false;
+	std::string name;
 	FILE* f;
-	Subprocess(const char* cmd);
+	Subprocess(const char* name_, const char* cmd);
 	~Subprocess() noexcept(false);
+	void noexceptions(bool v=true);
+	void close();
 	char* gets(char* buffer, int size);
 	uint32_t getAll(std::string& ret);
+};
+
+////////////////////////////////////////////////////////////////////////////////////
+
+class Exception : public std::exception {
+	public:
+	std::string msg;
+	Exception(const char* msg_);
+	Exception(const std::string& msg_);
+	Exception(const Exception& src);
+	Exception& operator=(const Exception& src);
+	virtual const char* what() const noexcept;
 };
