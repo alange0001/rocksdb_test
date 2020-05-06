@@ -63,6 +63,9 @@ Args::Args(int argc, char** argv){
 	else if (FLAGS_log_level == "off"     ) spdlog::set_level(spdlog::level::off);
 	else throw std::invalid_argument(fmt::format("invalid --log_level={}", FLAGS_log_level));
 
+	if (FLAGS_stats_interval < 1)
+		throw std::invalid_argument("invalid stats_interval (must be > 0)");
+
 	debug_output           = FLAGS_debug_output;
 	debug_output_db_bench  = debug_output || FLAGS_debug_output_db_bench;
 	debug_output_iostat    = debug_output || FLAGS_debug_output_iostat;

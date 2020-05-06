@@ -5,9 +5,6 @@
 #include <stdexcept>
 #include <regex>
 
-#include <spdlog/spdlog.h>
-#include <fmt/format.h>
-
 ////////////////////////////////////////////////////////////////////////////////////
 
 std::shared_ptr<char[]> formatString(const char* format, ...) {
@@ -73,7 +70,7 @@ Subprocess::~Subprocess() noexcept(false) {
 		DEBUG_MSG("pclose process {}", name);
 		auto exit_code = pclose(f);
 		if (exit_code != 0) {
-			if (noexceptions_ || std::current_exception() != nullptr)
+			if (noexceptions_ || std::current_exception())
 				spdlog::error(fmt::format("subprocess {} exit error {}", name, exit_code));
 			else
 				throw Exception(fmt::format("subprocess {} exit error {}", name, exit_code));
@@ -130,3 +127,4 @@ Exception& Exception::operator=(const Exception& src) {
 const char* Exception::what() const noexcept {
 	return msg.c_str();
 }
+

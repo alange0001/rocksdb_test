@@ -7,8 +7,6 @@
 #include <regex>
 
 #include <chrono>
-#include <atomic>
-#include <thread>
 
 #include <stdexcept>
 
@@ -30,14 +28,14 @@ class DBBenchStats {
 	std::map<std::string, std::string> data;
 
 	DBBenchStats() {}
-	DBBenchStats(const DBBenchStats& src) {data = src.data;}
+	DBBenchStats(const DBBenchStats& src) {*this = src;}
 	DBBenchStats& operator= (const DBBenchStats& src) {data = src.data; return *this;}
-	void clear() {data.clear();}
-	bool parseLine(const char *buffer, bool debug_out=false) {
+
+	DBBenchStats(const char* buffer, Args* args) {
 		auto flags = std::regex_constants::match_any;
 		std::cmatch cm;
 
-		std::regex_search(buffer, cm, std::regex("thread [0-9]+: \\(([0-9.]+),([0-9.]+)\\) ops and \\(([0-9.]+),([0-9.]+)\\) ops/second in \\(([0-9.]+),([0-9.]+)\\) seconds"), flags);
+		std::regex_search(buffer, cm, std::regex("thread [0-9]+: \\(([0-9.]+),([0-9.]+)\\) ops and \\(([0-9.]+),([0-9.]+)\\) ops/second in \\(([0-9.]+),([0-9.]+)\\) seconds.*"), flags);
 		if( cm.size() >= 7 ){
 			data["ops"] = cm.str(1);
 			data["ops_total"] = cm.str(2);
@@ -45,38 +43,35 @@ class DBBenchStats {
 			data["ops_per_s_total"] = cm.str(4);
 			data["stats_interval"] = cm.str(5);
 			data["stats_total"] = cm.str(5);
-			DEBUG_OUT(debug_out, "line parsed    : {}", buffer);
-			return false;
+			//DEBUG_OUT(args->debug_output_db_bench, "line parsed    : {}", buffer);
 		}
-		std::regex_search(buffer, cm, std::regex("Interval writes: ([0-9.]+[KMGT]*) writes, ([0-9.]+[KMGT]*) keys, ([0-9.]+[KMGT]*) commit groups, ([0-9.]+[KMGT]*) writes per commit group, ingest: ([0-9.]+) [KMGT]*B, ([0-9.]+) [KMGT]*B/s"), flags);
+		std::regex_search(buffer, cm, std::regex("Interval writes: ([0-9.]+[KMGT]*) writes, ([0-9.]+[KMGT]*) keys, ([0-9.]+[KMGT]*) commit groups, ([0-9.]+[KMGT]*) writes per commit group, ingest: ([0-9.]+) [KMGT]*B, ([0-9.]+) [KMGT]*B/s.*"), flags);
 		if( cm.size() >= 7 ){
 			data["writes"] = cm.str(1);
 			data["written_keys"] = cm.str(2);
 			data["written_commit_groups"] = cm.str(3);
 			data["ingest_MBps"] = cm.str(5);
 			data["ingest_MBps"] = cm.str(6);
-			DEBUG_OUT(debug_out, "line parsed    : {}", buffer);
-			return false;
+			//DEBUG_OUT(args->debug_output_db_bench, "line parsed    : {}", buffer);
 		}
-		std::regex_search(buffer, cm, std::regex("Interval WAL: ([0-9.]+[KMGT]*) writes, ([0-9.]+[KMGT]*) syncs, ([0-9.]+[KMGT]*) writes per sync, written: ([0-9.]+) [KMGT]*B, ([0-9.]+) [KMGT]*B/s"), flags);
+		std::regex_search(buffer, cm, std::regex("Interval WAL: ([0-9.]+[KMGT]*) writes, ([0-9.]+[KMGT]*) syncs, ([0-9.]+[KMGT]*) writes per sync, written: ([0-9.]+) [KMGT]*B, ([0-9.]+) [KMGT]*B/s.*"), flags);
 		if( cm.size() >= 5 ){
 			data["WAL_writes"] = cm.str(1);
 			data["WAL_syncs"] = cm.str(2);
 			data["WAL_written_MB"] = cm.str(4);
 			data["WAL_written_MBps"] = cm.str(5);
-			DEBUG_OUT(debug_out, "line parsed    : {}", buffer);
-			return false;
+			//DEBUG_OUT(args->debug_output_db_bench, "line parsed    : {}", buffer);
 		}
-		std::regex_search(buffer, cm, std::regex("Interval stall: ([0-9:.]+) H:M:S, ([0-9.]+) percent"), flags);
+		std::regex_search(buffer, cm, std::regex("Interval stall: ([0-9:.]+) H:M:S, ([0-9.]+) percent.*"), flags);
 		if( cm.size() >= 3 ){
 			data["stall"] = cm.str(1);
 			data["stall_percent"] = cm.str(2);
-			DEBUG_OUT(debug_out, "line parsed    : {}", buffer);
-			return true;
+			//DEBUG_OUT(args->debug_output_db_bench, "line parsed    : {}", buffer);
 		}
-		DEBUG_OUT(debug_out, "line not parsed: {}", buffer);
-		return false;
 	}
+
+	void clear() {data.clear();}
+	bool parseLine(const char *buffer, Args* args) { return true; }
 	std::string str() {
 		std::string s;
 		for (auto i : data)
@@ -89,18 +84,23 @@ class DBBenchStats {
 
 #undef __CLASS__
 #define __CLASS__ "DBBench::"
-class DBBench {
-	std::thread         thread;
-	bool                stop_ = false;
-	bool                finished_ = false;
-	std::exception_ptr  exception = nullptr;
-	Args*               args;
+class DBBench : public ExperimentTask<DBBenchStats> {
+	public:    //------------------------------------------------------------------
+	DBBench(const char* name_, Args* args_) : ExperimentTask(name_, args_) {
+		DEBUG_MSG("constructor of task {}", name);
+		debug_out = args->debug_output_db_bench;
+		must_not_finish = false;
+	}
 
-	std::atomic_flag    stats_lock;
-	DBBenchStats        stats;
-	uint64_t            stats_produced = 0;
-	uint64_t            stats_consumed = 0;
+	void createDB() {
+		auto cmd = commandCreateDB();
+		spdlog::info("Creating Database. Command:\n{}", cmd);
+		auto ret = std::system(cmd.c_str());
+		if (ret != 0)
+			throw Exception("database creation error");
+	}
 
+	protected: //------------------------------------------------------------------
 	std::string commandCreateDB() {
 		const char *template_cmd =
 		"db_bench                                         \\\n"
@@ -120,11 +120,9 @@ class DBBench {
 			args->db_num_keys,
 			args->db_cache_size);
 
-		DEBUG_MSG("=\n{}", ret);
 		return ret;
 	}
-
-	std::string commandRun() {
+	virtual std::string getCmd() override {
 		uint32_t duration = args->hours * 60 * 60; /*hours to seconds*/
 		double   sine_b   = 0.000073 * (24.0/static_cast<double>(args->hours)); /*adjust the sine cycle*/
 
@@ -170,91 +168,22 @@ class DBBench {
 			duration,
 			sine_b);
 
-		DEBUG_MSG("=\n{}", ret);
+		spdlog::info("Executing db_bench. Command:\n{}", ret);
 		return ret;
 	}
 
-	public: //---------------------------------------------------------------------
-	DBBench(Args* args_) : args(args_) {
-		DEBUG_MSG("constructor");
-		stats_lock.clear();
-	}
-	~DBBench() {
-		DEBUG_MSG("destructor");
-		stop_ = true;
-		if (thread.joinable())
-			thread.join();
-	}
-
-	void createDB() {
-		auto cmd = commandCreateDB();
-		auto ret = std::system(cmd.c_str());
-		if (ret != 0)
-			throw Exception("database creation error");
-	}
-
-	void launchThread() {
-		thread = std::thread( [this]{this->threadMain();} );
-	}
-	void threadMain() noexcept { // secondary thread to control the db_bench and handle its output
-		DEBUG_MSG("db_bench controller thread initiated");
-		try {
-			const int buffer_size = 512;
-			char buffer[buffer_size]; buffer[0] = '\0'; buffer[buffer_size -1] = '\0';
-			auto cmd = commandRun();
-
-			DEBUG_MSG("starting db_bench");
-			Subprocess subprocess("db_bench", cmd.c_str());
-
-			DEBUG_MSG("collecting output stats");
-			DBBenchStats collect_stats;
-			while (!stop_ && subprocess.gets(buffer, buffer_size -1)){
-				for (char* i = buffer; *i != '\0'; i++) { // removing '\n'
-					if (*i == '\n') *i = '\0';
-				}
-				if (collect_stats.parseLine(buffer, args->debug_output_db_bench)) { // if last line was parsed
-					// produce stats
-					while (stats_lock.test_and_set(std::memory_order_acquire));
-					stats = collect_stats;
-					stats_produced++;
-					stats_lock.clear();
-					collect_stats.clear();
-				}
-			}
-
-			if (stop_)
-				subprocess.close();
-
-		} catch (std::exception& e) {
-			DEBUG_MSG("exception catched: {}", e.what());
-			exception = std::current_exception();
+	virtual StatsParseLine parseThisLine(const char* buffer) override {
+		if (std::regex_search(buffer, std::regex("thread [0-9]+:.*"))
+		||  std::regex_search(buffer, std::regex("Interval writes:.*"))
+		||  std::regex_search(buffer, std::regex("Interval WAL:.*"))) {
+			return USE_LINE;
 		}
-		finished_ = true;
-		DEBUG_MSG("finished");
+
+		if (std::regex_search(buffer, std::regex("Interval stall:.*")))
+			return USE_LINE_END;
+
+		return DONT_USE;
 	}
-
-	bool consumeStats(DBBenchStats& ret) { // call from the main thread
-		while (stats_lock.test_and_set(std::memory_order_acquire));
-		if (stats_consumed < stats_produced) {
-			ret = stats;
-			stats_consumed = stats_produced;
-			stats_lock.clear();
-			return true;
-		}
-		stats_lock.clear();
-		return false;
-	}
-
-	bool finished() { // call from the main thread
-		if (exception) {
-			DEBUG_MSG("rethrow exception");
-			std::rethrow_exception(exception);
-		}
-		return finished_;
-	}
-
-	void stop() {stop_ = true;}
-
 };
 
 ////////////////////////////////////////////////////////////////////////////////////
@@ -312,16 +241,15 @@ class IOStats {
 	std::map<std::string, std::string> data;
 
 	IOStats() {}
-	IOStats(const char* src, const char* device_name, bool debug_output=false) {
+	IOStats(const char* buffer, Args* args) {
 		//Device            r/s     w/s     rMB/s     wMB/s   rrqm/s   wrqm/s  %rrqm  %wrqm r_await w_await aqu-sz rareq-sz wareq-sz  svctm  %util
 		//nvme0n1          0,00    0,00      0,00      0,00     0,00     0,00   0,00   0,00    0,00    0,00   0,00     0,00     0,00   0,00   0,00
 		std::vector<std::string> columns;
 		std::vector<std::string> values;
 
-		DEBUG_OUT(debug_output, "Parse device line");
-		auto columns_s = split_columns(columns, src, "Device");
-		DEBUG_OUT(debug_output, "Parse value line");
-		auto values_s = split_columns(values, src, device_name);
+		auto columns_s = split_columns(columns, buffer, "Device");
+		auto values_s = split_columns(values, buffer, args->io_device.c_str());
+
 		if (columns_s == 0 || columns_s != values_s)
 			throw Exception("invalid iostats");
 
@@ -347,114 +275,52 @@ class IOStats {
 
 #undef __CLASS__
 #define __CLASS__ "IOStatsThread::"
-class IOStatsThread {
-	Args* args;
-	std::thread thread;
-	bool stop_ = false;
+class IOStatsThread : public ExperimentTask<IOStats> {
+	bool begin_use_stats = false;
 
-	std::exception_ptr              exception;
+	public:    //------------------------------------------------------------------
+	IOStatsThread(const char* name_, Args* args_) : ExperimentTask(name_, args_) {
+		DEBUG_MSG("constructor of task {}", name);
+		debug_out = args->debug_output_iostat;
+		must_not_finish = true;
 
-	std::atomic_flag stats_lock;
-	uint64_t         stats_consumed = 0;
-	uint64_t         stats_produced = 0;
-	IOStats          stats;
+		devCheck(args_->io_device);
 
-	public: //---------------------------------------------------------------------
-	IOStatsThread(Args* args_) : args(args_) {
-		DEBUG_MSG("constructor");
-		stats_lock.clear();
-
-		checkDev();
-
-		thread = std::thread( [this]{this->threadMain();} );
-	}
-	~IOStatsThread() {
-		DEBUG_MSG("destructor");
-		stop_ = true;
-		if (thread.joinable())
-			thread.join();
+		launchThread();
 	}
 
-	void threadMain() noexcept { // thread function to control the iostat output
-		DEBUG_MSG("iostat controller thread initiated");
-		try {
-			const int buffer_size = 512;
-			char buffer[buffer_size]; buffer[0] = '\0'; buffer[buffer_size -1] = '\0';
-
-			std::string cmd = fmt::format("iostat -xm {} {}", args->stats_interval, args->io_device);
-			Subprocess subprocess("iostat", cmd.c_str());
-			subprocess.noexceptions();
-
-			DEBUG_MSG("collecting output stats");
-			std::regex device_regex(fmt::format("({})\\s+", args->io_device));
-			std::string lot;
-			int count = 0;
-			while (!stop_ && subprocess.gets(buffer, buffer_size -1)){
-				lot += buffer;
-				DEBUG_OUT(args->debug_output_iostat, "line read: {}", buffer);
-				if (++count > 15) // sanity check
-					throw Exception("iostat output iteration overflow");
-
-				if (std::regex_search(buffer, device_regex)) {
-					DEBUG_OUT(args->debug_output_iostat, "=== log cycle finished ===");
-					IOStats collect_stats(lot.c_str(), args->io_device.c_str(), args->debug_output_iostat);
-					DEBUG_OUT(args->debug_output_iostat, "=== log parsed ===");
-
-					while (stats_lock.test_and_set());
-					stats = collect_stats;
-					stats_produced++;
-					stats_lock.clear();
-
-					DEBUG_OUT(args->debug_output_iostat, "=== log collected ===");
-
-					count = 0;
-					lot.clear();
-				}
-			}
-
-			if (stop_)
-				subprocess.close();
-			else
-				throw Exception("iostat must not finish in the middle of the experiment");
-
-		} catch (std::exception& e) {
-			DEBUG_MSG("exception catched: {}", e.what());
-			exception = std::current_exception();
-		}
-
-		DEBUG_MSG("finished");
-	}
-
-	bool consumeStats(IOStats& ret) { // call from the main thread
-		if (exception) {
-			DEBUG_MSG("rethrow exception");
-			std::rethrow_exception(exception);
-		}
-
-		while (stats_lock.test_and_set());
-		if (stats_consumed < stats_produced) {
-			ret = stats;
-			stats_consumed = stats_produced;
-			stats_lock.clear();
-			DEBUG_MSG("stats consumed");
-			return true;
-		}
-		stats_lock.clear();
-		return false;
-	}
-
-	void stop() {stop_ = true;}
-
-	private: //---------------------------------------------------------------------
-	void checkDev() {
-		std::string filename = "/dev/"; filename += args->io_device;
-		struct stat s;
-
-		if (args->io_device.length() == 0)
+	protected: //------------------------------------------------------------------
+	void devCheck(std::string& device) {
+		if (device.length() == 0)
 			throw Exception("io_device not specified");
+
+		std::string filename("/dev/"); filename += device;
+		struct stat s;
 
 		if (stat(filename.c_str(), &s) != 0)
 			throw Exception(fmt::format("failed to read device {}", filename));
+	}
+
+	virtual std::string getCmd() override {
+		return fmt::format("iostat -xm {} {}", args->stats_interval, args->io_device);
+	}
+
+	virtual StatsParseLine parseThisLine(const char* buffer) override {
+		std::regex header_line(fmt::format("(Device)\\s+", args->io_device));
+		std::regex device_line(fmt::format("({})\\s+", args->io_device));
+
+		if (begin_use_stats) {
+			if (std::regex_search(buffer, header_line))
+				return USE_LINE;
+
+			if (std::regex_search(buffer, device_line))
+				return USE_LINE_END;
+		} else {
+			if (std::regex_search(buffer, device_line))
+				begin_use_stats = true;
+		}
+
+		return DONT_USE;
 	}
 };
 
@@ -472,8 +338,8 @@ class Program {
 
 	void main() {
 		DEBUG_MSG("initialized");
-		DBBench db_bench(args.get());
-		IOStatsThread iostat(args.get());
+		DBBench db_bench("dbbench", args.get());
+		IOStatsThread iostat("iostat", args.get());
 
 		if (args->db_create)
 			db_bench.createDB();
