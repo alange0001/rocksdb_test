@@ -31,9 +31,13 @@ class DBBenchStats {
 	DBBenchStats(const DBBenchStats& src) {*this = src;}
 	DBBenchStats& operator= (const DBBenchStats& src) {data = src.data; return *this;}
 
-	DBBenchStats(const char* buffer, Args* args) {
+	DBBenchStats(const char* buffer, void* params) {
 		auto flags = std::regex_constants::match_any;
 		std::cmatch cm;
+
+		if (params == nullptr)
+			throw Exception("invalid params");
+		Args* args = static_cast<Args*>(params);
 
 		std::regex_search(buffer, cm, std::regex("thread [0-9]+: \\(([0-9.]+),([0-9.]+)\\) ops and \\(([0-9.]+),([0-9.]+)\\) ops/second in \\(([0-9.]+),([0-9.]+)\\) seconds.*"), flags);
 		if( cm.size() >= 7 ){
@@ -85,11 +89,14 @@ class DBBenchStats {
 #undef __CLASS__
 #define __CLASS__ "DBBench::"
 class DBBench : public ExperimentTask<DBBenchStats> {
+	Args* args = nullptr;
+
 	public:    //------------------------------------------------------------------
-	DBBench(const char* name_, Args* args_) : ExperimentTask(name_, args_) {
+	DBBench(const char* name_, Args* args_) : ExperimentTask(name_), args(args_) {
 		DEBUG_MSG("constructor of task {}", name);
 		debug_out = args->debug_output_db_bench;
 		must_not_finish = false;
+		stats_params = (void*) args_;
 	}
 
 	void createDB() {
@@ -241,11 +248,15 @@ class IOStats {
 	std::map<std::string, std::string> data;
 
 	IOStats() {}
-	IOStats(const char* buffer, Args* args) {
+	IOStats(const char* buffer, void* params) {
 		//Device            r/s     w/s     rMB/s     wMB/s   rrqm/s   wrqm/s  %rrqm  %wrqm r_await w_await aqu-sz rareq-sz wareq-sz  svctm  %util
 		//nvme0n1          0,00    0,00      0,00      0,00     0,00     0,00   0,00   0,00    0,00    0,00   0,00     0,00     0,00   0,00   0,00
 		std::vector<std::string> columns;
 		std::vector<std::string> values;
+
+		if (params == nullptr)
+			throw Exception("invalid params");
+		Args* args = static_cast<Args*>(params);
 
 		auto columns_s = split_columns(columns, buffer, "Device");
 		auto values_s = split_columns(values, buffer, args->io_device.c_str());
@@ -277,12 +288,14 @@ class IOStats {
 #define __CLASS__ "IOStatsThread::"
 class IOStatsThread : public ExperimentTask<IOStats> {
 	bool begin_use_stats = false;
+	Args *args;
 
 	public:    //------------------------------------------------------------------
-	IOStatsThread(const char* name_, Args* args_) : ExperimentTask(name_, args_) {
+	IOStatsThread(const char* name_, Args* args_) : ExperimentTask(name_), args(args_) {
 		DEBUG_MSG("constructor of task {}", name);
-		debug_out = args->debug_output_iostat;
+		debug_out = args_->debug_output_iostat;
 		must_not_finish = true;
+		stats_params = (void*) args_;
 
 		devCheck(args_->io_device);
 

@@ -12,8 +12,6 @@
 #include <spdlog/spdlog.h>
 #include <fmt/format.h>
 
-#include "args.h"
-
 ////////////////////////////////////////////////////////////////////////////////////
 
 #undef __CLASS__
@@ -93,7 +91,6 @@ enum StatsParseLine {
 template<class TStats> class ExperimentTask {
 	protected: //------------------------------------------------------------------
 	const char* name = "";
-	Args* args = nullptr;
 
 	std::thread thread;
 	bool stop_ = false;
@@ -101,6 +98,7 @@ template<class TStats> class ExperimentTask {
 	bool must_not_finish = true;
 
 	bool debug_out = false;
+	void* stats_params = nullptr;
 
 	std::exception_ptr exception;
 
@@ -112,7 +110,7 @@ template<class TStats> class ExperimentTask {
 	ExperimentTask() {}
 
 	public: //---------------------------------------------------------------------
-	ExperimentTask(const char* name_, Args* args_) : name(name_), args(args_) {
+	ExperimentTask(const char* name_) : name(name_) {
 		DEBUG_MSG("constructor of task {}", name);
 		stats_lock.clear();
 	}
@@ -160,7 +158,7 @@ template<class TStats> class ExperimentTask {
 				}
 
 				if (parse_this_line == USE_LINE_END) {
-					TStats collect_stats(lines_to_parse.c_str(), args);
+					TStats collect_stats(lines_to_parse.c_str(), stats_params);
 					line_count = 0;
 					lines_to_parse.clear();
 
