@@ -47,7 +47,7 @@ DEFINE_bool(debug_output_db_bench, DEFAULT_debug_output,
 DEFINE_bool(debug_output_iostat, DEFAULT_debug_output,
           "Debug iostat output");
 
-Args::Args(int argc, char** argv){
+void Args::parseArgs(int argc, char** argv){
 	gflags::SetUsageMessage(std::string("\nUSAGE:\n\t") + std::string(argv[0]) +
 				" [OPTIONS]...");
 	gflags::ParseCommandLineFlags(&argc, &argv, true);

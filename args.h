@@ -4,8 +4,6 @@
 #include <string>
 
 struct Args {
-	Args(int argc, char** argv);
-
 	std::string db_path;
 	std::string db_config_file;
 	bool        db_create;
@@ -17,4 +15,6 @@ struct Args {
 	bool        debug_output;
 	bool        debug_output_db_bench;
 	bool        debug_output_iostat;
+
+	void parseArgs(int argc, char** argv);
 };

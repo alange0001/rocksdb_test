@@ -342,19 +342,17 @@ class IOStatsThread : public ExperimentTask<IOStats> {
 #undef __CLASS__
 #define __CLASS__ "Program::"
 class Program {
-	std::unique_ptr<Args> args;
+	Args args;
 
 	public: //---------------------------------------------------------------------
-	Program(int argc, char** argv) {
-		args.reset(new Args(argc, argv));
-	}
-
-	void main() {
+	void main(int argc, char** argv) {
 		DEBUG_MSG("initialized");
-		DBBench db_bench("dbbench", args.get());
-		IOStatsThread iostat("iostat", args.get());
+		args.parseArgs(argc, argv);
 
-		if (args->db_create)
+		DBBench db_bench("dbbench", &args);
+		IOStatsThread iostat("iostat", &args);
+
+		if (args.db_create)
 			db_bench.createDB();
 
 		db_bench.launchThread();
@@ -368,7 +366,7 @@ class Program {
 			iostat.consumeStats(stats_io);
 
 			if (db_bench.consumeStats(stats_db_bench)) {
-				spdlog::info("system   stats: {}", SystemStats(args->debug_output).str());
+				spdlog::info("system   stats: {}", SystemStats(args.debug_output).str());
 				spdlog::info("I/O      stats: {}", stats_io.str());
 				spdlog::info("db_bench stats: {}", stats_db_bench.str());
 			}
@@ -416,7 +414,7 @@ int main(int argc, char** argv) {
 
 	try {
 
-		Program(argc, argv).main();
+		Program().main(argc, argv);
 
 	} catch (const std::exception& e) {
 		spdlog::error(e.what());
