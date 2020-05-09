@@ -23,11 +23,18 @@
 
 ////////////////////////////////////////////////////////////////////////////////////
 
-std::shared_ptr<char[]> formatString(const char* format, ...);
+//std::shared_ptr<char[]> formatString(const char* format, ...);
+
+inline std::string& inplace_trim(std::string& src) {
+	const char* to_trim = " \t\n\r\f\v";
+
+	src.erase(src.find_last_not_of(to_trim) +1);
+	src.erase(0, src.find_first_not_of(to_trim));
+
+	return src;
+}
 
 int split_columns(std::vector<std::string>& ret, const char* str, const char* prefix=nullptr);
-
-////////////////////////////////////////////////////////////////////////////////////
 
 inline std::string str_replace(const std::string& src, const char find, const char replace) {
 	std::string dest = src;
@@ -40,6 +47,11 @@ inline std::string& str_replace(std::string& dest, const std::string& src, const
 	std::replace(dest.begin(), dest.end(), find, replace);
 	return dest;
 }
+
+
+bool parseBool(std::string &value, bool* ret);
+bool parseUint(std::string &value, uint64_t* ret);
+bool parseDouble(std::string &value, double* ret, double min, double max);
 
 ////////////////////////////////////////////////////////////////////////////////////
 

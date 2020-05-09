@@ -7,7 +7,7 @@
 
 ////////////////////////////////////////////////////////////////////////////////////
 
-std::shared_ptr<char[]> formatString(const char* format, ...) {
+/* std::shared_ptr<char[]> formatString(const char* format, ...) {
 	va_list va;
 	int buffer_size = 256;
 	std::shared_ptr<char[]> buffer(new char[buffer_size]);
@@ -20,7 +20,7 @@ std::shared_ptr<char[]> formatString(const char* format, ...) {
 	}
 	va_end(va);
 	return buffer;
-}
+} //*/
 
 int split_columns(std::vector<std::string>& ret, const char* str, const char* prefix) {
 	std::cmatch cm;
@@ -51,6 +51,38 @@ int split_columns(std::vector<std::string>& ret, const char* str, const char* pr
 	}
 
 	return ret.size();
+}
+
+bool parseBool(std::string &value, bool* ret) {
+	if (value == "" || value == "yes" || value == "1" || value == "true") {
+		*ret = true;
+		return true;
+	} else if (value == "no" || value == "0" || value == "false") {
+		*ret = false;
+		return true;
+	}
+	return false;
+}
+bool parseUint(std::string &value, uint64_t* ret) {
+	try {
+		*ret = std::stoull(value);
+		return true;
+	} catch (std::exception& e) {
+		DEBUG_MSG("exception received: {}", e.what());
+	}
+	return false;
+}
+bool parseDouble(std::string &value, double* ret, double min, double max) {
+	try {
+		double aux = std::stod(value);
+		if (aux < min || aux > max)
+			return false;
+		*ret = aux;
+		return true;
+	} catch (std::exception& e) {
+		DEBUG_MSG("exception received: {}", e.what());
+	}
+	return false;
 }
 
 ////////////////////////////////////////////////////////////////////////////////////
