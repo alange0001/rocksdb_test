@@ -165,6 +165,8 @@ class Worker {
 		file = std::fopen(args->filename.c_str(), "r+");
 		if (file == NULL)
 			throw Exception("can't open file");
+
+		thread = std::thread( [this]{this->threadMain();} );
 	}
 	~Worker() {
 		DEBUG_MSG("destructor");
@@ -181,9 +183,6 @@ class Worker {
 		}
 	}
 
-	void launchThread() {
-		thread = std::thread( [this]{this->threadMain();} );
-	}
 	void threadMain() noexcept {
 		spdlog::info("initiating worker thread");
 		try {
@@ -246,10 +245,10 @@ class Worker {
 		if (thread_exception) std::rethrow_exception(thread_exception);
 		return !stop_;
 	}
-	void stop() {
+	void stop() noexcept {
 		stop_ = true;
 	}
-	void wait(bool value=true) {
+	void wait(bool value=true) noexcept {
 		args->wait = value;
 	}
 
@@ -305,16 +304,89 @@ class Worker {
 
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
+#define __CLASS__ "Reader::"
+
+class Reader {
+	Args* args;
+
+	std::thread        thread;
+	std::exception_ptr thread_exception;
+	bool               stop_ = false;
+
+	public: //---------------------------------------------------------------------
+	Reader(Args& args_) : args(&args_) {
+		DEBUG_MSG("constructor");
+		thread = std::thread( [this]{this->threadMain();} );
+	}
+	~Reader() {
+		DEBUG_MSG("destructor");
+		stop_ = true;
+		if (thread.joinable())
+			thread.join();
+	}
+
+	void threadMain() noexcept {
+		try {
+			DEBUG_MSG("command reader thread initiated");
+			const uint32_t buffer_size = 512;
+			char buffer[buffer_size]; buffer[0] = '\0'; buffer[buffer_size -1] = '\0';
+
+			std::cmatch cm;
+			std::string line;
+			std::string command;
+			std::string value;
+
+			while (monitor_fgets(buffer, buffer_size -1, stdin, &stop_)) {
+				for (char* c=buffer; *c != '\0'; c++)
+					if (*c == '\n') *c = '\0';
+
+				line = buffer;
+				inplace_trim(line);
+				command = ""; value = "";
+
+				std::regex_search(line.c_str(), cm, std::regex("\\s*([^=]+).*"));
+				if (cm.size() >= 2)
+					command = cm.str(1);
+				std::regex_search(line.c_str(), cm, std::regex("[^=]+=\\s*(.*)"));
+				if (cm.size() >= 2)
+					value = cm.str(1);
+
+				inplace_trim(command);
+				inplace_trim(value);
+
+				if (command == "stop") {
+					spdlog::info("stop command received");
+					stop_ = true;
+				} else if (!args->parseLine(command, value)) {
+					throw Exception(fmt::format("invalid command: {}", line));
+				}
+			}
+		} catch (std::exception& e) {
+			DEBUG_MSG("exception received: {}", e.what());
+			thread_exception = std::current_exception();
+		}
+		DEBUG_MSG("command reader thread finished");
+	}
+
+	bool isActive() {
+		if (thread_exception) std::rethrow_exception(thread_exception);
+		return !stop_;
+	}
+	void stop() noexcept {
+		stop_ = true;
+	}
+};
+
+////////////////////////////////////////////////////////////////////////////////////
+#undef __CLASS__
 #define __CLASS__ "Program::"
 
 class Program {
 	static Program* this_;
 	Args args;
-	std::unique_ptr<Worker> worker;
 
-	std::thread        reader_thread;
-	bool               reader_stop = false;
-	std::exception_ptr reader_exception;
+	std::unique_ptr<Worker> worker;
+	std::unique_ptr<Reader> reader;
 
 	public: //---------------------------------------------------------------------
 	Program() {
@@ -328,10 +400,6 @@ class Program {
 		std::signal(SIGFPE,  Program::signalWrapper);
 	}
 	~Program() {
-		reader_stop = true;
-		if (reader_thread.joinable())
-			reader_thread.join();
-
 		DEBUG_MSG("destructor");
 		std::signal(SIGTERM, SIG_DFL);
 		std::signal(SIGSEGV, SIG_DFL);
@@ -356,16 +424,13 @@ class Program {
 			uint64_t stats_interval_ms = args.stats_interval * 1000;
 
 			worker.reset(new Worker(args));
-			worker->launchThread();
+			reader.reset(new Reader(args));
 
-			reader_thread = std::thread( [this]{this->readerMain();} );
-
-			while (worker->isActive() && !reader_stop) {
-				if (reader_exception)
-					std::rethrow_exception(reader_exception);
+			while (worker->isActive() && reader->isActive()) {
 
 				std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
+				//// print statistics ////
 				aux_time = std::chrono::system_clock::now();
 				interval_ms = std::chrono::duration_cast<std::chrono::milliseconds>(aux_time - elapsed_time).count();
 				if (interval_ms > stats_interval_ms) {
@@ -379,74 +444,33 @@ class Program {
 				}
 			}
 
+			worker.reset(nullptr);
+			reader.reset(nullptr);
+
 		} catch (const std::exception& e) {
 			spdlog::error(e.what());
-			worker.reset(nullptr);
+			if (worker.get() != nullptr) worker.reset(nullptr);
+			if (reader.get() != nullptr) reader.reset(nullptr);
 			spdlog::info("exit(1)");
 			return 1;
 		}
-		worker.reset(nullptr);
 		spdlog::info("exit(0)");
 		return 0;
 	}
 
 	private: //--------------------------------------------------------------------
-	void readerMain() noexcept {
-		try {
-			DEBUG_MSG("command reader thread initiated");
-			const uint32_t buffer_size = 512;
-			char buffer[buffer_size]; buffer[0] = '\0'; buffer[buffer_size -1] = '\0';
-
-			std::cmatch cm;
-			std::string line;
-			std::string command;
-			std::string value;
-
-			while (!reader_stop && std::fgets(buffer, buffer_size -1, stdin) != NULL) {
-				for (char* c=buffer; *c != '\0'; c++)
-					if (*c == '\n') *c = '\0';
-
-				line = buffer;
-				inplace_trim(line);
-				command = ""; value = "";
-
-				std::regex_search(line.c_str(), cm, std::regex("\\s*([^=]+).*"));
-				if (cm.size() >= 2)
-					command = cm.str(1);
-				std::regex_search(line.c_str(), cm, std::regex("[^=]+=\\s*(.*)"));
-				if (cm.size() >= 2)
-					value = cm.str(1);
-
-				inplace_trim(command);
-				inplace_trim(value);
-
-				if (command == "stop") {
-					spdlog::info("stop command received");
-					worker->stop();
-					reader_stop = true;
-					break;
-				} else if (!args.parseLine(command, value)) {
-					throw Exception(fmt::format("invalid command: {}", line));
-				}
-			}
-		} catch (std::exception& e) {
-			DEBUG_MSG("exception received: {}", e.what());
-			reader_exception = std::current_exception();
-		}
-		DEBUG_MSG("command reader thread finished");
-	}
-	static void signalWrapper(int signal) {
+	static void signalWrapper(int signal) noexcept {
 		if (Program::this_)
 			Program::this_->signalHandler(signal);
 	}
-	void signalHandler(int signal) {
+	void signalHandler(int signal) noexcept {
 		spdlog::warn("received signal {}", signal);
 
-		reader_stop = true;
-		if (worker.get() != nullptr)
-			worker.reset(nullptr);
-
 		std::signal(signal, SIG_DFL);
+
+		worker.reset(nullptr);
+		reader.reset(nullptr);
+
 		std::raise(signal);
 	}
 };

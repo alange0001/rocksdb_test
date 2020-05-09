@@ -53,6 +53,30 @@ int split_columns(std::vector<std::string>& ret, const char* str, const char* pr
 	return ret.size();
 }
 
+bool monitor_fgets (char* buffer, int buffer_size, std::FILE* file, bool* stop, uint64_t interval) {
+	struct timeval timeout {0,0};
+	auto fd = fileno(file);
+
+	fd_set readfds; FD_ZERO(&readfds);
+
+	while (!*stop) {
+		FD_SET(fd, &readfds);
+		auto r = select(1, &readfds, NULL, NULL, &timeout);
+		if (r > 0) {
+			if (std::fgets(buffer, buffer_size, file) == NULL)
+				return false;
+			return true;
+		}
+
+		if (r < 0)
+			throw std::runtime_error("select call error");
+
+		std::this_thread::sleep_for(std::chrono::milliseconds(interval));
+	}
+
+	return false;
+}
+
 bool parseBool(std::string &value, bool* ret) {
 	if (value == "" || value == "yes" || value == "1" || value == "true") {
 		*ret = true;

@@ -48,6 +48,7 @@ inline std::string& str_replace(std::string& dest, const std::string& src, const
 	return dest;
 }
 
+bool monitor_fgets (char* buffer, int buffer_size, std::FILE* file, bool* stop, uint64_t interval=300);
 
 bool parseBool(std::string &value, bool* ret);
 bool parseUint(std::string &value, uint64_t* ret);
