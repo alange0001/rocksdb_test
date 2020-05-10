@@ -5,6 +5,7 @@
 #include <functional>
 #include <random>
 #include <regex>
+#include <limits>
 
 #include <iostream>
 
@@ -30,6 +31,8 @@ DEFINE_uint64(filesize, 0,
           "file size (MiB)");
 DEFINE_uint64(block_size, 4,
           "block size (KiB)");
+DEFINE_uint64(flush_blocks, 1,
+          "blocks written before a flush (0 = no flush)");
 DEFINE_bool(create_file, true,
           "create file");
 DEFINE_bool(delete_file, true,
@@ -53,6 +56,7 @@ struct Args {
 	std::string filename;
 	uint64_t    filesize;       //MiB
 	uint64_t    block_size;     //KiB
+	uint64_t    flush_blocks;   //blocks
 	bool        create_file;
 	bool        delete_file;
 	double      write_ratio;    //0-1
@@ -60,6 +64,12 @@ struct Args {
 	uint64_t    sleep_interval; //ms
 	uint32_t    stats_interval; //seconds
 	bool        wait;
+
+	std::function<bool(double)> check_ratio = [](double v)->bool{return (v>=0.0 && v <= 1.0);};
+	const char* error_write_ratio    = "invalid write_ratio [0-1]";
+	const char* error_random_ratio   = "invalid random_ratio [0-1]";
+	const char* error_sleep_interval = "invalid sleep_interval";
+	const char* error_flush_blocks   = "invalid flush_blocks";
 
 	void parseArgs(int argc, char** argv) {
 		gflags::SetUsageMessage(std::string("\nUSAGE:\n\t") + std::string(argv[0]) +
@@ -79,6 +89,7 @@ struct Args {
 		filename        = FLAGS_filename;         params_out += fmt::format(" --filename=\"{}\"",   filename);
 		filesize        = FLAGS_filesize;         params_out += fmt::format(" --filesize={}",       filesize);
 		block_size      = FLAGS_block_size;       params_out += fmt::format(" --block_size={}",     block_size);
+		flush_blocks    = FLAGS_flush_blocks;     params_out += fmt::format(" --flush_blocks={}",   flush_blocks);
 		create_file     = FLAGS_create_file;      params_out += fmt::format(" --create_file={}",    create_file);
 		delete_file     = FLAGS_delete_file;      params_out += fmt::format(" --delete_file={}",    delete_file);
 		write_ratio     = FLAGS_write_ratio;      params_out += fmt::format(" --write_ratio={}",    write_ratio);
@@ -90,35 +101,41 @@ struct Args {
 		spdlog::info("parameters: {}", params_out);
 
 		if (filename.length() == 0)
-			throw std::invalid_argument(fmt::format("--filename not specified"));
+			throw std::invalid_argument("--filename not specified");
 		if (filesize < 10 && create_file)
-			throw std::invalid_argument(fmt::format("invalid --filesize"));
-		if (write_ratio < 0 || write_ratio > 1)
-			throw std::invalid_argument(fmt::format("invalid --write_ratio"));
-		if (random_ratio < 0 || random_ratio > 1)
-			throw std::invalid_argument(fmt::format("invalid --random_ratio"));
+			throw std::invalid_argument("invalid --filesize");
+		if (!check_ratio(write_ratio))
+			throw std::invalid_argument(error_write_ratio);
+		if (!check_ratio(random_ratio))
+			throw std::invalid_argument(error_random_ratio);
 		if (block_size < 4)
-			throw std::invalid_argument(fmt::format("invalid --block_size"));
+			throw std::invalid_argument("invalid --block_size");
+		if (stats_interval < 1)
+			throw std::invalid_argument("invalid --stats_interval (> 0)");
 	}
 
 	bool parseLine(std::string& command, std::string& value) {
 		DEBUG_MSG("command=\"{}\", value=\"{}\"", command, value);
 
 		if (command == "wait") {
-			if (!parseBool(value, &wait)) throw std::invalid_argument(fmt::format("invalid \"wait\" value \"{}\" (yes or no)", value));
+			wait = parseBool(value, false, true, "invalid wait value (yes|no)");
 			spdlog::info("set wait={}", wait);
 			return true;
 		} else if (command == "sleep_interval") {
-			if (!parseUint(value, &sleep_interval)) throw std::invalid_argument("invalid \"sleep_interval\"");
+			sleep_interval = parseUint(value, true, 0, error_sleep_interval);
 			spdlog::info("set sleep_interval={}", sleep_interval);
 			return true;
 		} else if (command == "write_ratio") {
-			if (!parseDouble(value, &write_ratio, 0, 1)) throw std::invalid_argument("invalid \"write_ratio\" (0-1)");
+			write_ratio = parseDouble(value, true, 0, error_write_ratio, check_ratio);
 			spdlog::info("set write_ratio={}", write_ratio);
 			return true;
 		} else if (command == "random_ratio") {
-			if (!parseDouble(value, &random_ratio, 0, 1)) throw std::invalid_argument("invalid \"random_ratio\" (0-1)");
+			random_ratio = parseDouble(value, true, 0, error_random_ratio, check_ratio);
 			spdlog::info("set random_ratio={}", random_ratio);
+			return true;
+		} else if (command == "flush_blocks") {
+			flush_blocks = parseUint(value, true, 0, error_flush_blocks);
+			spdlog::info("set flush_blocks={}", flush_blocks);
 			return true;
 		}
 
@@ -186,15 +203,17 @@ class Worker {
 	void threadMain() noexcept {
 		spdlog::info("initiating worker thread");
 		try {
-			std::uniform_int_distribution<uint32_t> rand_ratio(0,1000);
+			std::uniform_int_distribution<uint32_t> rand_ratio(0,999);
 
 			uint64_t buffer_size = args->block_size * 1024; // KiB to B
 			std::unique_ptr<char[]> buffer(new char[buffer_size]);
-			random(buffer.get(), buffer_size);
+			randomize_buffer(buffer.get(), buffer_size);
 
 			uint64_t filesize_bytes = args->filesize * 1024 * 1024;
 			uint64_t file_blocks = (args->filesize * 1024) / args->block_size;
 			std::uniform_int_distribution<uint64_t> rand_block(0, file_blocks -1);
+
+			uint64_t flush_count = 0;
 
 			while (!stop_) {
 				if (args->wait)
@@ -212,11 +231,11 @@ class Worker {
 				uint32_t random_ratio_uint = (uint32_t) (args->random_ratio * 1000.0);
 
 				if (rand_ratio(rand_eng) < random_ratio_uint) { //random access
-					if (std::fseek(file, rand_block(rand_eng), SEEK_SET) != 0)
+					if (std::fseek(file, rand_block(rand_eng) * buffer_size, SEEK_SET) != 0)
 						throw Exception("fseek error");
 				} else {                                        //sequential access
 					uint64_t pos = std::ftell(file);
-					if (pos >  (filesize_bytes - buffer_size))
+					if (pos >  (filesize_bytes - buffer_size -1))
 						if (std::fseek(file, 0, SEEK_SET) != 0)
 							throw Exception("fseek begin error");
 				}
@@ -224,7 +243,13 @@ class Worker {
 				if (rand_ratio(rand_eng) < write_ratio_uint) { //write
 					if (std::fwrite(buffer.get(), buffer_size, 1, file) != 1)
 						throw Exception("fwrite error");
-					std::fflush(file);
+
+					if (args->flush_blocks) {
+						if (++flush_count >= args->flush_blocks) {
+							std::fflush(file);
+							flush_count = 0;
+						}
+					}
 				} else {                                       //read
 					if (std::fread(buffer.get(), buffer_size, 1, file) != 1)
 						throw Exception("fread error");
@@ -256,7 +281,7 @@ class Worker {
 	void createFile() {
 		uint32_t buffer_size = 1024 * 1024;
 		char buffer[buffer_size];
-		random(buffer, buffer_size);
+		randomize_buffer(buffer, buffer_size);
 
 		spdlog::info("creating file {}", args->filename);
 		std::FILE* f = std::fopen(args->filename.c_str(), "w");
@@ -288,7 +313,7 @@ class Worker {
 		std::fclose(f);
 	}
 
-	void random(char* buffer, uint32_t size) {
+	void randomize_buffer(char* buffer, uint32_t size) {
 		if (buffer == nullptr) throw Exception("invalid buffer");
 		if (size == 0) throw Exception("invalid size");
 

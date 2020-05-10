@@ -63,6 +63,8 @@ void Args::parseArgs(int argc, char** argv){
 	else if (FLAGS_log_level == "off"     ) spdlog::set_level(spdlog::level::off);
 	else throw std::invalid_argument(fmt::format("invalid --log_level={}", FLAGS_log_level));
 
+	std::string params_out(fmt::format("--log_level={}", FLAGS_log_level));
+
 	if (FLAGS_stats_interval < 1)
 		throw std::invalid_argument("invalid stats_interval (must be > 0)");
 

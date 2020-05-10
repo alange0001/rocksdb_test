@@ -23,8 +23,6 @@
 
 ////////////////////////////////////////////////////////////////////////////////////
 
-//std::shared_ptr<char[]> formatString(const char* format, ...);
-
 inline std::string& inplace_trim(std::string& src) {
 	const char* to_trim = " \t\n\r\f\v";
 
@@ -50,9 +48,15 @@ inline std::string& str_replace(std::string& dest, const std::string& src, const
 
 bool monitor_fgets (char* buffer, int buffer_size, std::FILE* file, bool* stop, uint64_t interval=300);
 
-bool parseBool(std::string &value, bool* ret);
-bool parseUint(std::string &value, uint64_t* ret);
-bool parseDouble(std::string &value, double* ret, double min, double max);
+bool parseBool(const std::string &value, const bool required=true, const bool default_=true,
+               const char* error_msg="invalid value (boolean)",
+			   std::function<bool(bool)> check_method=nullptr );
+uint64_t parseUint(const std::string &value, const bool required=true, const uint64_t default_=0,
+               const char* error_msg="invalid value (uint64)",
+			   std::function<bool(uint64_t)> check_method=nullptr );
+double parseDouble(const std::string &value, const bool required=true, const double default_=0.0,
+               const char* error_msg="invalid value (double)",
+			   std::function<bool(double)> check_method=nullptr );
 
 ////////////////////////////////////////////////////////////////////////////////////
 
