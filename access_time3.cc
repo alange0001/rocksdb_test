@@ -56,14 +56,14 @@ struct Args {
 	std::string filename;
 	uint64_t    filesize;       //MiB
 	uint64_t    block_size;     //KiB
-	uint64_t    flush_blocks;   //blocks
+	std::atomic<uint64_t>    flush_blocks;   //blocks
 	bool        create_file;
 	bool        delete_file;
-	double      write_ratio;    //0-1
-	double      random_ratio;   //0-1
-	uint64_t    sleep_interval; //ms
+	std::atomic<double>      write_ratio;    //0-1
+	std::atomic<double>      random_ratio;   //0-1
+	std::atomic<uint64_t>    sleep_interval; //ms
 	uint32_t    stats_interval; //seconds
-	bool        wait;
+	std::atomic<bool>        wait;
 
 	std::function<bool(double)> check_ratio = [](double v)->bool{return (v>=0.0 && v <= 1.0);};
 	const char* error_write_ratio    = "invalid write_ratio [0-1]";
@@ -114,10 +114,21 @@ struct Args {
 			throw std::invalid_argument("invalid --stats_interval (> 0)");
 	}
 
-	bool parseLine(std::string& command, std::string& value) {
+	bool parseLine(const std::string command, const std::string value) {
 		DEBUG_MSG("command=\"{}\", value=\"{}\"", command, value);
 
-		if (command == "wait") {
+		if (command == "help") {
+			spdlog::info(
+					"COMMANDS:\n"
+					"    stop           - terminate\n"
+					"    wait           - (true|false)\n"
+					"    sleep_interval - milliseconds\n"
+					"    write_ratio    - (0..1)\n"
+					"    random_ratio   - (0..1)\n"
+					"    flush_blocks   - (0..)\n"
+					);
+			return true;
+		} else if (command == "wait") {
 			wait = parseBool(value, false, true, "invalid wait value (yes|no)");
 			spdlog::info("set wait={}", wait);
 			return true;
@@ -152,16 +163,23 @@ class Worker {
 	std::FILE*  file;
 
 	std::thread        thread;
+	std::thread        thread_flush;
 	std::exception_ptr thread_exception;
-	bool               stop_ = false;
+	bool               stop_;
+
+	std::atomic<bool>  flush;
 
 	std::default_random_engine rand_eng;
 
 	public: //---------------------------------------------------------------------
-	uint64_t blocks = 0;
+	std::atomic<uint64_t> blocks;
 
 	Worker(Args& args_) : args(&args_) {
 		DEBUG_MSG("constructor");
+		stop_ = false;
+		blocks = 0;
+		flush = false;
+
 		if (args->create_file)
 			createFile();
 
@@ -183,13 +201,16 @@ class Worker {
 		if (file == NULL)
 			throw Exception("can't open file");
 
-		thread = std::thread( [this]{this->threadMain();} );
+		thread       = std::thread( [this]{this->threadMain();} );
+		thread_flush = std::thread( [this]{this->threadFlush();} );
 	}
 	~Worker() {
 		DEBUG_MSG("destructor");
 		stop_ = true;
 		if (thread.joinable())
 			thread.join();
+		if (thread_flush.joinable())
+			thread_flush.join();
 		if (file != NULL) {
 			DEBUG_MSG("close file");
 			std::fclose(file);
@@ -203,7 +224,8 @@ class Worker {
 	void threadMain() noexcept {
 		spdlog::info("initiating worker thread");
 		try {
-			std::uniform_int_distribution<uint32_t> rand_ratio(0,999);
+			const uint32_t random_scale = 10000;
+			std::uniform_int_distribution<uint32_t> rand_ratio(0,random_scale -1);
 
 			uint64_t buffer_size = args->block_size * 1024; // KiB to B
 			std::unique_ptr<char[]> buffer(new char[buffer_size]);
@@ -227,8 +249,8 @@ class Worker {
 				}
 				if (stop_) break;
 
-				uint32_t write_ratio_uint = (uint32_t) (args->write_ratio * 1000.0);
-				uint32_t random_ratio_uint = (uint32_t) (args->random_ratio * 1000.0);
+				uint32_t write_ratio_uint = (uint32_t) (args->write_ratio * random_scale);
+				uint32_t random_ratio_uint = (uint32_t) (args->random_ratio * random_scale);
 
 				if (rand_ratio(rand_eng) < random_ratio_uint) { //random access
 					if (std::fseek(file, rand_block(rand_eng) * buffer_size, SEEK_SET) != 0)
@@ -246,7 +268,7 @@ class Worker {
 
 					if (args->flush_blocks) {
 						if (++flush_count >= args->flush_blocks) {
-							std::fflush(file);
+							flush = true;
 							flush_count = 0;
 						}
 					}
@@ -265,6 +287,23 @@ class Worker {
 			thread_exception = std::current_exception();
 		}
 		spdlog::info("worker thread finished");
+	}
+	void threadFlush() {
+		uint32_t count_wait = 0;
+		while (!stop_) {
+			if (file != NULL && !args->wait && flush) {
+				flush = false;
+				std::fflush(file);
+				count_wait = 0;
+				continue;
+			}
+			if (count_wait < 5) {
+				count_wait++;
+				std::this_thread::yield();
+			} else {
+				std::this_thread::sleep_for(std::chrono::milliseconds(50));
+			}
+		}
 	}
 	bool isActive() {
 		if (thread_exception) std::rethrow_exception(thread_exception);
@@ -386,6 +425,7 @@ class Reader {
 					throw Exception(fmt::format("invalid command: {}", line));
 				}
 			}
+			stop_ = true;
 		} catch (std::exception& e) {
 			DEBUG_MSG("exception received: {}", e.what());
 			thread_exception = std::current_exception();
@@ -460,9 +500,10 @@ class Program {
 				interval_ms = std::chrono::duration_cast<std::chrono::milliseconds>(aux_time - elapsed_time).count();
 				if (interval_ms > stats_interval_ms) {
 					aux_blocks = worker->blocks;
-					spdlog::info("time={}, throughput={}MiB/s",
+					spdlog::info("time={}, throughput={}MiB/s{}",
 							std::chrono::duration_cast<std::chrono::seconds>(aux_time - init_time).count(),
-							((aux_blocks - elapsed_blocks) * args.block_size)/(interval_ms/1000)/1024
+							((aux_blocks - elapsed_blocks) * args.block_size)/(interval_ms/1000)/1024,
+							(args.wait) ? " (wait)" : ""
 							);
 					elapsed_time = aux_time;
 					elapsed_blocks = aux_blocks;

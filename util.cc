@@ -6,6 +6,8 @@
 #include <regex>
 
 ////////////////////////////////////////////////////////////////////////////////////
+#undef __CLASS__
+#define __CLASS__ ""
 
 int split_columns(std::vector<std::string>& ret, const char* str, const char* prefix) {
 	std::cmatch cm;
@@ -16,7 +18,6 @@ int split_columns(std::vector<std::string>& ret, const char* str, const char* pr
 
 	if (prefix != nullptr) {
 		std::regex_search(str, cm, std::regex(fmt::format("{}\\s+(.+)", prefix).c_str()), flags);
-		//print_cm(cm);
 		if (cm.size() < 2)
 			return 0;
 
@@ -26,7 +27,6 @@ int split_columns(std::vector<std::string>& ret, const char* str, const char* pr
 
 	for (const char* i = str;;) {
 		std::regex_search(i, cm, std::regex("([^\\s]+)\\s*(.*)"), flags);
-		//print_cm(cm);
 		if (cm.size() >= 3) {
 			ret.push_back(cm[1].str());
 			i = cm[2].first;
@@ -40,13 +40,15 @@ int split_columns(std::vector<std::string>& ret, const char* str, const char* pr
 
 bool monitor_fgets (char* buffer, int buffer_size, std::FILE* file, bool* stop, uint64_t interval) {
 	struct timeval timeout {0,0};
-	auto fd = fileno(file);
 
-	fd_set readfds; FD_ZERO(&readfds);
+	auto fd = fileno(file);
+	DEBUG_MSG("fd={}", fd);
+	fd_set readfds;
+	FD_ZERO(&readfds);
 
 	while (!*stop) {
 		FD_SET(fd, &readfds);
-		auto r = select(1, &readfds, NULL, NULL, &timeout);
+		auto r = select(fd +1, &readfds, NULL, NULL, &timeout);
 		if (r > 0) {
 			if (std::fgets(buffer, buffer_size, file) == NULL)
 				return false;
@@ -55,6 +57,10 @@ bool monitor_fgets (char* buffer, int buffer_size, std::FILE* file, bool* stop, 
 
 		if (r < 0)
 			throw std::runtime_error("select call error");
+		if (std::feof(file))
+			return false;
+		if (std::ferror(file))
+			throw std::runtime_error("file error");
 
 		std::this_thread::sleep_for(std::chrono::milliseconds(interval));
 	}
@@ -131,60 +137,6 @@ double parseDouble(const std::string &value, const bool required, const double d
 }
 
 ////////////////////////////////////////////////////////////////////////////////////
-
-#undef __CLASS__
-#define __CLASS__ "Subprocess::"
-
-Subprocess::Subprocess(const char* name_, const char* cmd) : name(name_) {
-	DEBUG_MSG("popen process {}", name);
-	f = popen(cmd, "r");
-	if (f == NULL)
-		throw Exception(fmt::format("error executing subprocess {}, command: {}", name, cmd));
-}
-
-Subprocess::~Subprocess() noexcept(false) {
-	if (f) {
-		DEBUG_MSG("pclose process {}", name);
-		auto exit_code = pclose(f);
-		if (exit_code != 0) {
-			if (noexceptions_ || std::current_exception())
-				spdlog::error(fmt::format("subprocess {} exit error {}", name, exit_code));
-			else
-				throw Exception(fmt::format("subprocess {} exit error {}", name, exit_code));
-		}
-	}
-}
-
-void Subprocess::close() {
-	if (f) {
-		DEBUG_MSG("pclose process {}", name);
-		pclose(f);
-		f = NULL;
-	}
-}
-
-void Subprocess::noexceptions(bool v) {
-	noexceptions_ = v;
-}
-
-char* Subprocess::gets(char* buffer, int size) {
-	return fgets(buffer, size, f);
-}
-
-uint32_t Subprocess::getAll(std::string& ret) {
-	const int buffer_size = 512;
-	char buffer[buffer_size]; buffer[0] = '\0'; buffer[buffer_size -1] = '\0';
-	ret = "";
-
-	while (gets(buffer, buffer_size -1)) {
-		ret += buffer;
-	}
-
-	return ret.length();
-}
-
-////////////////////////////////////////////////////////////////////////////////////
-
 #undef __CLASS__
 #define __CLASS__ "Exception::"
 

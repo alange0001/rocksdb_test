@@ -67,20 +67,108 @@ struct Defer {
 };
 
 ////////////////////////////////////////////////////////////////////////////////////
+#undef __CLASS__
+#define __CLASS__ "Subprocess::"
 
-struct Subprocess {
-	bool noexceptions_ = false;
+class Subprocess {
 	std::string name;
-	FILE* f;
-	Subprocess(const char* name_, const char* cmd);
-	~Subprocess() noexcept(false);
-	void noexceptions(bool v=true);
-	void close();
-	char* gets(char* buffer, int size);
-	uint32_t getAll(std::string& ret);
+	std::FILE*  f_out;
+	bool        nodestructorexcept;
+
+	bool               stop = false;
+	std::thread        thread;
+	bool               thread_active = false;
+	std::exception_ptr thread_exception;
+	std::function<void(const char*)> input_handler;
+
+	const uint32_t          buffer_size = 512;
+	std::unique_ptr<char[]> buffer;
+
+	public: //---------------------------------------------------------------------
+
+	Subprocess(const char* name_, const char* cmd, bool nodestructorexcept_=true) : name(name_), nodestructorexcept(nodestructorexcept_) {
+		DEBUG_MSG("constructor. popen process {}", name);
+		f_out = popen(cmd, "r");
+		if (f_out == NULL)
+			throw std::runtime_error(fmt::format("error executing subprocess {}, command: {}", name, cmd));
+		DEBUG_MSG("constructor finished", name);
+	}
+	~Subprocess() noexcept(false) {
+		DEBUG_MSG("destructor");
+		stop = true;
+		if (thread.joinable())
+			thread.join();
+		if (f_out) {
+			DEBUG_MSG("pclose process {}", name);
+			auto exit_code = pclose(f_out);
+			if (exit_code != 0) {
+				if (nodestructorexcept || std::current_exception())
+					spdlog::error(fmt::format("subprocess {} exit error {}", name, exit_code));
+				else
+					throw std::runtime_error(fmt::format("subprocess {} exit error {}", name, exit_code));
+			}
+		}
+		DEBUG_MSG("destructor finished");
+	}
+
+	char* gets(char* buffer_, int size) {
+		if (thread_active)
+			throw std::runtime_error("input handler active");
+		return fgets(buffer_, size, f_out);
+	}
+	bool getsOrStop(char* buffer_, int size, bool* stop_, uint64_t interval=300) {
+		if (thread_active)
+			throw std::runtime_error("input handler active");
+		return monitor_fgets(buffer_, size, f_out, stop_, interval);
+	}
+	uint32_t getAll(std::string& ret) {
+		if (thread_active)
+			throw std::runtime_error("input handler active");
+
+		buffer.reset(new char[buffer_size]); buffer[0] = '\0'; buffer[buffer_size -1] = '\0';
+		ret = "";
+
+		while (gets(buffer.get(), buffer_size -1)) {
+			ret += buffer.get();
+		}
+		return ret.length();
+	}
+
+	void threadMain() noexcept {
+		DEBUG_MSG("initiate");
+		thread_active = true;
+
+		buffer.reset(new char[buffer_size]); buffer[0] = '\0'; buffer[buffer_size -1] = '\0';
+
+		try {
+			while (f_out != NULL && monitor_fgets(buffer.get(), buffer_size -1, f_out, &stop)) {
+				DEBUG_MSG("call handler");
+				input_handler(buffer.get());
+				DEBUG_MSG("handler exit");
+			}
+		} catch(std::exception& e) {
+			DEBUG_MSG("exception received: {}", e.what());
+			thread_exception = std::current_exception();
+			nodestructorexcept = true;
+		}
+		thread_active = false;
+		DEBUG_MSG("finish");
+	}
+	void registerInputHandler(std::function<void(const char*)> handler) {
+		DEBUG_MSG("register handler");
+		input_handler = handler;
+		thread = std::thread( [this]{this->threadMain();} );
+	}
+	bool isActive() {
+		if (thread_exception)
+			std::rethrow_exception(thread_exception);
+		return thread_active;
+	}
 };
 
 ////////////////////////////////////////////////////////////////////////////////////
+#undef __CLASS__
+#define __CLASS__ "Exception::"
 
 class Exception : public std::exception {
 	public:
@@ -101,7 +189,6 @@ enum StatsParseLine {
 };
 
 ////////////////////////////////////////////////////////////////////////////////////
-
 #undef __CLASS__
 #define __CLASS__ "ExperimentTask::"
 
@@ -148,12 +235,13 @@ template<class TStats> class ExperimentTask {
 			char buffer[buffer_size]; buffer[0] = '\0'; buffer[buffer_size -1] = '\0';
 
 			std::string cmd = getCmd();
-			Subprocess subprocess(name, cmd.c_str());
+			std::unique_ptr<Subprocess> subprocess;
+			subprocess.reset(new Subprocess(name, cmd.c_str(), true));
 
 			DEBUG_MSG("collecting output stats in the task {}", name);
 			std::string lines_to_parse;
 			uint32_t line_count = 0;
-			while (!stop_ && subprocess.gets(buffer, buffer_size -1)){
+			while (subprocess->getsOrStop(buffer, buffer_size -1, &stop_)){
 				auto parse_this_line = parseThisLine(buffer);
 
 				if (parse_this_line == DONT_USE) {
@@ -187,9 +275,9 @@ template<class TStats> class ExperimentTask {
 			}
 
 			if (stop_) {
-				subprocess.close();
+				subprocess.reset(nullptr);
 			} else if (must_not_finish) {
-				subprocess.close();
+				subprocess.reset(nullptr);
 				throw Exception(fmt::format("{} must not finish in the middle of the experiment", name));
 			}
 
