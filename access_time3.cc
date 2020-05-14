@@ -510,13 +510,11 @@ class Program {
 				}
 			}
 
-			worker.reset(nullptr);
-			reader.reset(nullptr);
+			resetAll();
 
 		} catch (const std::exception& e) {
 			spdlog::error(e.what());
-			if (worker.get() != nullptr) worker.reset(nullptr);
-			if (reader.get() != nullptr) reader.reset(nullptr);
+			resetAll();
 			spdlog::info("exit(1)");
 			return 1;
 		}
@@ -525,6 +523,11 @@ class Program {
 	}
 
 	private: //--------------------------------------------------------------------
+	void resetAll() noexcept {
+		worker.reset(nullptr);
+		reader.reset(nullptr);
+	}
+
 	static void signalWrapper(int signal) noexcept {
 		if (Program::this_)
 			Program::this_->signalHandler(signal);
@@ -534,8 +537,7 @@ class Program {
 
 		std::signal(signal, SIG_DFL);
 
-		worker.reset(nullptr);
-		reader.reset(nullptr);
+		resetAll();
 
 		std::raise(signal);
 	}

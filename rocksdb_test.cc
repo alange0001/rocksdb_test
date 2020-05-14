@@ -20,85 +20,31 @@
 #include "util.h"
 
 ////////////////////////////////////////////////////////////////////////////////////
-
-#undef __CLASS__
-#define __CLASS__ "DBBenchStats::"
-class DBBenchStats {
-	public:
-	std::map<std::string, std::string> data;
-
-	DBBenchStats() {}
-	DBBenchStats(const DBBenchStats& src) {*this = src;}
-	DBBenchStats& operator= (const DBBenchStats& src) {data = src.data; return *this;}
-
-	DBBenchStats(const char* buffer, void* params) {
-		auto flags = std::regex_constants::match_any;
-		std::cmatch cm;
-
-		if (params == nullptr)
-			throw Exception("invalid params");
-		Args* args = static_cast<Args*>(params);
-
-		std::regex_search(buffer, cm, std::regex("thread [0-9]+: \\(([0-9.]+),([0-9.]+)\\) ops and \\(([0-9.]+),([0-9.]+)\\) ops/second in \\(([0-9.]+),([0-9.]+)\\) seconds.*"), flags);
-		if( cm.size() >= 7 ){
-			data["ops"] = cm.str(1);
-			data["ops_total"] = cm.str(2);
-			data["ops_per_s"] = cm.str(3);
-			data["ops_per_s_total"] = cm.str(4);
-			data["stats_interval"] = cm.str(5);
-			data["stats_total"] = cm.str(5);
-			//DEBUG_OUT(args->debug_output_db_bench, "line parsed    : {}", buffer);
-		}
-		std::regex_search(buffer, cm, std::regex("Interval writes: ([0-9.]+[KMGT]*) writes, ([0-9.]+[KMGT]*) keys, ([0-9.]+[KMGT]*) commit groups, ([0-9.]+[KMGT]*) writes per commit group, ingest: ([0-9.]+) [KMGT]*B, ([0-9.]+) [KMGT]*B/s.*"), flags);
-		if( cm.size() >= 7 ){
-			data["writes"] = cm.str(1);
-			data["written_keys"] = cm.str(2);
-			data["written_commit_groups"] = cm.str(3);
-			data["ingest_MBps"] = cm.str(5);
-			data["ingest_MBps"] = cm.str(6);
-			//DEBUG_OUT(args->debug_output_db_bench, "line parsed    : {}", buffer);
-		}
-		std::regex_search(buffer, cm, std::regex("Interval WAL: ([0-9.]+[KMGT]*) writes, ([0-9.]+[KMGT]*) syncs, ([0-9.]+[KMGT]*) writes per sync, written: ([0-9.]+) [KMGT]*B, ([0-9.]+) [KMGT]*B/s.*"), flags);
-		if( cm.size() >= 5 ){
-			data["WAL_writes"] = cm.str(1);
-			data["WAL_syncs"] = cm.str(2);
-			data["WAL_written_MB"] = cm.str(4);
-			data["WAL_written_MBps"] = cm.str(5);
-			//DEBUG_OUT(args->debug_output_db_bench, "line parsed    : {}", buffer);
-		}
-		std::regex_search(buffer, cm, std::regex("Interval stall: ([0-9:.]+) H:M:S, ([0-9.]+) percent.*"), flags);
-		if( cm.size() >= 3 ){
-			data["stall"] = cm.str(1);
-			data["stall_percent"] = cm.str(2);
-			//DEBUG_OUT(args->debug_output_db_bench, "line parsed    : {}", buffer);
-		}
-	}
-
-	void clear() {data.clear();}
-	bool parseLine(const char *buffer, Args* args) { return true; }
-	std::string str() {
-		std::string s;
-		for (auto i : data)
-			s += fmt::format("{}{}={}", (s.length() > 0) ? ", " : "", i.first, i.second);
-		return s;
-	}
-};
-
-////////////////////////////////////////////////////////////////////////////////////
-
 #undef __CLASS__
 #define __CLASS__ "DBBench::"
-class DBBench : public ExperimentTask<DBBenchStats> {
-	Args* args = nullptr;
+
+class DBBench : public ExperimentTask {
+	Args* args;
 
 	public:    //------------------------------------------------------------------
-	DBBench(const char* name_, Args* args_) : ExperimentTask(name_), args(args_) {
-		DEBUG_MSG("constructor of task {}", name);
-		debug_out = args->debug_output_db_bench;
-		must_not_finish = false;
-		stats_params = (void*) args_;
-	}
+	DBBench(Args* args_) : ExperimentTask("dbbench"), args(args_) {
+		DEBUG_MSG("constructor");
 
+		if (args->db_create)
+			createDB();
+
+		std::string cmd(getCmd());
+		process.reset(new ProcessController(
+			name.c_str(),
+			cmd.c_str(),
+			[this](const char* v){this->inputHandler(v);},
+			args->debug_output_db_bench
+			));
+
+	}
+	~DBBench() {}
+
+	private: //------------------------------------------------------------------
 	void createDB() {
 		auto cmd = commandCreateDB();
 		spdlog::info("Creating Database. Command:\n{}", cmd);
@@ -106,8 +52,6 @@ class DBBench : public ExperimentTask<DBBenchStats> {
 		if (ret != 0)
 			throw Exception("database creation error");
 	}
-
-	protected: //------------------------------------------------------------------
 	std::string commandCreateDB() {
 		const char *template_cmd =
 		"db_bench                                         \\\n"
@@ -129,7 +73,7 @@ class DBBench : public ExperimentTask<DBBenchStats> {
 
 		return ret;
 	}
-	virtual std::string getCmd() override {
+	std::string getCmd() {
 		uint32_t duration = args->hours * 60 * 60; /*hours to seconds*/
 		double   sine_b   = 0.000073 * (24.0/static_cast<double>(args->hours)); /*adjust the sine cycle*/
 
@@ -179,249 +123,258 @@ class DBBench : public ExperimentTask<DBBenchStats> {
 		return ret;
 	}
 
-	virtual StatsParseLine parseThisLine(const char* buffer) override {
-		if (std::regex_search(buffer, std::regex("thread [0-9]+:.*"))
-		||  std::regex_search(buffer, std::regex("Interval writes:.*"))
-		||  std::regex_search(buffer, std::regex("Interval WAL:.*"))) {
-			return USE_LINE;
+	void inputHandler(const char* buffer) {
+		auto flags = std::regex_constants::match_any;
+		std::cmatch cm;
+
+		std::regex_search(buffer, cm, std::regex("thread [0-9]+: \\(([0-9.]+),([0-9.]+)\\) ops and \\(([0-9.]+),([0-9.]+)\\) ops/second in \\(([0-9.]+),([0-9.]+)\\) seconds.*"), flags);
+		if( cm.size() >= 7 ){
+			data["ops"] = cm.str(1);
+			data["ops_total"] = cm.str(2);
+			data["ops_per_s"] = cm.str(3);
+			data["ops_per_s_total"] = cm.str(4);
+			data["stats_interval"] = cm.str(5);
+			data["stats_total"] = cm.str(5);
+			//DEBUG_OUT(args->debug_output_db_bench, "line parsed    : {}", buffer);
 		}
+		std::regex_search(buffer, cm, std::regex("Interval writes: ([0-9.]+[KMGT]*) writes, ([0-9.]+[KMGT]*) keys, ([0-9.]+[KMGT]*) commit groups, ([0-9.]+[KMGT]*) writes per commit group, ingest: ([0-9.]+) [KMGT]*B, ([0-9.]+) [KMGT]*B/s.*"), flags);
+		if( cm.size() >= 7 ){
+			data["writes"] = cm.str(1);
+			data["written_keys"] = cm.str(2);
+			data["written_commit_groups"] = cm.str(3);
+			data["ingest_MBps"] = cm.str(5);
+			data["ingest_MBps"] = cm.str(6);
+			//DEBUG_OUT(args->debug_output_db_bench, "line parsed    : {}", buffer);
+		}
+		std::regex_search(buffer, cm, std::regex("Interval WAL: ([0-9.]+[KMGT]*) writes, ([0-9.]+[KMGT]*) syncs, ([0-9.]+[KMGT]*) writes per sync, written: ([0-9.]+) [KMGT]*B, ([0-9.]+) [KMGT]*B/s.*"), flags);
+		if( cm.size() >= 5 ){
+			data["WAL_writes"] = cm.str(1);
+			data["WAL_syncs"] = cm.str(2);
+			data["WAL_written_MB"] = cm.str(4);
+			data["WAL_written_MBps"] = cm.str(5);
+			//DEBUG_OUT(args->debug_output_db_bench, "line parsed    : {}", buffer);
+		}
+		std::regex_search(buffer, cm, std::regex("Interval stall: ([0-9:.]+) H:M:S, ([0-9.]+) percent.*"), flags);
+		if( cm.size() >= 3 ){
+			data["stall"] = cm.str(1);
+			data["stall_percent"] = cm.str(2);
+			//DEBUG_OUT(args->debug_output_db_bench, "line parsed    : {}", buffer);
 
-		if (std::regex_search(buffer, std::regex("Interval stall:.*")))
-			return USE_LINE_END;
-
-		return DONT_USE;
+			spdlog::info("SystemStat : {}", str());
+			data.clear();
+		}
 	}
 };
 
 ////////////////////////////////////////////////////////////////////////////////////
-
 #undef __CLASS__
 #define __CLASS__ "SystemStats::"
-class SystemStats {
-	public:
-	std::map<std::string, std::string> data;
+
+class SystemStats : public ExperimentTask {
+	Args* args;
 	bool debug_out = false;
 
-	SystemStats(bool debug_out=false) {
-		getStatsLoad(debug_out);
+	public: //----------------------------------------------------------------------
+	SystemStats(Args* args_) : ExperimentTask("systemstats"), args(args_) {
+		DEBUG_MSG("constructor");
+		std::string cmd(fmt::format("while true; do sleep {} && uptime; done", args->stats_interval));
+		process.reset(new ProcessController(
+			name.c_str(),
+			cmd.c_str(),
+			[this](const char* v){this->inputHandler(v);},
+			debug_out
+			));
 	}
-	SystemStats(const SystemStats& src) {*this = src;}
-	SystemStats& operator= (const SystemStats& src) {
-		data = src.data;
-		debug_out = src.debug_out;
-		return *this;
-	}
-
-	std::string str() {
-		std::string s;
-		for (auto i : data)
-			s += fmt::format("{}{}={}", (s.length() > 0) ? ", " : "", i.first, i.second);
-		return s;
-	}
+	~SystemStats() {}
 
 	private: //---------------------------------------------------------------------
-	void getStatsLoad(bool debug_out) {
-		auto flags = std::regex_constants::match_any;
-		std::string ret;
+	void inputHandler(const char* buffer) {
 		std::string aux;
-		std::smatch sm;
-		if (Subprocess("uptime", "uptime").getAll(ret) > 0) {
-			std::regex_search(ret, sm, std::regex("load average:\\s+([0-9]+[.,][0-9]+),\\s+([0-9]+[.,][0-9]+),\\s+([0-9]+[.,][0-9]+)"), flags);
-			if( sm.size() >= 4 ){
-				data["load1"]  = str_replace(aux, sm.str(1), ',', '.');
-				data["load5"]  = str_replace(aux, sm.str(2), ',', '.');
-				data["load15"] = str_replace(aux, sm.str(3), ',', '.');
-				DEBUG_OUT(debug_out, "line parsed    : {}", ret);
-			} else {
-				DEBUG_OUT(debug_out, "line not parsed: {}", ret);
-			}
+		std::cmatch cm;
+		std::regex_search(buffer, cm, std::regex("load average:\\s+([0-9]+[.,][0-9]+),\\s+([0-9]+[.,][0-9]+),\\s+([0-9]+[.,][0-9]+)"));
+		if( cm.size() >= 4 ){
+			data.clear();
+			data["load1"]  = str_replace(aux, cm.str(1), ',', '.');
+			data["load5"]  = str_replace(aux, cm.str(2), ',', '.');
+			data["load15"] = str_replace(aux, cm.str(3), ',', '.');
+
+			spdlog::info("SystemStat : {}", str());
 		}
 	}
 };
 
 ////////////////////////////////////////////////////////////////////////////////////
-
 #undef __CLASS__
-#define __CLASS__ "IOStats::"
-class IOStats {
-	public:
-	std::map<std::string, std::string> data;
+#define __CLASS__ "IOStat::"
 
-	IOStats() {}
-	IOStats(const char* buffer, void* params) {
+class IOStat : public ExperimentTask {
+	Args* args;
+
+	bool first = true;
+	std::vector<std::string> columns;
+
+	public: //----------------------------------------------------------------------
+	IOStat(Args* args_) : ExperimentTask("iostat"), args(args_) {
+		DEBUG_MSG("constructor");
+		devCheck();
+		std::string cmd(fmt::format("iostat -xm {} {}", args->stats_interval, args->io_device));
+		process.reset(new ProcessController(
+			name.c_str(),
+			cmd.c_str(),
+			[this](const char* v){this->inputHandler(v);},
+			args->debug_output_iostat
+			));
+	}
+	~IOStat() {}
+
+	private: //---------------------------------------------------------------------
+	void inputHandler(const char* buffer) {
 		//Device            r/s     w/s     rMB/s     wMB/s   rrqm/s   wrqm/s  %rrqm  %wrqm r_await w_await aqu-sz rareq-sz wareq-sz  svctm  %util
 		//nvme0n1          0,00    0,00      0,00      0,00     0,00     0,00   0,00   0,00    0,00    0,00   0,00     0,00     0,00   0,00   0,00
-		std::vector<std::string> columns;
-		std::vector<std::string> values;
 
-		if (params == nullptr)
-			throw Exception("invalid params");
-		Args* args = static_cast<Args*>(params);
+		if (std::regex_search(buffer, std::regex(fmt::format("^({})\\s+", args->io_device)))) {
+			if (first) {
+				first = false;
+			} else {
+				std::vector<std::string> values;
+				auto columns_s = columns.size();
+				auto values_s = split_columns(values, buffer, args->io_device.c_str());
 
-		auto columns_s = split_columns(columns, buffer, "Device");
-		auto values_s = split_columns(values, buffer, args->io_device.c_str());
+				if (values_s == 0 || values_s != columns_s) {
+					throw Exception(fmt::format("invalid iostat data: {}", buffer));
+				}
 
-		if (columns_s == 0 || columns_s != values_s)
-			throw Exception("invalid iostats");
+				data.clear();
+				std::string aux;
+				for (int i=0; i < columns_s; i++) {
+					data[columns[i]] = str_replace(aux, values[i], ',', '.');
+				}
 
-		std::string aux;
-		for (int i=0; i < columns_s; i++) {
-			data[columns[i]] = str_replace(aux, values[i], ',', '.');
+				spdlog::info("IOStat     : {}", str());
+			}
+
+		} else if (first && std::regex_search(buffer, std::regex("^(Device)\\s+"))) {
+			if (columns.size() > 0)
+				throw Exception("iostat header read twice");
+			if (split_columns(columns, buffer, "Device") == 0)
+				throw Exception(fmt::format("invalid iostat header: {}", buffer));
 		}
 	}
-	IOStats(const IOStats& src) {*this = src;}
-	IOStats& operator= (const IOStats& src) {
-		data = src.data;
-		return *this;
-	}
-	std::string str() {
-		std::string s;
-		for (auto i : data)
-			s += fmt::format("{}{}={}", (s.length() > 0) ? ", " : "", i.first, i.second);
-		return s;
-	}
-};
 
-////////////////////////////////////////////////////////////////////////////////////
-
-#undef __CLASS__
-#define __CLASS__ "IOStatsThread::"
-class IOStatsThread : public ExperimentTask<IOStats> {
-	bool begin_use_stats = false;
-	Args *args;
-
-	public:    //------------------------------------------------------------------
-	IOStatsThread(const char* name_, Args* args_) : ExperimentTask(name_), args(args_) {
-		DEBUG_MSG("constructor of task {}", name);
-		debug_out = args_->debug_output_iostat;
-		must_not_finish = true;
-		stats_params = (void*) args_;
-
-		devCheck(args_->io_device);
-
-		launchThread();
-	}
-
-	protected: //------------------------------------------------------------------
-	void devCheck(std::string& device) {
-		if (device.length() == 0)
+	void devCheck() {
+		if (args->io_device.length() == 0)
 			throw Exception("io_device not specified");
 
-		std::string filename("/dev/"); filename += device;
+		std::string filename("/dev/"); filename += args->io_device;
 		struct stat s;
 
 		if (stat(filename.c_str(), &s) != 0)
 			throw Exception(fmt::format("failed to read device {}", filename));
 	}
-
-	virtual std::string getCmd() override {
-		return fmt::format("iostat -xm {} {}", args->stats_interval, args->io_device);
-	}
-
-	virtual StatsParseLine parseThisLine(const char* buffer) override {
-		std::regex header_line(fmt::format("(Device)\\s+", args->io_device));
-		std::regex device_line(fmt::format("({})\\s+", args->io_device));
-
-		if (begin_use_stats) {
-			if (std::regex_search(buffer, header_line))
-				return USE_LINE;
-
-			if (std::regex_search(buffer, device_line))
-				return USE_LINE_END;
-		} else {
-			if (std::regex_search(buffer, device_line))
-				begin_use_stats = true;
-		}
-
-		return DONT_USE;
-	}
 };
 
 ////////////////////////////////////////////////////////////////////////////////////
-
 #undef __CLASS__
 #define __CLASS__ "Program::"
+
 class Program {
+	static Program* this_;
 	Args args;
 
+	std::unique_ptr<DBBench>     dbbench;
+	std::unique_ptr<IOStat>      iostat;
+	std::unique_ptr<SystemStats> sysstat;
+
 	public: //---------------------------------------------------------------------
-	void main(int argc, char** argv) {
-		DEBUG_MSG("initialized");
-		args.parseArgs(argc, argv);
-
-		DBBench db_bench("dbbench", &args);
-		IOStatsThread iostat("iostat", &args);
-
-		if (args.db_create)
-			db_bench.createDB();
-
-		db_bench.launchThread();
-
-		int force_finish = 0;
-
-		DBBenchStats stats_db_bench;
-		IOStats stats_io;
-		while (!db_bench.finished()) {
-
-			iostat.consumeStats(stats_io);
-
-			if (db_bench.consumeStats(stats_db_bench)) {
-				spdlog::info("system   stats: {}", SystemStats(args.debug_output).str());
-				spdlog::info("I/O      stats: {}", stats_io.str());
-				spdlog::info("db_bench stats: {}", stats_db_bench.str());
-			}
-
-			std::this_thread::sleep_for(std::chrono::milliseconds(500));
-
-			if (++force_finish > 30) {
-				DEBUG_MSG("force finish");
-				break;
-			}
+	Program() {
+		DEBUG_MSG("constructor");
+		Program::this_ = this;
+		if (setpgrp() < 0) {
+			spdlog::error("failed to create process group");
+			exit(EXIT_FAILURE);
 		}
+		std::signal(SIGTERM, Program::signalWrapper);
+		std::signal(SIGSEGV, Program::signalWrapper);
+		std::signal(SIGINT,  Program::signalWrapper);
+		std::signal(SIGILL,  Program::signalWrapper);
+		std::signal(SIGABRT, Program::signalWrapper);
+		std::signal(SIGFPE,  Program::signalWrapper);
+	}
+	~Program() {
+		DEBUG_MSG("destructor");
+		std::signal(SIGTERM, SIG_DFL);
+		std::signal(SIGSEGV, SIG_DFL);
+		std::signal(SIGINT,  SIG_DFL);
+		std::signal(SIGILL,  SIG_DFL);
+		std::signal(SIGABRT, SIG_DFL);
+		std::signal(SIGFPE,  SIG_DFL);
+		Program::this_ = nullptr;
+	}
 
-		iostat.stop();
-		db_bench.stop();
-		DEBUG_MSG("finished");
+	int main(int argc, char** argv) noexcept {
+		DEBUG_MSG("initialized");
+		try {
+			args.parseArgs(argc, argv);
+
+			dbbench.reset(new DBBench(&args));
+			iostat.reset(new IOStat(&args));
+			sysstat.reset(new SystemStats(&args));
+
+			int force_finish = 0;
+			while (
+				(dbbench.get() != nullptr && dbbench->isActive()) &&
+				(iostat.get()  != nullptr && iostat->isActive() ) &&
+				(sysstat.get() != nullptr && sysstat->isActive())
+				)
+			{
+				std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+				if (++force_finish > 30) {
+					DEBUG_MSG("force finish");
+					iostat->stop();
+				}
+			}
+
+			resetAll();
+
+		} catch (const std::exception& e) {
+			spdlog::critical(e.what());
+			resetAll();
+			spdlog::info("exit(1)");
+			return 1;
+		}
+		spdlog::info("exit(0)");
+		return 0;
+	}
+
+	private: //--------------------------------------------------------------------
+	void resetAll() noexcept {
+		dbbench.reset(nullptr);
+		iostat.reset(nullptr);
+		sysstat.reset(nullptr);
+	}
+
+	static void signalWrapper(int signal) noexcept {
+		if (Program::this_)
+			Program::this_->signalHandler(signal);
+	}
+	void signalHandler(int signal) noexcept {
+		auto group = getpgrp();
+		spdlog::warn("received signal {}, process group = {}", signal, group);
+
+		resetAll();
+
+		std::signal(signal, SIG_DFL);
+		killpg(group, signal);
 	}
 };
+Program* Program::this_;
 
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
 #define __CLASS__ ""
 
-void signal_handler(int signal) {
-	auto group = getpgrp();
-	spdlog::warn("received signal {}, process group = {}", signal, group);
-	std::signal(signal, SIG_DFL);
-	killpg(group, signal);
-}
-
-////////////////////////////////////////////////////////////////////////////////////
-
 int main(int argc, char** argv) {
-	spdlog::info("Initializing program {}", argv[0]);
-
-	if (setpgrp() < 0) {
-		spdlog::error("failed to create process group");
-		return 1;
-	}
-	std::signal(SIGTERM, signal_handler);
-	std::signal(SIGSEGV, signal_handler);
-	std::signal(SIGINT, signal_handler);
-	std::signal(SIGILL, signal_handler);
-	std::signal(SIGABRT, signal_handler);
-	std::signal(SIGFPE, signal_handler);
-
-	try {
-
-		Program().main(argc, argv);
-
-	} catch (const std::exception& e) {
-		spdlog::error(e.what());
-		std::raise(SIGTERM);
-		return 1;
-	}
-
-	spdlog::info("exit OK!");
-	return 0;
+	Program p;
+	return p.main(argc, argv);
 }
