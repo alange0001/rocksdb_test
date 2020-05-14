@@ -27,7 +27,7 @@ class DBBench : public ExperimentTask {
 	Args* args;
 
 	public:    //------------------------------------------------------------------
-	DBBench(Args* args_) : ExperimentTask("dbbench"), args(args_) {
+	DBBench(Clock* clock_, Args* args_) : ExperimentTask("dbbench", clock_), args(args_) {
 		DEBUG_MSG("constructor");
 
 		if (args->db_create)
@@ -37,7 +37,8 @@ class DBBench : public ExperimentTask {
 		process.reset(new ProcessController(
 			name.c_str(),
 			cmd.c_str(),
-			[this](const char* v){this->inputHandler(v);},
+			[this](const char* v){this->stdoutHandler(v);},
+			[this](const char* v){this->default_stderr_handler(v);},
 			args->debug_output_db_bench
 			));
 
@@ -50,7 +51,7 @@ class DBBench : public ExperimentTask {
 		spdlog::info("Creating Database. Command:\n{}", cmd);
 		auto ret = std::system(cmd.c_str());
 		if (ret != 0)
-			throw Exception("database creation error");
+			throw std::runtime_error("database creation error");
 	}
 	std::string commandCreateDB() {
 		const char *template_cmd =
@@ -123,7 +124,7 @@ class DBBench : public ExperimentTask {
 		return ret;
 	}
 
-	void inputHandler(const char* buffer) {
+	void stdoutHandler(const char* buffer) {
 		auto flags = std::regex_constants::match_any;
 		std::cmatch cm;
 
@@ -160,7 +161,7 @@ class DBBench : public ExperimentTask {
 			data["stall_percent"] = cm.str(2);
 			//DEBUG_OUT(args->debug_output_db_bench, "line parsed    : {}", buffer);
 
-			spdlog::info("SystemStat : {}", str());
+			print();
 			data.clear();
 		}
 	}
@@ -175,20 +176,21 @@ class SystemStats : public ExperimentTask {
 	bool debug_out = false;
 
 	public: //----------------------------------------------------------------------
-	SystemStats(Args* args_) : ExperimentTask("systemstats"), args(args_) {
+	SystemStats(Clock* clock_, Args* args_) : ExperimentTask("systemstats", clock_), args(args_) {
 		DEBUG_MSG("constructor");
 		std::string cmd(fmt::format("while true; do sleep {} && uptime; done", args->stats_interval));
 		process.reset(new ProcessController(
 			name.c_str(),
 			cmd.c_str(),
-			[this](const char* v){this->inputHandler(v);},
-			debug_out
+			[this](const char* v){this->stdoutHandler(v);},
+			[this](const char* v){this->default_stderr_handler(v);},
+			args->debug_output
 			));
 	}
 	~SystemStats() {}
 
 	private: //---------------------------------------------------------------------
-	void inputHandler(const char* buffer) {
+	void stdoutHandler(const char* buffer) {
 		std::string aux;
 		std::cmatch cm;
 		std::regex_search(buffer, cm, std::regex("load average:\\s+([0-9]+[.,][0-9]+),\\s+([0-9]+[.,][0-9]+),\\s+([0-9]+[.,][0-9]+)"));
@@ -198,7 +200,7 @@ class SystemStats : public ExperimentTask {
 			data["load5"]  = str_replace(aux, cm.str(2), ',', '.');
 			data["load15"] = str_replace(aux, cm.str(3), ',', '.');
 
-			spdlog::info("SystemStat : {}", str());
+			print();
 		}
 	}
 };
@@ -214,21 +216,22 @@ class IOStat : public ExperimentTask {
 	std::vector<std::string> columns;
 
 	public: //----------------------------------------------------------------------
-	IOStat(Args* args_) : ExperimentTask("iostat"), args(args_) {
+	IOStat(Clock* clock_, Args* args_) : ExperimentTask("iostat", clock_), args(args_) {
 		DEBUG_MSG("constructor");
 		devCheck();
 		std::string cmd(fmt::format("iostat -xm {} {}", args->stats_interval, args->io_device));
 		process.reset(new ProcessController(
 			name.c_str(),
 			cmd.c_str(),
-			[this](const char* v){this->inputHandler(v);},
+			[this](const char* v){this->stdoutHandler(v);},
+			[this](const char* v){this->default_stderr_handler(v);},
 			args->debug_output_iostat
 			));
 	}
 	~IOStat() {}
 
 	private: //---------------------------------------------------------------------
-	void inputHandler(const char* buffer) {
+	void stdoutHandler(const char* buffer) {
 		//Device            r/s     w/s     rMB/s     wMB/s   rrqm/s   wrqm/s  %rrqm  %wrqm r_await w_await aqu-sz rareq-sz wareq-sz  svctm  %util
 		//nvme0n1          0,00    0,00      0,00      0,00     0,00     0,00   0,00   0,00    0,00    0,00   0,00     0,00     0,00   0,00   0,00
 
@@ -241,7 +244,7 @@ class IOStat : public ExperimentTask {
 				auto values_s = split_columns(values, buffer, args->io_device.c_str());
 
 				if (values_s == 0 || values_s != columns_s) {
-					throw Exception(fmt::format("invalid iostat data: {}", buffer));
+					throw std::runtime_error(fmt::format("invalid iostat data: {}", buffer));
 				}
 
 				data.clear();
@@ -250,26 +253,26 @@ class IOStat : public ExperimentTask {
 					data[columns[i]] = str_replace(aux, values[i], ',', '.');
 				}
 
-				spdlog::info("IOStat     : {}", str());
+				print();
 			}
 
 		} else if (first && std::regex_search(buffer, std::regex("^(Device)\\s+"))) {
 			if (columns.size() > 0)
-				throw Exception("iostat header read twice");
+				throw std::runtime_error("iostat header read twice");
 			if (split_columns(columns, buffer, "Device") == 0)
-				throw Exception(fmt::format("invalid iostat header: {}", buffer));
+				throw std::runtime_error(fmt::format("invalid iostat header: {}", buffer));
 		}
 	}
 
 	void devCheck() {
 		if (args->io_device.length() == 0)
-			throw Exception("io_device not specified");
+			throw std::runtime_error("io_device not specified");
 
 		std::string filename("/dev/"); filename += args->io_device;
 		struct stat s;
 
 		if (stat(filename.c_str(), &s) != 0)
-			throw Exception(fmt::format("failed to read device {}", filename));
+			throw std::runtime_error(fmt::format("failed to read device {}", filename));
 	}
 };
 
@@ -280,6 +283,7 @@ class IOStat : public ExperimentTask {
 class Program {
 	static Program* this_;
 	Args args;
+	Clock clock;
 
 	std::unique_ptr<DBBench>     dbbench;
 	std::unique_ptr<IOStat>      iostat;
@@ -316,9 +320,10 @@ class Program {
 		try {
 			args.parseArgs(argc, argv);
 
-			dbbench.reset(new DBBench(&args));
-			iostat.reset(new IOStat(&args));
-			sysstat.reset(new SystemStats(&args));
+			dbbench.reset(new DBBench(&clock, &args));
+			clock.reset();
+			iostat.reset(new IOStat(&clock, &args));
+			sysstat.reset(new SystemStats(&clock, &args));
 
 			int force_finish = 0;
 			while (

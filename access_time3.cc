@@ -186,20 +186,20 @@ class Worker {
 		struct stat st;
 		DEBUG_MSG("get file stats");
 		if (stat(args->filename.c_str(), &st) == EOF)
-			throw Exception("can't read file stats");
+			throw std::runtime_error("can't read file stats");
 		if ((args->block_size * 1024) % st.st_blksize != 0)
-			throw Exception("block size must be multiple of filesystem's block size");
+			throw std::runtime_error("block size must be multiple of filesystem's block size");
 		if (!args->create_file) {
 			uint64_t size = st.st_size / 1024 / 1024;
 			spdlog::info("File already created. Set --filesize={}", size);
 			if (size < 10)
-				throw Exception("invalid --filesize");
+				throw std::runtime_error("invalid --filesize");
 			args->filesize = size;
 		}
 		DEBUG_MSG("open file");
 		file = std::fopen(args->filename.c_str(), "r+");
 		if (file == NULL)
-			throw Exception("can't open file");
+			throw std::runtime_error("can't open file");
 
 		thread       = std::thread( [this]{this->threadMain();} );
 		thread_flush = std::thread( [this]{this->threadFlush();} );
@@ -254,17 +254,17 @@ class Worker {
 
 				if (rand_ratio(rand_eng) < random_ratio_uint) { //random access
 					if (std::fseek(file, rand_block(rand_eng) * buffer_size, SEEK_SET) != 0)
-						throw Exception("fseek error");
+						throw std::runtime_error("fseek error");
 				} else {                                        //sequential access
 					uint64_t pos = std::ftell(file);
 					if (pos >  (filesize_bytes - buffer_size -1))
 						if (std::fseek(file, 0, SEEK_SET) != 0)
-							throw Exception("fseek begin error");
+							throw std::runtime_error("fseek begin error");
 				}
 
 				if (rand_ratio(rand_eng) < write_ratio_uint) { //write
 					if (std::fwrite(buffer.get(), buffer_size, 1, file) != 1)
-						throw Exception("fwrite error");
+						throw std::runtime_error("fwrite error");
 
 					if (args->flush_blocks) {
 						if (++flush_count >= args->flush_blocks) {
@@ -274,7 +274,7 @@ class Worker {
 					}
 				} else {                                       //read
 					if (std::fread(buffer.get(), buffer_size, 1, file) != 1)
-						throw Exception("fread error");
+						throw std::runtime_error("fread error");
 				}
 
 				blocks++;
@@ -325,21 +325,21 @@ class Worker {
 		spdlog::info("creating file {}", args->filename);
 		std::FILE* f = std::fopen(args->filename.c_str(), "w");
 		if (f == NULL)
-			throw Exception("can't create file");
+			throw std::runtime_error("can't create file");
 		try {
 			for (uint64_t i=0; i<args->filesize; i++) {
 				if (std::fwrite(buffer, buffer_size, 1, f) != 1) {
 					std::fclose(f);
 					std::remove(args->filename.c_str());
-					throw Exception("write error");
+					throw std::runtime_error("write error");
 				}
 				if (i==0) {
 					std::fflush(f);
 					struct stat st;
 					if (stat(args->filename.c_str(), &st) == EOF)
-						throw Exception("can't read file stats");
+						throw std::runtime_error("can't read file stats");
 					if ((args->block_size * 1024) % st.st_blksize != 0)
-						throw Exception("block size must be multiple of filesystem's block size");
+						throw std::runtime_error("block size must be multiple of filesystem's block size");
 				}
 			}
 			DEBUG_MSG("file created");
@@ -353,8 +353,8 @@ class Worker {
 	}
 
 	void randomize_buffer(char* buffer, uint32_t size) {
-		if (buffer == nullptr) throw Exception("invalid buffer");
-		if (size == 0) throw Exception("invalid size");
+		if (buffer == nullptr) throw std::runtime_error("invalid buffer");
+		if (size == 0) throw std::runtime_error("invalid size");
 
 		std::uniform_int_distribution<char> dist(0,255);
 
@@ -422,7 +422,7 @@ class Reader {
 					spdlog::info("stop command received");
 					stop_ = true;
 				} else if (!args->parseLine(command, value)) {
-					throw Exception(fmt::format("invalid command: {}", line));
+					throw std::runtime_error(fmt::format("invalid command: {}", line));
 				}
 			}
 			stop_ = true;

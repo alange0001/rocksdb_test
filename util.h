@@ -14,9 +14,9 @@
 #include <fmt/format.h>
 
 ////////////////////////////////////////////////////////////////////////////////////
-
 #undef __CLASS__
 #define __CLASS__ ""
+
 #define DEBUG_MSG(format, ...) spdlog::debug("[{}] " __CLASS__ "{}(): " format, __LINE__, __func__ , ##__VA_ARGS__)
 #define DEBUG_OUT(condition, format, ...) \
 	if (condition) \
@@ -80,23 +80,30 @@ class ProcessController {
 	bool        debug_out;
 
 	bool must_stop      = false;
-	bool thread_active  = false;
 	bool program_active = false;
 
 	pid_t        pid     = 0;
-	std::FILE*   f_read  = nullptr;
-	std::FILE*   f_write = nullptr;
+	std::FILE*   f_stdin  = nullptr;
+	std::FILE*   f_stdout = nullptr;
+	std::FILE*   f_stderr = nullptr;
 
-	std::thread        thread;
+	std::thread        thread_stdout;
+	bool               thread_stdout_active  = false;
+	std::thread        thread_stderr;
+	bool               thread_stderr_active  = false;
 	std::exception_ptr thread_exception;
 
-	std::function<void(const char*)> handler;
+	std::function<void(const char*)> handler_stdout;
+	std::function<void(const char*)> handler_stderr;
 
-	void threadMain() noexcept;
+	void threadStdout() noexcept;
+	void threadStderr() noexcept;
 	bool checkStatus() noexcept;
 
 	public: //---------------------------------------------------------------------
-	ProcessController(const char* name_, const char* cmd, std::function<void(const char*)> handler_,
+	ProcessController(const char* name_, const char* cmd,
+			std::function<void(const char*)> handler_stdout_=ProcessController::default_stdout_handler,
+			std::function<void(const char*)> handler_stderr_=ProcessController::default_stderr_handler,
 			bool debug_out_=false);
 	~ProcessController();
 
@@ -105,20 +112,25 @@ class ProcessController {
 	bool isActive(bool throwexcept=false);
 	int  exit_code      = 0;
 	int  signal         = 0;
+
+	static void default_stderr_handler(const char* v) { std::fputs(v, stderr); }
+	static void default_stdout_handler(const char* v) { std::fputs(v, stdout); }
 };
 
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
-#define __CLASS__ "Exception::"
+#define __CLASS__ "Clock::"
 
-class Exception : public std::exception {
-	public:
-	std::string msg;
-	Exception(const char* msg_);
-	Exception(const std::string& msg_);
-	Exception(const Exception& src);
-	Exception& operator=(const Exception& src);
-	virtual const char* what() const noexcept;
+struct Clock {
+	std::chrono::system_clock::time_point time_init;
+	Clock() { reset(); }
+	void reset() {
+		time_init = std::chrono::system_clock::now();
+	}
+	uint32_t seconds() {
+		auto time_cur = std::chrono::system_clock::now();
+		return std::chrono::duration_cast<std::chrono::seconds>(time_cur - time_init).count();
+	}
 };
 
 ////////////////////////////////////////////////////////////////////////////////////
@@ -128,15 +140,17 @@ class Exception : public std::exception {
 class ExperimentTask {
 	protected: //------------------------------------------------------------------
 	std::string name = "";
+	Clock* clock = nullptr;
 	std::map<std::string, std::string> data;
-
 	std::unique_ptr<ProcessController> process;
 
 	ExperimentTask() {}
 
 	public: //---------------------------------------------------------------------
-	ExperimentTask(const std::string name_) : name(name_) {
+	ExperimentTask(const std::string name_, Clock* clock_) : name(name_), clock(clock_) {
 		DEBUG_MSG("constructor of task {}", name);
+		if (clock == nullptr)
+			throw std::runtime_error("invalid clock");
 	}
 	virtual ~ExperimentTask() {
 		DEBUG_MSG("destructor of task {}", name);
@@ -150,9 +164,18 @@ class ExperimentTask {
 	}
 	std::string str() {
 		std::string s;
+		if (data.size() == 0)
+			spdlog::warn("no data in task {}", name);
 		for (auto i : data)
 			s += fmt::format("{}{}={}", (s.length() > 0) ? ", " : "", i.first, i.second);
 		return s;
+	}
+	void print() {
+		spdlog::info("Data task {}: time={}, {}", name, clock->seconds(), str());
+	}
+
+	void default_stderr_handler (const char* buffer) {
+		spdlog::warn("stderr task {}: {}", name, buffer);
 	}
 };
 

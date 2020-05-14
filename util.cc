@@ -168,31 +168,35 @@ std::string command_output(const char* cmd, bool debug_out) {
 #undef __CLASS__
 #define __CLASS__ "ProcessController::"
 
-ProcessController::ProcessController(const char* name_, const char* cmd, std::function<void(const char*)> handler_, bool debug_out_)
-: name(name_), handler(handler_), debug_out(debug_out_)
+ProcessController::ProcessController(const char* name_, const char* cmd,
+		std::function<void(const char*)> handler_stdout_, std::function<void(const char*)> handler_stderr_,
+		bool debug_out_)
+: name(name_), handler_stdout(handler_stdout_), handler_stderr(handler_stderr_), debug_out(debug_out_)
 {
 	DEBUG_MSG("constructor. Process {}", name);
 
-	if (handler_ == nullptr)
-		throw std::runtime_error(fmt::format("handler not defined for the process {}", name));
-
 	pid_t child_pid;
-	int pipe_read[2];
-	pipe(pipe_read);
-	DEBUG_MSG("pipe_read=({}, {})", pipe_read[0], pipe_read[1]);
-	int pipe_write[2];
-	pipe(pipe_write);
-	DEBUG_MSG("pipe_write=({}, {})", pipe_write[0], pipe_write[1]);
+	int pipe_stdin[2];
+	pipe(pipe_stdin);
+	DEBUG_MSG("pipe_stdin=({}, {})", pipe_stdin[0], pipe_stdin[1]);
+	int pipe_stdout[2];
+	pipe(pipe_stdout);
+	DEBUG_MSG("pipe_stdout=({}, {})", pipe_stdout[0], pipe_stdout[1]);
+	int pipe_stderr[2];
+	pipe(pipe_stderr);
+	DEBUG_MSG("pipe_stderr=({}, {})", pipe_stderr[0], pipe_stderr[1]);
 
 	if ((child_pid = fork()) == -1)
 		throw std::runtime_error(fmt::format("fork error on process {}", name));
 
 	if (child_pid == 0) { //// child process ////
 		//DEBUG_MSG("child process initiated");
-		close(pipe_write[1]);
-		dup2(pipe_write[0], STDIN_FILENO);
-		close(pipe_read[0]);
-		dup2(pipe_read[1], STDOUT_FILENO);
+		close(pipe_stdin[1]);
+		dup2(pipe_stdin[0], STDIN_FILENO);
+		close(pipe_stdout[0]);
+		dup2(pipe_stdout[1], STDOUT_FILENO);
+		close(pipe_stderr[0]);
+		dup2(pipe_stderr[1], STDERR_FILENO);
 
 		setpgid(child_pid, child_pid);
 		execl("/bin/bash", "/bin/bash", "-c", cmd, (char*)NULL);
@@ -203,15 +207,20 @@ ProcessController::ProcessController(const char* name_, const char* cmd, std::fu
 
 	DEBUG_MSG("child pid={}", child_pid);
 	pid   = child_pid;
-	close(pipe_read[1]);
-	if ((f_read = fdopen(pipe_read[0], "r")) == NULL)
-		throw std::runtime_error(fmt::format("fdopen (pipe_read) error on subprocess {}", name));
-	close(pipe_write[0]);
-	if ((f_write  = fdopen(pipe_write[1], "w")) == NULL)
-		throw std::runtime_error(fmt::format("fdopen (pipe_write) error on subprocess {}", name));
+	close(pipe_stdin[0]);
+	if ((f_stdin  = fdopen(pipe_stdin[1], "w")) == NULL)
+		throw std::runtime_error(fmt::format("fdopen (pipe_stdin) error on process {}", name));
+	close(pipe_stdout[1]);
+	if ((f_stdout = fdopen(pipe_stdout[0], "r")) == NULL)
+		throw std::runtime_error(fmt::format("fdopen (pipe_stdout) error on process {}", name));
+	close(pipe_stderr[1]);
+	if ((f_stderr = fdopen(pipe_stderr[0], "r")) == NULL)
+		throw std::runtime_error(fmt::format("fdopen (pipe_stderr) error on process {}", name));
 
-	thread_active = true;
-	thread = std::thread( [this]{this->threadMain();} );
+	thread_stdout_active = true;
+	thread_stdout = std::thread( [this]{this->threadStdout();} );
+	thread_stderr_active = true;
+	thread_stderr = std::thread( [this]{this->threadStderr();} );
 	DEBUG_MSG("constructor finished", name);
 }
 
@@ -223,16 +232,18 @@ ProcessController::~ProcessController() {
 	if (checkStatus()) {
 		std::this_thread::sleep_for(std::chrono::milliseconds(100));
 		spdlog::warn("process {} (pid {}) still active. kill it", name, pid);
-		//kill(pid, SIGTERM);
 		killpg(pid, SIGTERM);
 	}
 
-	auto status_f_read = std::fclose(f_read);
-	auto status_f_write = std::fclose(f_write);
-	DEBUG_MSG("status_f_read={}, status_f_write={}", status_f_read, status_f_write);
+	auto status_f_stdin = std::fclose(f_stdin);
+	auto status_f_stdout = std::fclose(f_stdout);
+	auto status_f_stderr = std::fclose(f_stderr);
+	DEBUG_MSG("status_f_stdin={}, status_f_stdout={}, status_f_stderr={}", status_f_stdin, status_f_stdout, status_f_stderr);
 
-	if (thread.joinable())
-		thread.join();
+	if (thread_stdout.joinable())
+		thread_stdout.join();
+	if (thread_stderr.joinable())
+		thread_stderr.join();
 
 	DEBUG_MSG("destructor finished");
 }
@@ -255,7 +266,7 @@ bool ProcessController::isActive(bool throwexcept) {
 		if (signal != 0)
 			throw std::runtime_error(fmt::format("program {} exit with signal {}", name, signal));
 	}
-	return thread_active && aux_status;
+	return thread_stdout_active && thread_stderr_active && aux_status;
 }
 
 bool ProcessController::puts(const std::string value) noexcept {
@@ -264,33 +275,56 @@ bool ProcessController::puts(const std::string value) noexcept {
 		spdlog::error("puts failed. Process {} is not active", name);
 		return false;
 	}
-	if (std::fputs(value.c_str(), f_write) == EOF || std::fflush(f_write) == EOF) {
+	if (std::fputs(value.c_str(), f_stdin) == EOF || std::fflush(f_stdin) == EOF) {
 		spdlog::error("fputs/fflush error for process {}", name);
 		return false;
 	}
 	return true;
 }
 
-void ProcessController::threadMain() noexcept {
+void ProcessController::threadStdout() noexcept {
 	DEBUG_MSG("initiated for process {} (pid {})", name, pid);
-	thread_active = true;
+	thread_stdout_active = true;
 
 	const uint buffer_size = 512;
 	char buffer[buffer_size]; buffer[0] = '\0'; buffer[buffer_size -1] = '\0';
 
 	try {
-		while (!must_stop && std::fgets(buffer, buffer_size -1, f_read) != NULL) {
+		while (!must_stop && std::fgets(buffer, buffer_size -1, f_stdout) != NULL) {
 			if (debug_out) {
 				std::string aux = str_replace(buffer, '\n', ' ');
-				DEBUG_OUT(true, "line read: {}", aux);
+				DEBUG_OUT(true, "stdout line: {}", aux);
 			}
-			handler(buffer);
+			handler_stdout(buffer);
 		}
 	} catch(std::exception& e) {
 		DEBUG_MSG("exception received: {}", e.what());
 		thread_exception = std::current_exception();
 	}
-	thread_active = false;
+	thread_stdout_active = false;
+	DEBUG_MSG("finish");
+}
+
+void ProcessController::threadStderr() noexcept {
+	DEBUG_MSG("initiated for process {} (pid {})", name, pid);
+	thread_stderr_active = true;
+
+	const uint buffer_size = 512;
+	char buffer[buffer_size]; buffer[0] = '\0'; buffer[buffer_size -1] = '\0';
+
+	try {
+		while (!must_stop && std::fgets(buffer, buffer_size -1, f_stderr) != NULL) {
+			if (debug_out) {
+				std::string aux = str_replace(buffer, '\n', ' ');
+				DEBUG_OUT(true, "stderr line: {}", aux);
+			}
+			handler_stderr(buffer);
+		}
+	} catch(std::exception& e) {
+		DEBUG_MSG("exception received: {}", e.what());
+		thread_exception = std::current_exception();
+	}
+	thread_stderr_active = false;
 	DEBUG_MSG("finish");
 }
 
@@ -333,26 +367,5 @@ bool ProcessController::checkStatus() noexcept {
 	}
 	program_active = (!WIFEXITED(status) && !WIFSIGNALED(status));
 	return program_active;
-}
-
-////////////////////////////////////////////////////////////////////////////////////
-#undef __CLASS__
-#define __CLASS__ "Exception::"
-
-Exception::Exception(const char* msg_) : msg(msg_) {
-	DEBUG_MSG("Exception created: {}", msg_);
-}
-Exception::Exception(const std::string& msg_) : msg(msg_) {
-	DEBUG_MSG("Exception created: {}", msg_);
-}
-Exception::Exception(const Exception& src) {
-	*this = src;
-}
-Exception& Exception::operator=(const Exception& src) {
-	msg = src.msg;
-	return *this;
-}
-const char* Exception::what() const noexcept {
-	return msg.c_str();
 }
 

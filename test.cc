@@ -43,7 +43,7 @@ int main() {
 	//fmt::print(stdout, "{}", command_output("build/access_time3 --log_level=debug --filename=/mnt/work/tmp/0 --create_file=false --block_size=4 --wait=true 2>&1", true));
 
 	//ProcessController p("test1", "build/access_time3 --log_level=debug --filename=/mnt/work/tmp/0 --create_file=false --block_size=4 --wait=true 2>&1", line_handler, false);
-	ProcessController p("test1", "ls -l", line_handler, false);
+	ProcessController p("test1", "ls -l", line_handler);
 
 	uint count=0;
 	while (p.isActive()) {

@@ -8,12 +8,12 @@
 
 #include "args.h"
 
-#define DEBUG
+//#define DEBUG
 #ifdef DEBUG
 #	define DEFAULT_log_level "debug"
 #	define DEFAULT_debug_output false
 #else
-#	define DEFAULT_log_level "warn"
+#	define DEFAULT_log_level "info"
 #	define DEFAULT_debug_output false
 #endif
 
