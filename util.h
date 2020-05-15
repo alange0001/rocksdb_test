@@ -4,7 +4,7 @@
 #include <algorithm>
 #include <functional>
 #include <vector>
-#include <map>
+#include <unordered_map>
 #include <exception>
 
 #include <atomic>
@@ -141,7 +141,7 @@ class ExperimentTask {
 	protected: //------------------------------------------------------------------
 	std::string name = "";
 	Clock* clock = nullptr;
-	std::map<std::string, std::string> data;
+	std::unordered_map<std::string, std::string> data;
 	std::unique_ptr<ProcessController> process;
 
 	ExperimentTask() {}
