@@ -171,11 +171,11 @@ class ExperimentTask {
 		return s;
 	}
 	void print() {
-		spdlog::info("Data task {}: time={}, {}", name, clock->seconds(), str());
+		spdlog::info("Task {}, STATS: time={}, {}", name, clock->seconds(), str());
 	}
 
 	void default_stderr_handler (const char* buffer) {
-		spdlog::warn("stderr task {}: {}", name, buffer);
+		spdlog::warn("Task {}, stderr: {}", name, buffer);
 	}
 };
 

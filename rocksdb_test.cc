@@ -39,7 +39,7 @@ class DBBench : public ExperimentTask {
 			cmd.c_str(),
 			[this](const char* v){this->stdoutHandler(v);},
 			[this](const char* v){this->default_stderr_handler(v);},
-			args->debug_output_db_bench
+			false
 			));
 
 	}
@@ -75,8 +75,8 @@ class DBBench : public ExperimentTask {
 		return ret;
 	}
 	std::string getCmd() {
-		uint32_t duration = args->hours * 60 * 60; /*hours to seconds*/
-		double   sine_b   = 0.000073 * (24.0/static_cast<double>(args->hours)); /*adjust the sine cycle*/
+		uint32_t duration_s = args->duration * 60; /*minutes to seconds*/
+		double   sine_b   = 0.000073 * ((24.0 * 60.0) / ((double)args->duration / (double)args->cycles)); /*adjust the sine cycle*/
 
 		const char *template_cmd =
 		"db_bench                                         \\\n"
@@ -108,17 +108,17 @@ class DBBench : public ExperimentTask {
 		"	--mix_seek_ratio=0.03                         \\\n"
 		"	--sine_mix_rate_interval_milliseconds=5000    \\\n"
 		"	--duration={}                                 \\\n"
-		"	--sine_a=1000                                 \\\n"
 		"	--sine_b={}                                   \\\n"
-		"	--sine_d=4500            2>&1                 ";
+		"	{}  2>&1";
 		std::string ret = fmt::format(template_cmd,
 			args->db_path,
 			args->db_config_file,
 			args->db_num_keys,
 			args->stats_interval,
 			args->db_cache_size,
-			duration,
-			sine_b);
+			duration_s,
+			sine_b,
+			args->db_bench_params);
 
 		spdlog::info("Executing db_bench. Command:\n{}", ret);
 		return ret;
@@ -127,6 +127,8 @@ class DBBench : public ExperimentTask {
 	void stdoutHandler(const char* buffer) {
 		auto flags = std::regex_constants::match_any;
 		std::cmatch cm;
+
+		spdlog::info("Task {}, stdout: {}", name, str_replace(buffer, '\n', ' '));
 
 		std::regex_search(buffer, cm, std::regex("thread [0-9]+: \\(([0-9.]+),([0-9.]+)\\) ops and \\(([0-9.]+),([0-9.]+)\\) ops/second in \\(([0-9.]+),([0-9.]+)\\) seconds.*"), flags);
 		if( cm.size() >= 7 ){
@@ -325,19 +327,12 @@ class Program {
 			iostat.reset(new IOStat(&clock, &args));
 			sysstat.reset(new SystemStats(&clock, &args));
 
-			int force_finish = 0;
 			while (
 				(dbbench.get() != nullptr && dbbench->isActive()) &&
-				(iostat.get()  != nullptr && iostat->isActive() ) &&
-				(sysstat.get() != nullptr && sysstat->isActive())
-				)
+				(iostat.get()  != nullptr && iostat->isActive())  &&
+				(sysstat.get() != nullptr && sysstat->isActive()) )
 			{
 				std::this_thread::sleep_for(std::chrono::milliseconds(500));
-
-				if (++force_finish > 30) {
-					DEBUG_MSG("force finish");
-					iostat->stop();
-				}
 			}
 
 			resetAll();
