@@ -191,6 +191,12 @@ public:
 			ret += fmt::format("{}{}={}", (ret.length() > 0) ? ", " : "", i.first, i.second);
 		return ret;
 	}
+	strType json() {
+		strType ret;
+		for (auto i : *this)
+			ret += fmt::format("{}\"{}\":\"{}\"", (ret.length() > 0) ? ", " : "", i.first, i.second);
+		return fmt::format("{} {} {}", '{', ret, '}');
+	}
 
 	struct iterator_item {
 		keyType& first;
@@ -256,17 +262,18 @@ class ExperimentTask {
 		process.reset(nullptr);
 	}
 
-	/*std::string str() {
+	std::string str() {
 		std::string s;
 		for (auto i : data)
 			s += fmt::format("{}{}={}", (s.length() > 0) ? ", " : "", i.first, i.second);
 		return s;
-	}*/
+	}
+
 	void print() {
 		if (data.size() == 0)
 			spdlog::warn("no data in task {}", name);
 		data.push_front("time", fmt::format("{}", clock->seconds()));
-		spdlog::info("Task {}, STATS: {}", name, data.str());
+		spdlog::info("Task {}, STATS: {}", name, data.json());
 	}
 
 	void default_stderr_handler (const char* buffer) {
