@@ -286,7 +286,7 @@ void ProcessController::threadStdout() noexcept {
 	DEBUG_MSG("initiated for process {} (pid {})", name, pid);
 	thread_stdout_active = true;
 
-	const uint buffer_size = 512;
+	const uint buffer_size = 1024;
 	char buffer[buffer_size]; buffer[0] = '\0'; buffer[buffer_size -1] = '\0';
 
 	try {
@@ -309,7 +309,7 @@ void ProcessController::threadStderr() noexcept {
 	DEBUG_MSG("initiated for process {} (pid {})", name, pid);
 	thread_stderr_active = true;
 
-	const uint buffer_size = 512;
+	const uint buffer_size = 1024;
 	char buffer[buffer_size]; buffer[0] = '\0'; buffer[buffer_size -1] = '\0';
 
 	try {
