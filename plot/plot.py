@@ -74,14 +74,12 @@ class File:
 
 		X = [i['time']      for i in self._data['dbbench']]
 		Y = [i['ops_per_s'] for i in self._data['dbbench']]
-		ax.plot(X, Y, '-', lw=1, label='ops_per_s')
+		ax.plot(X, Y, '-', lw=1, label='real')
 
 		Y = [ self._dbbench['sine_a'] * math.sin(self._dbbench['sine_b'] * x) + self._dbbench['sine_d'] for x in X]
-		ax.plot(X, Y, '-', lw=1, label='sine')
+		ax.plot(X, Y, '-', lw=1, label='expected')
 
-		#ax.set(title='fs%={FilesystemPercent}, threads={NumberOfFiles}'.format(
-		#	**self.metadata
-		#	), xlabel='writes/reads', ylabel='MiB/s')
+		ax.set(title="rocksdb throughput", xlabel="time (s)", ylabel="tx/s")
 
 		#chartBox = ax.get_position()
 		#ax.set_position([chartBox.x0, chartBox.y0, chartBox.width*0.65, chartBox.height])
@@ -89,7 +87,47 @@ class File:
 		ax.legend(loc='best', ncol=1, frameon=True)
 
 		if save:
-			save_name = '{}.{}'.format(self._filename, Options.format)
+			save_name = '{}_graph1.{}'.format(self._filename, Options.format)
+			fig.savefig(save_name)
+		plt.show()
+
+	def graph2(self, save=False):
+		fig, axs = plt.subplots(3, 1)
+		fig.set_figheight(5)
+		fig.set_figwidth(8)
+		axs[0].grid()
+		axs[1].grid()
+		axs[2].grid()
+
+		X = [i['time']      for i in self._data['iostat']]
+		Y = [i['rMB/s']     for i in self._data['iostat']]
+		axs[0].plot(X, Y, '-', lw=1, label='read')
+		Y = [i['wMB/s']     for i in self._data['iostat']]
+		axs[0].plot(X, Y, '-', lw=1, label='write')
+		axs[0].set(title="iostat", ylabel="MB/s")
+
+		Y = [i['r/s']     for i in self._data['iostat']]
+		axs[1].plot(X, Y, '-', lw=1, label='read')
+		Y = [i['w/s']     for i in self._data['iostat']]
+		axs[1].plot(X, Y, '-', lw=1, label='write')
+		axs[1].set(ylabel="IO/s")
+
+		Y = [i['%util']     for i in self._data['iostat']]
+		axs[2].plot(X, Y, '-', lw=1, label='%util')
+		axs[2].set(xlabel="time (s)", ylabel="percent")
+
+		#chartBox = ax.get_position()
+		#ax.set_position([chartBox.x0, chartBox.y0, chartBox.width*0.65, chartBox.height])
+		#ax.legend(loc='upper center', bbox_to_anchor=(1.35, 0.9), title='threads', ncol=1, frameon=True)
+
+		axs[0].legend(loc='upper right', ncol=1, frameon=True)
+		axs[1].legend(loc='upper right', ncol=1, frameon=True)
+		axs[2].legend(loc='upper right', ncol=1, frameon=True)
+
+		fig.tight_layout()
+
+		if save:
+			save_name = '{}_graph2.{}'.format(self._filename, Options.format)
 			fig.savefig(save_name)
 		plt.show()
 
@@ -115,5 +153,6 @@ def decimalSuffix(value):
 	else:
 		raise Exception("invalid number")
 
-f = File('data1/out6')
-f.graph1()
+f = File('data1/out9')
+#f.graph1()
+f.graph2()
