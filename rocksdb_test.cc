@@ -75,7 +75,7 @@ class DBBench : public ExperimentTask {
 	}
 	std::string getCmd() {
 		uint32_t duration_s = args->duration * 60; /*minutes to seconds*/
-		double   sine_b   = 0.000073 * ((24.0 * 60.0) / ((double)args->duration / (double)args->cycles)); /*adjust the sine cycle*/
+		double   sine_b   = 0.000073 * 24.0 * 60.0 * ((double)args->cycles / (double)args->duration); /*adjust the sine cycle*/
 
 		const char *template_cmd =
 		"db_bench                                         \\\n"
@@ -318,6 +318,7 @@ class Program {
 
 	int main(int argc, char** argv) noexcept {
 		DEBUG_MSG("initialized");
+		spdlog::info("rocksdb_test version: 1.0");
 		try {
 			args.parseArgs(argc, argv);
 
@@ -348,6 +349,7 @@ class Program {
 
 	private: //--------------------------------------------------------------------
 	void resetAll() noexcept {
+		DEBUG_MSG("destroy tasks");
 		dbbench.reset(nullptr);
 		iostat.reset(nullptr);
 		sysstat.reset(nullptr);
