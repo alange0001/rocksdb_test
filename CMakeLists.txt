@@ -34,10 +34,10 @@ list(APPEND THIRDPARTY_LIBS dl)
 
 #################################################################
 
-add_executable(rocksdb_test rocksdb_test.cc util.cc args.cc)
+add_executable(rocksdb_test rocksdb_test.cc util.cc args.cc process.cc)
 target_link_libraries(rocksdb_test ${THIRDPARTY_LIBS})
 
-add_executable(access_time3 access_time3.cc util.cc)
+add_executable(access_time3 access_time3.cc util.cc process.cc)
 target_link_libraries(access_time3 ${THIRDPARTY_LIBS})
 
 add_executable(test test.cc util.cc)

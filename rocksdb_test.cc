@@ -17,6 +17,7 @@
 
 #include "args.h"
 #include "util.h"
+#include "experiment_task.h"
 
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
@@ -24,9 +25,10 @@
 
 class DBBench : public ExperimentTask {
 	Args* args;
+	uint number;
 
 	public:    //------------------------------------------------------------------
-	DBBench(Clock* clock_, Args* args_) : ExperimentTask("dbbench", clock_), args(args_) {
+	DBBench(Clock* clock_, Args* args_, uint number_) : ExperimentTask(fmt::format("db_bench[{}]", number_), clock_), args(args_), number(number_) {
 		DEBUG_MSG("constructor");
 
 		if (args->db_create)
@@ -66,16 +68,16 @@ class DBBench : public ExperimentTask {
 		"	--key_size=48                                 \\\n"
 		"	--value_size=43                               ";
 		std::string ret = fmt::format(template_cmd,
-			args->db_path,
-			args->db_config_file,
-			args->db_num_keys,
-			args->db_cache_size);
+			args->db_path[number],
+			args->db_config_file[number],
+			args->db_num_keys[number],
+			args->db_cache_size[number]);
 
 		return ret;
 	}
 	std::string getCmd() {
 		uint32_t duration_s = args->duration * 60; /*minutes to seconds*/
-		double   sine_b   = 0.000073 * 24.0 * 60.0 * ((double)args->cycles / (double)args->duration); /*adjust the sine cycle*/
+		double   sine_b   = 0.000073 * 24.0 * 60.0 * ((double)args->db_sine_cycles[number] / (double)args->duration); /*adjust the sine cycle*/
 
 		const char *template_cmd =
 		"db_bench                                         \\\n"
@@ -110,16 +112,16 @@ class DBBench : public ExperimentTask {
 		"	--sine_b={}                                   \\\n"
 		"	{}  2>&1";
 		std::string ret = fmt::format(template_cmd,
-			args->db_path,
-			args->db_config_file,
-			args->db_num_keys,
+			args->db_path[number],
+			args->db_config_file[number],
+			args->db_num_keys[number],
 			args->stats_interval,
-			args->db_cache_size,
+			args->db_cache_size[number],
 			duration_s,
 			sine_b,
-			args->db_bench_params);
+			args->db_bench_params[number]);
 
-		spdlog::info("Executing db_bench. Command:\n{}", ret);
+		spdlog::info("Executing db_bench[{}]. Command:\n{}", number, ret);
 		return ret;
 	}
 
@@ -322,7 +324,7 @@ class Program {
 		try {
 			args.parseArgs(argc, argv);
 
-			dbbench.reset(new DBBench(&clock, &args));
+			dbbench.reset(new DBBench(&clock, &args, 0));
 			clock.reset();
 			iostat.reset(new IOStat(&clock, &args));
 			sysstat.reset(new SystemStats(&clock, &args));

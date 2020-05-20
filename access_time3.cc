@@ -21,6 +21,7 @@
 #include <gflags/gflags.h>
 
 #include "util.h"
+#include "process.h"
 
 ////////////////////////////////////////////////////////////////////////////////////
 DEFINE_string(log_level, "info",
@@ -133,7 +134,7 @@ struct Args {
 			spdlog::info("set wait={}", wait);
 			return true;
 		} else if (command == "sleep_interval") {
-			sleep_interval = parseUint(value, true, 0, error_sleep_interval);
+			sleep_interval = parseUint64(value, true, 0, error_sleep_interval);
 			spdlog::info("set sleep_interval={}", sleep_interval);
 			return true;
 		} else if (command == "write_ratio") {
@@ -145,7 +146,7 @@ struct Args {
 			spdlog::info("set random_ratio={}", random_ratio);
 			return true;
 		} else if (command == "flush_blocks") {
-			flush_blocks = parseUint(value, true, 0, error_flush_blocks);
+			flush_blocks = parseUint64(value, true, 0, error_flush_blocks);
 			spdlog::info("set flush_blocks={}", flush_blocks);
 			return true;
 		}
@@ -405,7 +406,7 @@ class Reader {
 					if (*c == '\n') *c = '\0';
 
 				line = buffer;
-				inplace_trim(line);
+				inplace_strip(line);
 				command = ""; value = "";
 
 				std::regex_search(line.c_str(), cm, std::regex("\\s*([^=]+).*"));
@@ -415,8 +416,8 @@ class Reader {
 				if (cm.size() >= 2)
 					value = cm.str(1);
 
-				inplace_trim(command);
-				inplace_trim(value);
+				inplace_strip(command);
+				inplace_strip(value);
 
 				if (command == "stop") {
 					spdlog::info("stop command received");
