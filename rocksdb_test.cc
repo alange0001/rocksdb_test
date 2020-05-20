@@ -338,10 +338,9 @@ class Program {
 			sysstat.reset(new SystemStats(clock.get(), args.get()));
 
 			bool stop = false;
-			while (
-				!stop &&
-				(iostat.get()  != nullptr && iostat->isActive())  &&
-				(sysstat.get() != nullptr && sysstat->isActive()) )
+			while ( !stop &&
+			        (iostat.get()  != nullptr && iostat->isActive())  &&
+			        (sysstat.get() != nullptr && sysstat->isActive()) )
 			{
 				for (uint32_t i=0; i<args->num_dbs; i++) {
 					if (dbbench_list.get() == nullptr || dbbench_list[i].get() == nullptr || !dbbench_list[i]->isActive())

@@ -19,7 +19,7 @@ class Options:
 class File:
 	_filename = None
 	_data = dict()
-	_dbbench = collections.OrderedDict()
+	_dbbench = list()
 
 	def __init__(self, filename):
 		self._filename = filename
@@ -44,27 +44,34 @@ class File:
 				del self._data[e][0]
 
 	def getDBBenchParams(self):
-		initiated = False
+		num_dbs = 0
+		cur_db = -1
 		with open(self._filename) as file:
 			for line in file.readlines():
-				if not initiated:
-					parsed_line = re.findall(r'Executing *db_bench. *Command:', line)
+				if num_dbs == 0:
+					parsed_line = re.findall(r'Args\.num_dbs: *([0-9]+)', line) #number of DBs
 					if len(parsed_line) > 0:
-						initiated = True
+						num_dbs = int(parsed_line[0][0])
+						for i in range(0, num_dbs):
+							self._dbbench.append(collections.OrderedDict())
+					continue
+				parsed_line = re.findall(r'Executing *db_bench\[([0-9]+)\]. *Command:', line) # command of DB [i]
+				if len(parsed_line) > 0:
+					cur_db = int(parsed_line[0][0])
+					continue
+				parsed_line = re.findall(r'^\[.*', line) # end of the command
+				if len(parsed_line) > 0:
+					if cur_db == num_dbs -1: break
+					else: continue
+				for l2 in line.split("--"): # parameters
+					parsed_line = re.findall(r'\s*([^=]+)="([^"]+)"', l2)
+					if len(parsed_line) > 0:
+						self._dbbench[cur_db][parsed_line[0][0]] = tryConvert(parsed_line[0][1], int, float)
 						continue
-				if initiated:
-					parsed_line = re.findall(r'^\[.*', line)
+					parsed_line = re.findall(r'\s*([^=]+)=([^ ]+)', l2)
 					if len(parsed_line) > 0:
-						break
-					for l2 in line.split("--"):
-						parsed_line = re.findall(r'\s*([^=]+)="([^"]+)"', l2)
-						if len(parsed_line) > 0:
-							self._dbbench[parsed_line[0][0]] = tryConvert(parsed_line[0][1], int, float)
-							continue
-						parsed_line = re.findall(r'\s*([^=]+)=([^ ]+)', l2)
-						if len(parsed_line) > 0:
-							self._dbbench[parsed_line[0][0]] = tryConvert(parsed_line[0][1], int, float)
-							continue
+						self._dbbench[cur_db][parsed_line[0][0]] = tryConvert(parsed_line[0][1], int, float)
+						continue
 
 	def graph1(self, save=False):
 		fig, ax = plt.subplots()
@@ -72,12 +79,13 @@ class File:
 		fig.set_figwidth(8)
 		ax.grid()
 
-		X = [i['time']      for i in self._data['dbbench']]
-		Y = [i['ops_per_s'] for i in self._data['dbbench']]
-		ax.plot(X, Y, '-', lw=1, label='real')
+		for i in range(0, len(self._dbbench)):
+			X = [i['time']      for i in self._data['db_bench[{}]'.format(i)]]
+			Y = [i['ops_per_s'] for i in self._data['db_bench[{}]'.format(i)]]
+			ax.plot(X, Y, '-', lw=1, label='db {}, real'.format(i))
 
-		Y = [ self._dbbench['sine_a'] * math.sin(self._dbbench['sine_b'] * x) + self._dbbench['sine_d'] for x in X]
-		ax.plot(X, Y, '-', lw=1, label='expected')
+			Y = [ self._dbbench[i]['sine_a'] * math.sin(self._dbbench[i]['sine_b'] * x + self._dbbench[i]['sine_c']) + self._dbbench[i]['sine_d'] for x in X]
+			ax.plot(X, Y, '-', lw=1, label='db {}, expect'.format(i))
 
 		ax.set(title="rocksdb throughput", xlabel="time (s)", ylabel="tx/s")
 
@@ -153,6 +161,6 @@ def decimalSuffix(value):
 	else:
 		raise Exception("invalid number")
 
-f = File('data1/out9')
+f = File('data2/out4')
 f.graph1()
 #f.graph2()
