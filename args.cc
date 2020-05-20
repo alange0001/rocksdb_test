@@ -28,7 +28,7 @@ DEFINE_uint32(num_dbs, 1,
           "Number of databases");
 DEFINE_bool(db_create, false,
           "Create the database");
-DEFINE_string(db_path, "work/rocksdb",
+DEFINE_string(db_path, "/media/auto/work/rocksdb",
           "Database Path");
 DEFINE_string(db_config_file, "files/rocksdb.options",
           "Database Configuration File");
@@ -53,8 +53,13 @@ DEFINE_bool(debug_output, DEFAULT_debug_output,
 DEFINE_bool(debug_output_iostat, DEFAULT_debug_output,
           "Debug iostat output");
 
+#define print_arg(name) \
+		spdlog::info("Args." #name ": {}", name)
+#define print_arg_list(name) \
+	for (int i=0; i<name.size(); i++) \
+		spdlog::info("Args." #name "[{}]: {}", i, name[i])
 
-void Args::parseArgs(int argc, char** argv){
+Args::Args(int argc, char** argv){
 	gflags::SetUsageMessage(std::string("\nUSAGE:\n\t") + std::string(argv[0]) +
 				" [OPTIONS]...");
 	gflags::ParseCommandLineFlags(&argc, &argv, true);
@@ -90,7 +95,7 @@ void Args::parseArgs(int argc, char** argv){
 		if (stats_interval < 1) throw std::invalid_argument("invalid --stats_interval (must be > 0)");
 	num_dbs             = FLAGS_num_dbs; if (num_dbs < 1) throw std::invalid_argument("invalid --num_dbs (must be > 0)");
 	db_create           = FLAGS_db_create;
-	db_path             = strList(FLAGS_db_path);
+	db_path             = pathList(FLAGS_db_path);
 	db_config_file      = strList(FLAGS_db_config_file);
 	db_num_keys         = uint64List(FLAGS_db_num_keys, [](uint64_t v){
 		if (v < 1) throw std::invalid_argument("invalid --db_num_keys (must be > 0)"); });
@@ -101,6 +106,19 @@ void Args::parseArgs(int argc, char** argv){
 	db_sine_shift       = uint32List(FLAGS_db_sine_shift, [](uint32_t v){});
 	db_bench_params     = strList(FLAGS_db_bench_params);
 	io_device           = FLAGS_io_device;
+
+	print_arg(duration);
+	print_arg(stats_interval);
+	print_arg(num_dbs);
+	print_arg(db_create);
+	print_arg_list(db_path);
+	print_arg_list(db_config_file);
+	print_arg_list(db_num_keys);
+	print_arg_list(db_cache_size);
+	print_arg_list(db_sine_cycles);
+	print_arg_list(db_sine_shift);
+	print_arg_list(db_bench_params);
+	print_arg(io_device);
 }
 
 std::vector<std::string> Args::strList(const std::string& str) {
@@ -111,6 +129,19 @@ std::vector<std::string> Args::strList(const std::string& str) {
 		throw std::invalid_argument("the list must have either one element or num_dbs");
 	while (num_dbs > ret.size()) {
 		ret.push_back(ret[0]);
+	}
+	return ret;
+}
+
+std::vector<std::string> Args::pathList(const std::string& str) {
+	std::vector<std::string> ret = split_str(str, param_delimiter);
+	if (num_dbs != ret.size())
+		throw std::invalid_argument("number of paths in --db_path must be equal to num_dbs");
+	for (int i=0; i<ret.size(); i++) {
+		if (ret[i] == "") throw std::invalid_argument("empty path in --db_path");
+		for (int j=i+1; j<ret.size(); j++) {
+			if (ret[i] == ret[j]) throw std::invalid_argument("duplicated paths in --db_path");
+		}
 	}
 	return ret;
 }

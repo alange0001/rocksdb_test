@@ -26,10 +26,11 @@ struct Args {
 	bool                     debug_output = false;
 	bool                     debug_output_iostat = false;
 
-	void parseArgs(int argc, char** argv);
+	Args(int argc, char** argv);
 
 private:
 	std::vector<std::string> strList(const std::string& str);
+	std::vector<std::string> pathList(const std::string& str);
 	std::vector<uint64_t> uint64List(const std::string& str, std::function<void(uint64_t)> check_method);
 	std::vector<uint32_t> uint32List(const std::string& str, std::function<void(uint32_t)> check_method);
 };

@@ -78,6 +78,7 @@ class DBBench : public ExperimentTask {
 	std::string getCmd() {
 		uint32_t duration_s = args->duration * 60; /*minutes to seconds*/
 		double   sine_b   = 0.000073 * 24.0 * 60.0 * ((double)args->db_sine_cycles[number] / (double)args->duration); /*adjust the sine cycle*/
+		double   sine_c   = sine_b * (double)args->db_sine_shift[number] * 60.0;
 
 		const char *template_cmd =
 		"db_bench                                         \\\n"
@@ -110,6 +111,7 @@ class DBBench : public ExperimentTask {
 		"	--sine_mix_rate_interval_milliseconds=5000    \\\n"
 		"	--duration={}                                 \\\n"
 		"	--sine_b={}                                   \\\n"
+		"	--sine_c={}                                   \\\n"
 		"	{}  2>&1";
 		std::string ret = fmt::format(template_cmd,
 			args->db_path[number],
@@ -119,6 +121,7 @@ class DBBench : public ExperimentTask {
 			args->db_cache_size[number],
 			duration_s,
 			sine_b,
+			sine_c,
 			args->db_bench_params[number]);
 
 		spdlog::info("Executing db_bench[{}]. Command:\n{}", number, ret);
@@ -285,10 +288,10 @@ class IOStat : public ExperimentTask {
 
 class Program {
 	static Program* this_;
-	Args args;
-	Clock clock;
+	std::unique_ptr<Args>        args;
+	std::unique_ptr<Clock>       clock;
 
-	std::unique_ptr<DBBench>     dbbench;
+	std::unique_ptr<std::unique_ptr<DBBench>[]> dbbench_list;
 	std::unique_ptr<IOStat>      iostat;
 	std::unique_ptr<SystemStats> sysstat;
 
@@ -320,20 +323,30 @@ class Program {
 
 	int main(int argc, char** argv) noexcept {
 		DEBUG_MSG("initialized");
-		spdlog::info("rocksdb_test version: 1.0");
+		spdlog::info("rocksdb_test version: 1.1");
 		try {
-			args.parseArgs(argc, argv);
+			args.reset(new Args(argc, argv));
+			clock.reset(new Clock());
 
-			dbbench.reset(new DBBench(&clock, &args, 0));
-			clock.reset();
-			iostat.reset(new IOStat(&clock, &args));
-			sysstat.reset(new SystemStats(&clock, &args));
+			dbbench_list.reset(new std::unique_ptr<DBBench>[args->num_dbs]);
+			for (uint32_t i=0; i<args->num_dbs; i++) {
+				dbbench_list[i].reset(new DBBench(clock.get(), args.get(), i));
+			}
 
+			clock->reset();
+			iostat.reset(new IOStat(clock.get(), args.get()));
+			sysstat.reset(new SystemStats(clock.get(), args.get()));
+
+			bool stop = false;
 			while (
-				(dbbench.get() != nullptr && dbbench->isActive()) &&
+				!stop &&
 				(iostat.get()  != nullptr && iostat->isActive())  &&
 				(sysstat.get() != nullptr && sysstat->isActive()) )
 			{
+				for (uint32_t i=0; i<args->num_dbs; i++) {
+					if (dbbench_list.get() == nullptr || dbbench_list[i].get() == nullptr || !dbbench_list[i]->isActive())
+						stop = true;
+				}
 				std::this_thread::sleep_for(std::chrono::milliseconds(500));
 			}
 
@@ -352,7 +365,7 @@ class Program {
 	private: //--------------------------------------------------------------------
 	void resetAll() noexcept {
 		DEBUG_MSG("destroy tasks");
-		dbbench.reset(nullptr);
+		dbbench_list.reset(nullptr);
 		iostat.reset(nullptr);
 		sysstat.reset(nullptr);
 	}
