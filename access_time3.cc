@@ -43,7 +43,9 @@ DEFINE_double(write_ratio, 0,
 DEFINE_double(random_ratio, 0,
           "random ratio (0-1)");
 DEFINE_uint64(sleep_interval, 0,
-          "sleep interval (ms)");
+          "sleep interval (ns)");
+DEFINE_uint64(sleep_count, 1,
+          "number of IOs before sleep");
 DEFINE_uint32(stats_interval, 5,
           "Statistics interval (seconds)");
 DEFINE_bool(wait, false,
@@ -62,14 +64,17 @@ struct Args {
 	bool        delete_file;
 	std::atomic<double>      write_ratio;    //0-1
 	std::atomic<double>      random_ratio;   //0-1
-	std::atomic<uint64_t>    sleep_interval; //ms
+	std::atomic<uint64_t>    sleep_interval; //ns
+	std::atomic<uint64_t>    sleep_count;
 	uint32_t    stats_interval; //seconds
 	std::atomic<bool>        wait;
 
 	std::function<bool(double)> check_ratio = [](double v)->bool{return (v>=0.0 && v <= 1.0);};
+	std::function<bool(uint64_t)> check_sleep_count = [](uint64_t v)->bool{ return v>0; };
 	const char* error_write_ratio    = "invalid write_ratio [0-1]";
 	const char* error_random_ratio   = "invalid random_ratio [0-1]";
 	const char* error_sleep_interval = "invalid sleep_interval";
+	const char* error_sleep_count    = "invalid sleep_count";
 	const char* error_flush_blocks   = "invalid flush_blocks";
 
 	void parseArgs(int argc, char** argv) {
@@ -96,23 +101,26 @@ struct Args {
 		write_ratio     = FLAGS_write_ratio;      params_out += fmt::format(" --write_ratio={}",    write_ratio);
 		random_ratio    = FLAGS_random_ratio;     params_out += fmt::format(" --random_ratio={}",   random_ratio);
 		sleep_interval  = FLAGS_sleep_interval;   params_out += fmt::format(" --sleep_interval={}", sleep_interval);
+		sleep_count     = FLAGS_sleep_count;      params_out += fmt::format(" --sleep_count={}",    sleep_count);
 		stats_interval  = FLAGS_stats_interval;   params_out += fmt::format(" --stats_interval={}", stats_interval);
 		wait            = FLAGS_wait;             params_out += fmt::format(" --wait={}",           wait);
 
 		spdlog::info("parameters: {}", params_out);
 
 		if (filename.length() == 0)
-			throw std::invalid_argument("--filename not specified");
+			throw std::invalid_argument("filename not specified");
 		if (filesize < 10 && create_file)
-			throw std::invalid_argument("invalid --filesize");
+			throw std::invalid_argument("invalid filesize");
 		if (!check_ratio(write_ratio))
 			throw std::invalid_argument(error_write_ratio);
 		if (!check_ratio(random_ratio))
 			throw std::invalid_argument(error_random_ratio);
 		if (block_size < 4)
-			throw std::invalid_argument("invalid --block_size");
+			throw std::invalid_argument("invalid block_size");
+		if (!check_sleep_count(sleep_count))
+			throw std::invalid_argument(error_sleep_count);
 		if (stats_interval < 1)
-			throw std::invalid_argument("invalid --stats_interval (> 0)");
+			throw std::invalid_argument("invalid stats_interval (> 0)");
 	}
 
 	bool parseLine(const std::string command, const std::string value) {
@@ -123,7 +131,8 @@ struct Args {
 					"COMMANDS:\n"
 					"    stop           - terminate\n"
 					"    wait           - (true|false)\n"
-					"    sleep_interval - milliseconds\n"
+					"    sleep_interval - nanoseconds\n"
+					"    sleep_count    - (1..)\n"
 					"    write_ratio    - (0..1)\n"
 					"    random_ratio   - (0..1)\n"
 					"    flush_blocks   - (0..)\n"
@@ -136,6 +145,10 @@ struct Args {
 		} else if (command == "sleep_interval") {
 			sleep_interval = parseUint64(value, true, 0, error_sleep_interval);
 			spdlog::info("set sleep_interval={}", sleep_interval);
+			return true;
+		} else if (command == "sleep_count") {
+			sleep_count = parseUint64(value, true, 1, error_sleep_count, check_sleep_count);
+			spdlog::info("set sleep_count={}", sleep_count);
 			return true;
 		} else if (command == "write_ratio") {
 			write_ratio = parseDouble(value, true, 0, error_write_ratio, check_ratio);
@@ -174,11 +187,15 @@ class Worker {
 
 	public: //---------------------------------------------------------------------
 	std::atomic<uint64_t> blocks;
+	std::atomic<uint64_t> blocks_read;
+	std::atomic<uint64_t> blocks_write;
 
 	Worker(Args& args_) : args(&args_) {
 		DEBUG_MSG("constructor");
 		stop_ = false;
-		blocks = 0;
+		blocks       = 0;
+		blocks_read  = 0;
+		blocks_write = 0;
 		flush = false;
 
 		if (args->create_file)
@@ -237,6 +254,7 @@ class Worker {
 			std::uniform_int_distribution<uint64_t> rand_block(0, file_blocks -1);
 
 			uint64_t flush_count = 0;
+			uint64_t sleep_count = 0;
 
 			while (!stop_) {
 				if (args->wait)
@@ -266,6 +284,7 @@ class Worker {
 				if (rand_ratio(rand_eng) < write_ratio_uint) { //write
 					if (std::fwrite(buffer.get(), buffer_size, 1, file) != 1)
 						throw std::runtime_error("fwrite error");
+					blocks_write++;
 
 					if (args->flush_blocks) {
 						if (++flush_count >= args->flush_blocks) {
@@ -276,12 +295,17 @@ class Worker {
 				} else {                                       //read
 					if (std::fread(buffer.get(), buffer_size, 1, file) != 1)
 						throw std::runtime_error("fread error");
+					blocks_read++;
 				}
 
 				blocks++;
 
-				if (args->sleep_interval > 0)
-					std::this_thread::sleep_for(std::chrono::milliseconds(args->sleep_interval));
+				if (args->sleep_interval > 0) {
+					if (++sleep_count > args->sleep_count) {
+						sleep_count = 0;
+						std::this_thread::sleep_for(std::chrono::nanoseconds(args->sleep_interval));
+					}
+				}
 			}
 		} catch (std::exception &e) {
 			DEBUG_MSG("exception received: {}", e.what());
@@ -483,8 +507,10 @@ class Program {
 			std::chrono::system_clock::time_point init_time = std::chrono::system_clock::now();
 			std::chrono::system_clock::time_point aux_time;
 			std::chrono::system_clock::time_point elapsed_time = init_time;
-			uint64_t elapsed_blocks = 0;
-			uint64_t aux_blocks = 0;
+
+			uint64_t elapsed_blocks       = 0;
+			uint64_t elapsed_blocks_read  = 0;
+			uint64_t elapsed_blocks_write = 0;
 
 			uint64_t interval_ms;
 			uint64_t stats_interval_ms = args.stats_interval * 1000;
@@ -500,14 +526,20 @@ class Program {
 				aux_time = std::chrono::system_clock::now();
 				interval_ms = std::chrono::duration_cast<std::chrono::milliseconds>(aux_time - elapsed_time).count();
 				if (interval_ms > stats_interval_ms) {
-					aux_blocks = worker->blocks;
-					spdlog::info("time={}, throughput={}MiB/s{}",
+					uint64_t aux_blocks       = worker->blocks;
+					uint64_t aux_blocks_read  = worker->blocks_read;
+					uint64_t aux_blocks_write = worker->blocks_write;
+					spdlog::info("time={}, total={}MiB/s, read={}MiB/s, write={}MiB/s {}",
 							std::chrono::duration_cast<std::chrono::seconds>(aux_time - init_time).count(),
 							((aux_blocks - elapsed_blocks) * args.block_size)/(interval_ms/1000)/1024,
+							((aux_blocks_read - elapsed_blocks_read) * args.block_size)/(interval_ms/1000)/1024,
+							((aux_blocks_write - elapsed_blocks_write) * args.block_size)/(interval_ms/1000)/1024,
 							(args.wait) ? " (wait)" : ""
 							);
 					elapsed_time = aux_time;
-					elapsed_blocks = aux_blocks;
+					elapsed_blocks       = aux_blocks;
+					elapsed_blocks_read  = aux_blocks_read;
+					elapsed_blocks_write = aux_blocks_write;
 				}
 			}
 

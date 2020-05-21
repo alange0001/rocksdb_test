@@ -161,6 +161,6 @@ def decimalSuffix(value):
 	else:
 		raise Exception("invalid number")
 
-f = File('data2/out4')
+f = File('data2/out3')
 f.graph1()
 #f.graph2()
