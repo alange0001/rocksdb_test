@@ -142,4 +142,3 @@ double parseDouble(const std::string &value, const bool required, const double d
 		throw std::invalid_argument(error_msg);
 	return ret;
 }
-

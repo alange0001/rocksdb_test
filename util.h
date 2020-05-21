@@ -174,13 +174,21 @@ public:
 
 struct Clock {
 	std::chrono::system_clock::time_point time_init;
+
 	Clock() { reset(); }
+	Clock(Clock&) = default;
+	Clock& operator= (Clock&) = default;
+
 	void reset() {
 		time_init = std::chrono::system_clock::now();
 	}
-	uint32_t seconds() {
+	uint64_t seconds() {
 		auto time_cur = std::chrono::system_clock::now();
 		return std::chrono::duration_cast<std::chrono::seconds>(time_cur - time_init).count();
+	}
+	uint64_t milliseconds() {
+		auto time_cur = std::chrono::system_clock::now();
+		return std::chrono::duration_cast<std::chrono::milliseconds>(time_cur - time_init).count();
 	}
 };
 

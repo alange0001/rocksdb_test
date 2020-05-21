@@ -275,34 +275,20 @@ class Reader {
 			const uint32_t buffer_size = 512;
 			char buffer[buffer_size]; buffer[0] = '\0'; buffer[buffer_size -1] = '\0';
 
-			std::cmatch cm;
-			std::string line;
 			std::string command;
-			std::string value;
 
 			while (monitor_fgets(buffer, buffer_size -1, stdin, &stop_)) {
 				for (char* c=buffer; *c != '\0'; c++)
 					if (*c == '\n') *c = '\0';
 
-				line = buffer;
-				inplace_strip(line);
-				command = ""; value = "";
-
-				std::regex_search(line.c_str(), cm, std::regex("\\s*([^=]+).*"));
-				if (cm.size() >= 2)
-					command = cm.str(1);
-				std::regex_search(line.c_str(), cm, std::regex("[^=]+=\\s*(.*)"));
-				if (cm.size() >= 2)
-					value = cm.str(1);
-
+				command = buffer;
 				inplace_strip(command);
-				inplace_strip(value);
 
 				if (command == "stop") {
 					spdlog::info("stop command received");
 					stop_ = true;
-				} else if (!args->parseLine(command, value)) {
-					throw std::runtime_error(fmt::format("invalid command: {}", line));
+				} else {
+					args->executeCommand(command);
 				}
 			}
 			stop_ = true;
@@ -355,42 +341,61 @@ class Program {
 	}
 
 	int main(int argc, char** argv) noexcept {
+		using namespace std::chrono;
+
 		spdlog::info("Initializing program {}", argv[0]);
 		try {
 			args.reset(new Args(argc, argv));
-			std::chrono::system_clock::time_point init_time = std::chrono::system_clock::now();
-			std::chrono::system_clock::time_point aux_time;
-			std::chrono::system_clock::time_point elapsed_time = init_time;
+
+			system_clock::time_point time_init = system_clock::now();
+			system_clock::time_point time_elapsed = time_init;
+			system_clock::time_point time_aux;
 
 			uint64_t elapsed_blocks       = 0;
 			uint64_t elapsed_blocks_read  = 0;
 			uint64_t elapsed_blocks_write = 0;
 
-			uint64_t interval_ms;
+			uint64_t elapsed_ms;
 			uint64_t stats_interval_ms = args->stats_interval * 1000;
 
 			worker.reset(new Worker(args.get()));
 			reader.reset(new Reader(args.get()));
 
+			bool stop = false;
 			while (worker->isActive() && reader->isActive()) {
 
-				std::this_thread::sleep_for(std::chrono::milliseconds(200));
+				auto cur_sec = duration_cast<seconds>(system_clock::now() - time_init).count();
+				while (args->commands.size() > 0 && args->commands[0].time < cur_sec) {
+					CommandLine c = args->commands.front();
+					args->commands.pop_front();
+					spdlog::info("command_script time={}, command: {}", c.time, c.command);
+					if (c.command == "stop") {
+						stop = true;
+						reader->stop();
+						worker->stop();
+					} else {
+						args->executeCommand(c.command);
+					}
+				}
+				if (stop) break;
+
+				std::this_thread::sleep_for(milliseconds(200));
 
 				//// print statistics ////
-				aux_time = std::chrono::system_clock::now();
-				interval_ms = std::chrono::duration_cast<std::chrono::milliseconds>(aux_time - elapsed_time).count();
-				if (interval_ms > stats_interval_ms) {
+				time_aux = system_clock::now();
+				elapsed_ms = duration_cast<milliseconds>(time_aux - time_elapsed).count();
+				if (elapsed_ms > stats_interval_ms) {
 					uint64_t aux_blocks       = worker->blocks;
 					uint64_t aux_blocks_read  = worker->blocks_read;
 					uint64_t aux_blocks_write = worker->blocks_write;
-					spdlog::info("time={}, total={}MiB/s, read={}MiB/s, write={}MiB/s {}",
-							std::chrono::duration_cast<std::chrono::seconds>(aux_time - init_time).count(),
-							((aux_blocks - elapsed_blocks) * args->block_size)/(interval_ms/1000)/1024,
-							((aux_blocks_read - elapsed_blocks_read) * args->block_size)/(interval_ms/1000)/1024,
-							((aux_blocks_write - elapsed_blocks_write) * args->block_size)/(interval_ms/1000)/1024,
-							(args->wait) ? "(wait)" : ""
+					std::string aux_str = fmt::format("\"time\":\"{}\", \"total_MiB/s\":\"{}\", \"read_MiB/s\":\"{}\", \"write_MiB/s\":\"{}\"",
+							duration_cast<seconds>(time_aux - time_init).count(),
+							((aux_blocks       - elapsed_blocks)       * args->block_size * 1000)/(elapsed_ms * 1024),
+							((aux_blocks_read  - elapsed_blocks_read)  * args->block_size * 1000)/(elapsed_ms * 1024),
+							((aux_blocks_write - elapsed_blocks_write) * args->block_size * 1000)/(elapsed_ms * 1024)
 							);
-					elapsed_time = aux_time;
+					spdlog::info("STATS: {}{} {}{}", "{", aux_str, args->strStat(), "}");
+					time_elapsed         = time_aux;
 					elapsed_blocks       = aux_blocks;
 					elapsed_blocks_read  = aux_blocks_read;
 					elapsed_blocks_write = aux_blocks_write;

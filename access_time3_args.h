@@ -2,7 +2,16 @@
 #pragma once
 
 #include <string>
+#include <deque>
 #include <atomic>
+
+////////////////////////////////////////////////////////////////////////////////////
+#undef __CLASS__
+#define __CLASS__ "CommandLine::"
+struct CommandLine {
+	uint64_t    time=0;
+	std::string command;
+};
 
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
@@ -22,6 +31,10 @@ struct Args {
 	uint32_t                 stats_interval; //seconds
 	std::atomic<bool>        wait;
 
+	std::deque<CommandLine> commands;
+
 	Args(int argc, char** argv);
-	bool parseLine(const std::string& command, const std::string& value);
+	void executeCommand(const std::string& command_line);
+	void parseCommandScript(const std::string& script);
+	std::string strStat();
 };
