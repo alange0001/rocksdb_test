@@ -18,155 +18,10 @@
 
 #include <spdlog/spdlog.h>
 #include <fmt/format.h>
-#include <gflags/gflags.h>
 
+#include "access_time3_args.h"
 #include "util.h"
 #include "process.h"
-
-////////////////////////////////////////////////////////////////////////////////////
-DEFINE_string(log_level, "info",
-          "log level (debug,info,warn,error,critical,off)");
-DEFINE_string(filename, "",
-          "file name");
-DEFINE_uint64(filesize, 0,
-          "file size (MiB)");
-DEFINE_uint64(block_size, 4,
-          "block size (KiB)");
-DEFINE_uint64(flush_blocks, 1,
-          "blocks written before a flush (0 = no flush)");
-DEFINE_bool(create_file, true,
-          "create file");
-DEFINE_bool(delete_file, true,
-          "delete file if created");
-DEFINE_double(write_ratio, 0,
-          "writes/reads ratio (0-1)");
-DEFINE_double(random_ratio, 0,
-          "random ratio (0-1)");
-DEFINE_uint64(sleep_interval, 0,
-          "sleep interval (ns)");
-DEFINE_uint64(sleep_count, 1,
-          "number of IOs before sleep");
-DEFINE_uint32(stats_interval, 5,
-          "Statistics interval (seconds)");
-DEFINE_bool(wait, false,
-          "wait");
-
-////////////////////////////////////////////////////////////////////////////////////
-#undef __CLASS__
-#define __CLASS__ "Args::"
-
-struct Args {
-	std::string filename;
-	uint64_t    filesize;       //MiB
-	uint64_t    block_size;     //KiB
-	std::atomic<uint64_t>    flush_blocks;   //blocks
-	bool        create_file;
-	bool        delete_file;
-	std::atomic<double>      write_ratio;    //0-1
-	std::atomic<double>      random_ratio;   //0-1
-	std::atomic<uint64_t>    sleep_interval; //ns
-	std::atomic<uint64_t>    sleep_count;
-	uint32_t    stats_interval; //seconds
-	std::atomic<bool>        wait;
-
-	std::function<bool(double)> check_ratio = [](double v)->bool{return (v>=0.0 && v <= 1.0);};
-	std::function<bool(uint64_t)> check_sleep_count = [](uint64_t v)->bool{ return v>0; };
-	const char* error_write_ratio    = "invalid write_ratio [0-1]";
-	const char* error_random_ratio   = "invalid random_ratio [0-1]";
-	const char* error_sleep_interval = "invalid sleep_interval";
-	const char* error_sleep_count    = "invalid sleep_count";
-	const char* error_flush_blocks   = "invalid flush_blocks";
-
-	void parseArgs(int argc, char** argv) {
-		gflags::SetUsageMessage(std::string("\nUSAGE:\n\t") + std::string(argv[0]) +
-					" [OPTIONS]...");
-		gflags::ParseCommandLineFlags(&argc, &argv, true);
-
-		if      (FLAGS_log_level == "debug"   ) spdlog::set_level(spdlog::level::debug);
-		else if (FLAGS_log_level == "info"    ) spdlog::set_level(spdlog::level::info);
-		else if (FLAGS_log_level == "warn"    ) spdlog::set_level(spdlog::level::warn);
-		else if (FLAGS_log_level == "error"   ) spdlog::set_level(spdlog::level::err);
-		else if (FLAGS_log_level == "critical") spdlog::set_level(spdlog::level::critical);
-		else if (FLAGS_log_level == "off"     ) spdlog::set_level(spdlog::level::off);
-		else throw std::invalid_argument(fmt::format("invalid --log_level={}", FLAGS_log_level));
-
-		std::string params_out(fmt::format("--log_level={}", FLAGS_log_level));
-
-		filename        = FLAGS_filename;         params_out += fmt::format(" --filename=\"{}\"",   filename);
-		filesize        = FLAGS_filesize;         params_out += fmt::format(" --filesize={}",       filesize);
-		block_size      = FLAGS_block_size;       params_out += fmt::format(" --block_size={}",     block_size);
-		flush_blocks    = FLAGS_flush_blocks;     params_out += fmt::format(" --flush_blocks={}",   flush_blocks);
-		create_file     = FLAGS_create_file;      params_out += fmt::format(" --create_file={}",    create_file);
-		delete_file     = FLAGS_delete_file;      params_out += fmt::format(" --delete_file={}",    delete_file);
-		write_ratio     = FLAGS_write_ratio;      params_out += fmt::format(" --write_ratio={}",    write_ratio);
-		random_ratio    = FLAGS_random_ratio;     params_out += fmt::format(" --random_ratio={}",   random_ratio);
-		sleep_interval  = FLAGS_sleep_interval;   params_out += fmt::format(" --sleep_interval={}", sleep_interval);
-		sleep_count     = FLAGS_sleep_count;      params_out += fmt::format(" --sleep_count={}",    sleep_count);
-		stats_interval  = FLAGS_stats_interval;   params_out += fmt::format(" --stats_interval={}", stats_interval);
-		wait            = FLAGS_wait;             params_out += fmt::format(" --wait={}",           wait);
-
-		spdlog::info("parameters: {}", params_out);
-
-		if (filename.length() == 0)
-			throw std::invalid_argument("filename not specified");
-		if (filesize < 10 && create_file)
-			throw std::invalid_argument("invalid filesize");
-		if (!check_ratio(write_ratio))
-			throw std::invalid_argument(error_write_ratio);
-		if (!check_ratio(random_ratio))
-			throw std::invalid_argument(error_random_ratio);
-		if (block_size < 4)
-			throw std::invalid_argument("invalid block_size");
-		if (!check_sleep_count(sleep_count))
-			throw std::invalid_argument(error_sleep_count);
-		if (stats_interval < 1)
-			throw std::invalid_argument("invalid stats_interval (> 0)");
-	}
-
-	bool parseLine(const std::string command, const std::string value) {
-		DEBUG_MSG("command=\"{}\", value=\"{}\"", command, value);
-
-		if (command == "help") {
-			spdlog::info(
-					"COMMANDS:\n"
-					"    stop           - terminate\n"
-					"    wait           - (true|false)\n"
-					"    sleep_interval - nanoseconds\n"
-					"    sleep_count    - (1..)\n"
-					"    write_ratio    - (0..1)\n"
-					"    random_ratio   - (0..1)\n"
-					"    flush_blocks   - (0..)\n"
-					);
-			return true;
-		} else if (command == "wait") {
-			wait = parseBool(value, false, true, "invalid wait value (yes|no)");
-			spdlog::info("set wait={}", wait);
-			return true;
-		} else if (command == "sleep_interval") {
-			sleep_interval = parseUint64(value, true, 0, error_sleep_interval);
-			spdlog::info("set sleep_interval={}", sleep_interval);
-			return true;
-		} else if (command == "sleep_count") {
-			sleep_count = parseUint64(value, true, 1, error_sleep_count, check_sleep_count);
-			spdlog::info("set sleep_count={}", sleep_count);
-			return true;
-		} else if (command == "write_ratio") {
-			write_ratio = parseDouble(value, true, 0, error_write_ratio, check_ratio);
-			spdlog::info("set write_ratio={}", write_ratio);
-			return true;
-		} else if (command == "random_ratio") {
-			random_ratio = parseDouble(value, true, 0, error_random_ratio, check_ratio);
-			spdlog::info("set random_ratio={}", random_ratio);
-			return true;
-		} else if (command == "flush_blocks") {
-			flush_blocks = parseUint64(value, true, 0, error_flush_blocks);
-			spdlog::info("set flush_blocks={}", flush_blocks);
-			return true;
-		}
-
-		return false;
-	}
-};
 
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
@@ -190,7 +45,7 @@ class Worker {
 	std::atomic<uint64_t> blocks_read;
 	std::atomic<uint64_t> blocks_write;
 
-	Worker(Args& args_) : args(&args_) {
+	Worker(Args* args_) : args(args_) {
 		DEBUG_MSG("constructor");
 		stop_ = false;
 		blocks       = 0;
@@ -403,7 +258,7 @@ class Reader {
 	bool               stop_ = false;
 
 	public: //---------------------------------------------------------------------
-	Reader(Args& args_) : args(&args_) {
+	Reader(Args* args_) : args(args_) {
 		DEBUG_MSG("constructor");
 		thread = std::thread( [this]{this->threadMain();} );
 	}
@@ -473,8 +328,7 @@ class Reader {
 
 class Program {
 	static Program* this_;
-	Args args;
-
+	std::unique_ptr<Args>   args;
 	std::unique_ptr<Worker> worker;
 	std::unique_ptr<Reader> reader;
 
@@ -503,7 +357,7 @@ class Program {
 	int main(int argc, char** argv) noexcept {
 		spdlog::info("Initializing program {}", argv[0]);
 		try {
-			args.parseArgs(argc, argv);
+			args.reset(new Args(argc, argv));
 			std::chrono::system_clock::time_point init_time = std::chrono::system_clock::now();
 			std::chrono::system_clock::time_point aux_time;
 			std::chrono::system_clock::time_point elapsed_time = init_time;
@@ -513,10 +367,10 @@ class Program {
 			uint64_t elapsed_blocks_write = 0;
 
 			uint64_t interval_ms;
-			uint64_t stats_interval_ms = args.stats_interval * 1000;
+			uint64_t stats_interval_ms = args->stats_interval * 1000;
 
-			worker.reset(new Worker(args));
-			reader.reset(new Reader(args));
+			worker.reset(new Worker(args.get()));
+			reader.reset(new Reader(args.get()));
 
 			while (worker->isActive() && reader->isActive()) {
 
@@ -531,10 +385,10 @@ class Program {
 					uint64_t aux_blocks_write = worker->blocks_write;
 					spdlog::info("time={}, total={}MiB/s, read={}MiB/s, write={}MiB/s {}",
 							std::chrono::duration_cast<std::chrono::seconds>(aux_time - init_time).count(),
-							((aux_blocks - elapsed_blocks) * args.block_size)/(interval_ms/1000)/1024,
-							((aux_blocks_read - elapsed_blocks_read) * args.block_size)/(interval_ms/1000)/1024,
-							((aux_blocks_write - elapsed_blocks_write) * args.block_size)/(interval_ms/1000)/1024,
-							(args.wait) ? " (wait)" : ""
+							((aux_blocks - elapsed_blocks) * args->block_size)/(interval_ms/1000)/1024,
+							((aux_blocks_read - elapsed_blocks_read) * args->block_size)/(interval_ms/1000)/1024,
+							((aux_blocks_write - elapsed_blocks_write) * args->block_size)/(interval_ms/1000)/1024,
+							(args->wait) ? "(wait)" : ""
 							);
 					elapsed_time = aux_time;
 					elapsed_blocks       = aux_blocks;

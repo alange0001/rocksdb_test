@@ -2,29 +2,12 @@
 #pragma once
 
 #include <string>
-#include <chrono>
 
 #include <spdlog/spdlog.h>
 #include <fmt/format.h>
 
 #include "util.h"
 #include "process.h"
-
-////////////////////////////////////////////////////////////////////////////////////
-#undef __CLASS__
-#define __CLASS__ "Clock::"
-
-struct Clock {
-	std::chrono::system_clock::time_point time_init;
-	Clock() { reset(); }
-	void reset() {
-		time_init = std::chrono::system_clock::now();
-	}
-	uint32_t seconds() {
-		auto time_cur = std::chrono::system_clock::now();
-		return std::chrono::duration_cast<std::chrono::seconds>(time_cur - time_init).count();
-	}
-};
 
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
