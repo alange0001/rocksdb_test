@@ -38,3 +38,7 @@ struct Args {
 	void parseCommandScript(const std::string& script);
 	std::string strStat();
 };
+
+////////////////////////////////////////////////////////////////////////////////////
+#undef __CLASS__
+#define __CLASS__ ""

@@ -9,6 +9,17 @@
 #include <spdlog/spdlog.h>
 #include <fmt/format.h>
 
+using std::string;
+using std::vector;
+using std::function;
+using std::chrono::milliseconds;
+using std::chrono::seconds;
+using std::chrono::system_clock;
+using std::exception;
+using std::invalid_argument;
+using std::runtime_error;
+using fmt::format;
+
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
 #define __CLASS__ ""
@@ -20,7 +31,7 @@
 
 ////////////////////////////////////////////////////////////////////////////////////
 
-inline std::string& inplace_strip(std::string& src) {
+inline string& inplace_strip(string& src) {
 	const char* to_strip = " \t\n\r\f\v";
 
 	src.erase(src.find_last_not_of(to_strip) +1);
@@ -29,44 +40,44 @@ inline std::string& inplace_strip(std::string& src) {
 	return src;
 }
 
-std::string strip(const std::string& src);
+string strip(const string& src);
 
-int split_columns(std::vector<std::string>& ret, const char* str, const char* prefix=nullptr);
+int split_columns(vector<string>& ret, const char* str, const char* prefix=nullptr);
 
-std::vector<std::string> split_str(const std::string& str, const std::string& delimiter);
+vector<string> split_str(const string& str, const string& delimiter);
 
-inline std::string str_replace(const std::string& src, const char find, const char replace) {
-	std::string dest = src;
+inline string str_replace(const string& src, const char find, const char replace) {
+	string dest = src;
 	std::replace(dest.begin(), dest.end(), find, replace);
 	return dest;
 }
 
-inline std::string& str_replace(std::string& dest, const std::string& src, const char find, const char replace) {
+inline string& str_replace(string& dest, const string& src, const char find, const char replace) {
 	dest = src;
 	std::replace(dest.begin(), dest.end(), find, replace);
 	return dest;
 }
 
-bool parseBool(const std::string &value, const bool required=true, const bool default_=true,
+bool parseBool(const string &value, const bool required=true, const bool default_=true,
                const char* error_msg="invalid value (boolean)",
-			   std::function<bool(bool)> check_method=nullptr );
-uint32_t parseUint32(const std::string &value, const bool required=true, const uint32_t default_=0,
+			   function<bool(bool)> check_method=nullptr );
+uint32_t parseUint32(const string &value, const bool required=true, const uint32_t default_=0,
                const char* error_msg="invalid value (uint64)",
-			   std::function<bool(uint32_t)> check_method=nullptr );
-uint64_t parseUint64(const std::string &value, const bool required=true, const uint64_t default_=0,
+			   function<bool(uint32_t)> check_method=nullptr );
+uint64_t parseUint64(const string &value, const bool required=true, const uint64_t default_=0,
                const char* error_msg="invalid value (uint64)",
-			   std::function<bool(uint64_t)> check_method=nullptr );
-double parseDouble(const std::string &value, const bool required=true, const double default_=0.0,
+			   function<bool(uint64_t)> check_method=nullptr );
+double parseDouble(const string &value, const bool required=true, const double default_=0.0,
                const char* error_msg="invalid value (double)",
-			   std::function<bool(double)> check_method=nullptr );
+			   function<bool(double)> check_method=nullptr );
 
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
 #define __CLASS__ "Defer::"
 
 struct Defer {
-	std::function<void()> method;
-	Defer(std::function<void()> method_) : method(method_) {}
+	function<void()> method;
+	Defer(function<void()> method_) : method(method_) {}
 	~Defer() noexcept(false) {method();}
 };
 
@@ -76,9 +87,9 @@ struct Defer {
 
 class OrderedDict {
 public:
-	typedef std::string                  strType;
-	typedef std::string                  keyType;
-	typedef std::string                  valueType;
+	typedef string                  strType;
+	typedef string                  keyType;
+	typedef string                  valueType;
 	typedef std::deque<keyType>          orderType;
 	typedef std::map<keyType, valueType> dataType;
 
@@ -124,14 +135,14 @@ public:
 	strType str() {
 		strType ret;
 		for (auto i : *this)
-			ret += fmt::format("{}{}={}", (ret.length() > 0) ? ", " : "", i.first, i.second);
+			ret += format("{}{}={}", (ret.length() > 0) ? ", " : "", i.first, i.second);
 		return ret;
 	}
 	strType json() {
 		strType ret;
 		for (auto i : *this)
-			ret += fmt::format("{}\"{}\":\"{}\"", (ret.length() > 0) ? ", " : "", i.first, i.second);
-		return fmt::format("{} {} {}", '{', ret, '}');
+			ret += format("{}\"{}\":\"{}\"", (ret.length() > 0) ? ", " : "", i.first, i.second);
+		return format("{} {} {}", '{', ret, '}');
 	}
 
 	struct iterator_item {
@@ -173,22 +184,22 @@ public:
 #define __CLASS__ "Clock::"
 
 struct Clock {
-	std::chrono::system_clock::time_point time_init;
+	system_clock::time_point time_init;
 
 	Clock() { reset(); }
 	Clock(Clock&) = default;
 	Clock& operator= (Clock&) = default;
 
 	void reset() {
-		time_init = std::chrono::system_clock::now();
+		time_init = system_clock::now();
 	}
-	uint64_t seconds() {
-		auto time_cur = std::chrono::system_clock::now();
-		return std::chrono::duration_cast<std::chrono::seconds>(time_cur - time_init).count();
+	uint64_t s() {
+		auto time_cur = system_clock::now();
+		return std::chrono::duration_cast<seconds>(time_cur - time_init).count();
 	}
-	uint64_t milliseconds() {
-		auto time_cur = std::chrono::system_clock::now();
-		return std::chrono::duration_cast<std::chrono::milliseconds>(time_cur - time_init).count();
+	uint64_t ms() {
+		auto time_cur = system_clock::now();
+		return std::chrono::duration_cast<milliseconds>(time_cur - time_init).count();
 	}
 };
 

@@ -9,6 +9,13 @@
 
 #include "util.h"
 
+using std::string;
+using std::function;
+using std::chrono::milliseconds;
+using std::exception;
+using std::runtime_error;
+using fmt::format;
+
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
 #define __CLASS__ ""
@@ -31,26 +38,26 @@ bool monitor_fgets (char* buffer, int buffer_size, std::FILE* file, bool* stop, 
 		}
 
 		if (r < 0)
-			throw std::runtime_error("select call error");
+			throw runtime_error("select call error");
 		if (std::feof(file))
 			return false;
 		if (std::ferror(file))
-			throw std::runtime_error("file error");
+			throw runtime_error("file error");
 
-		std::this_thread::sleep_for(std::chrono::milliseconds(interval));
+		std::this_thread::sleep_for(milliseconds(interval));
 	}
 
 	return false;
 }
 
-std::string command_output(const char* cmd, bool debug_out) {
-	std::string ret;
+string command_output(const char* cmd, bool debug_out) {
+	string ret;
 	const uint buffer_size = 512;
 	char buffer[buffer_size]; buffer[0] = '\0'; buffer[buffer_size -1] = '\0';
 
 	std::FILE* f = popen(cmd, "r");
 	if (f == NULL)
-		throw std::runtime_error(fmt::format("error executing command \"{}\"", cmd));
+		throw runtime_error(format("error executing command \"{}\"", cmd));
 
 	while (std::fgets(buffer, buffer_size -1, f) != NULL) {
 		ret += buffer;
@@ -63,7 +70,7 @@ std::string command_output(const char* cmd, bool debug_out) {
 
 	auto exit_code = pclose(f);
 	if (exit_code != 0)
-		throw std::runtime_error(fmt::format("command \"{}\" returned error {}", cmd, exit_code ));
+		throw runtime_error(format("command \"{}\" returned error {}", cmd, exit_code ));
 
 	return ret;
 }
@@ -73,7 +80,7 @@ std::string command_output(const char* cmd, bool debug_out) {
 #define __CLASS__ "ProcessController::"
 
 ProcessController::ProcessController(const char* name_, const char* cmd,
-		std::function<void(const char*)> handler_stdout_, std::function<void(const char*)> handler_stderr_,
+		function<void(const char*)> handler_stdout_, function<void(const char*)> handler_stderr_,
 		bool debug_out_)
 : name(name_), handler_stdout(handler_stdout_), handler_stderr(handler_stderr_), debug_out(debug_out_)
 {
@@ -91,7 +98,7 @@ ProcessController::ProcessController(const char* name_, const char* cmd,
 	DEBUG_MSG("pipe_stderr=({}, {})", pipe_stderr[0], pipe_stderr[1]);
 
 	if ((child_pid = fork()) == -1)
-		throw std::runtime_error(fmt::format("fork error on process {}", name));
+		throw runtime_error(format("fork error on process {}", name));
 
 	if (child_pid == 0) { //// child process ////
 		//DEBUG_MSG("child process initiated");
@@ -113,13 +120,13 @@ ProcessController::ProcessController(const char* name_, const char* cmd,
 	pid   = child_pid;
 	close(pipe_stdin[0]);
 	if ((f_stdin  = fdopen(pipe_stdin[1], "w")) == NULL)
-		throw std::runtime_error(fmt::format("fdopen (pipe_stdin) error on process {}", name));
+		throw runtime_error(format("fdopen (pipe_stdin) error on process {}", name));
 	close(pipe_stdout[1]);
 	if ((f_stdout = fdopen(pipe_stdout[0], "r")) == NULL)
-		throw std::runtime_error(fmt::format("fdopen (pipe_stdout) error on process {}", name));
+		throw runtime_error(format("fdopen (pipe_stdout) error on process {}", name));
 	close(pipe_stderr[1]);
 	if ((f_stderr = fdopen(pipe_stderr[0], "r")) == NULL)
-		throw std::runtime_error(fmt::format("fdopen (pipe_stderr) error on process {}", name));
+		throw runtime_error(format("fdopen (pipe_stderr) error on process {}", name));
 
 	thread_stdout_active = true;
 	thread_stdout = std::thread( [this]{this->threadStdout();} );
@@ -134,7 +141,7 @@ ProcessController::~ProcessController() {
 	must_stop = true;
 
 	if (checkStatus()) {
-		std::this_thread::sleep_for(std::chrono::milliseconds(100));
+		std::this_thread::sleep_for(milliseconds(100));
 		spdlog::warn("process {} (pid {}) still active. kill it", name, pid);
 		killpg(pid, SIGTERM);
 	}
@@ -158,7 +165,7 @@ bool ProcessController::isActive(bool throwexcept) {
 			std::rethrow_exception(thread_exception);
 		else {
 			try { std::rethrow_exception(thread_exception); }
-			catch (std::exception& e) {
+			catch (exception& e) {
 				spdlog::error("thread exception of program {}: {}", name, e.what());
 			}
 		}
@@ -166,14 +173,14 @@ bool ProcessController::isActive(bool throwexcept) {
 	bool aux_status = checkStatus();
 	if (throwexcept && !aux_status) {
 		if (exit_code != 0)
-			throw std::runtime_error(fmt::format("program {} exit code {}", name, exit_code));
+			throw runtime_error(format("program {} exit code {}", name, exit_code));
 		if (signal != 0)
-			throw std::runtime_error(fmt::format("program {} exit with signal {}", name, signal));
+			throw runtime_error(format("program {} exit with signal {}", name, signal));
 	}
 	return thread_stdout_active && thread_stderr_active && aux_status;
 }
 
-bool ProcessController::puts(const std::string value) noexcept {
+bool ProcessController::puts(const string value) noexcept {
 	DEBUG_MSG("write: {}", value);
 	if (!checkStatus()) {
 		spdlog::error("puts failed. Process {} is not active", name);
@@ -196,12 +203,12 @@ void ProcessController::threadStdout() noexcept {
 	try {
 		while (!must_stop && std::fgets(buffer, buffer_size -1, f_stdout) != NULL) {
 			if (debug_out) {
-				std::string aux = str_replace(buffer, '\n', ' ');
+				string aux = str_replace(buffer, '\n', ' ');
 				DEBUG_OUT(true, "stdout line: {}", aux);
 			}
 			handler_stdout(buffer);
 		}
-	} catch(std::exception& e) {
+	} catch(exception& e) {
 		DEBUG_MSG("exception received: {}", e.what());
 		thread_exception = std::current_exception();
 	}
@@ -219,12 +226,12 @@ void ProcessController::threadStderr() noexcept {
 	try {
 		while (!must_stop && std::fgets(buffer, buffer_size -1, f_stderr) != NULL) {
 			if (debug_out) {
-				std::string aux = str_replace(buffer, '\n', ' ');
+				string aux = str_replace(buffer, '\n', ' ');
 				DEBUG_OUT(true, "stderr line: {}", aux);
 			}
 			handler_stderr(buffer);
 		}
-	} catch(std::exception& e) {
+	} catch(exception& e) {
 		DEBUG_MSG("exception received: {}", e.what());
 		thread_exception = std::current_exception();
 	}
@@ -250,7 +257,7 @@ bool ProcessController::checkStatus() noexcept {
 	if (WIFEXITED(status)) {
 		exit_code = WEXITSTATUS(status);
 		program_active = false;
-		std::string msg = fmt::format("process {} (pid {}) exited, status={}", name, pid, exit_code);
+		string msg = format("process {} (pid {}) exited, status={}", name, pid, exit_code);
 		if (exit_code != 0)
 			spdlog::warn(msg);
 		else

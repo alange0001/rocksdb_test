@@ -9,13 +9,17 @@
 #include "util.h"
 #include "process.h"
 
+using std::string;
+using std::runtime_error;
+using fmt::format;
+
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
 #define __CLASS__ "ExperimentTask::"
 
 class ExperimentTask {
 	protected: //------------------------------------------------------------------
-	std::string name = "";
+	string name = "";
 	Clock* clock = nullptr;
 	OrderedDict data;
 	std::unique_ptr<ProcessController> process;
@@ -23,10 +27,10 @@ class ExperimentTask {
 	ExperimentTask() {}
 
 	public: //---------------------------------------------------------------------
-	ExperimentTask(const std::string name_, Clock* clock_) : name(name_), clock(clock_) {
+	ExperimentTask(const string name_, Clock* clock_) : name(name_), clock(clock_) {
 		DEBUG_MSG("constructor of task {}", name);
 		if (clock == nullptr)
-			throw std::runtime_error("invalid clock");
+			throw runtime_error("invalid clock");
 	}
 	virtual ~ExperimentTask() {
 		DEBUG_MSG("destructor of task {}", name);
@@ -39,17 +43,17 @@ class ExperimentTask {
 		process.reset(nullptr);
 	}
 
-	std::string str() {
-		std::string s;
+	string str() {
+		string s;
 		for (auto i : data)
-			s += fmt::format("{}{}={}", (s.length() > 0) ? ", " : "", i.first, i.second);
+			s += format("{}{}={}", (s.length() > 0) ? ", " : "", i.first, i.second);
 		return s;
 	}
 
 	void print() {
 		if (data.size() == 0)
 			spdlog::warn("no data in task {}", name);
-		data.push_front("time", fmt::format("{}", clock->seconds()));
+		data.push_front("time", format("{}", clock->s()));
 		spdlog::info("Task {}, STATS: {}", name, data.json());
 	}
 

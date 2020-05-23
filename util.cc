@@ -5,19 +5,30 @@
 #include <regex>
 #include <limits>
 
+using std::string;
+using std::vector;
+using std::function;
+using std::chrono::milliseconds;
+using std::chrono::seconds;
+using std::chrono::system_clock;
+using fmt::format;
+using std::exception;
+using std::invalid_argument;
+using std::runtime_error;
+
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
 #define __CLASS__ ""
 
-std::string strip(const std::string& src) {
-	std::string ret = src;
+string strip(const string& src) {
+	string ret = src;
 	return inplace_strip(ret);
 }
 
-int split_columns(std::vector<std::string>& ret, const char* str, const char* prefix) {
+int split_columns(vector<string>& ret, const char* str, const char* prefix) {
 	std::cmatch cm;
 	auto flags = std::regex_constants::match_any;
-	std::string str_aux;
+	string str_aux;
 
 	ret.clear();
 
@@ -43,12 +54,12 @@ int split_columns(std::vector<std::string>& ret, const char* str, const char* pr
 	return ret.size();
 }
 
-std::vector<std::string> split_str(const std::string& str, const std::string& delimiter) {
-	std::vector<std::string> ret;
-	std::string aux = str;
-	auto pos = std::string::npos;
+vector<string> split_str(const string& str, const string& delimiter) {
+	vector<string> ret;
+	string aux = str;
+	auto pos = string::npos;
 
-	while ((pos = aux.find(delimiter)) != std::string::npos) {
+	while ((pos = aux.find(delimiter)) != string::npos) {
 		ret.push_back(strip(aux.substr(0, pos)));
 		aux.erase(0, pos + delimiter.length());
 	}
@@ -57,9 +68,9 @@ std::vector<std::string> split_str(const std::string& str, const std::string& de
 	return ret;
 }
 
-bool parseBool(const std::string &value, const bool required, const bool default_,
+bool parseBool(const string &value, const bool required, const bool default_,
                const char* error_msg,
-			   std::function<bool(bool)> check_method )
+			   function<bool(bool)> check_method )
 {
 	const char* true_str[] = {"y","yes","t","true","1", ""};
 	const char* false_str[] = {"n","no","f","false","0", ""};
@@ -82,63 +93,63 @@ bool parseBool(const std::string &value, const bool required, const bool default
 	}
 
 	if (!set)
-		throw std::invalid_argument(error_msg);
+		throw invalid_argument(error_msg);
 	if (check_method != nullptr && !check_method(ret))
-		throw std::invalid_argument(error_msg);
+		throw invalid_argument(error_msg);
 
 	return ret;
 }
 
-uint32_t parseUint32(const std::string &value, const bool required, const uint32_t default_,
+uint32_t parseUint32(const string &value, const bool required, const uint32_t default_,
                const char* error_msg,
-			   std::function<bool(uint32_t)> check_method )
+			   function<bool(uint32_t)> check_method )
 {
 	if (required && value == "")
-		throw std::invalid_argument(error_msg);
+		throw invalid_argument(error_msg);
 	uint32_t ret = default_;
 	try {
 		if (value != "")
 			ret = std::stoul(value);
-	} catch (std::exception& e) {
-		throw std::invalid_argument(error_msg);
+	} catch (exception& e) {
+		throw invalid_argument(error_msg);
 	}
 	if (check_method != nullptr && !check_method(ret))
-		throw std::invalid_argument(error_msg);
+		throw invalid_argument(error_msg);
 	return ret;
 }
 
-uint64_t parseUint64(const std::string &value, const bool required, const uint64_t default_,
+uint64_t parseUint64(const string &value, const bool required, const uint64_t default_,
                const char* error_msg,
-			   std::function<bool(uint64_t)> check_method )
+			   function<bool(uint64_t)> check_method )
 {
 	if (required && value == "")
-		throw std::invalid_argument(error_msg);
+		throw invalid_argument(error_msg);
 	uint64_t ret = default_;
 	try {
 		if (value != "")
 			ret = std::stoull(value);
-	} catch (std::exception& e) {
-		throw std::invalid_argument(error_msg);
+	} catch (exception& e) {
+		throw invalid_argument(error_msg);
 	}
 	if (check_method != nullptr && !check_method(ret))
-		throw std::invalid_argument(error_msg);
+		throw invalid_argument(error_msg);
 	return ret;
 }
 
-double parseDouble(const std::string &value, const bool required, const double default_,
+double parseDouble(const string &value, const bool required, const double default_,
                const char* error_msg,
-			   std::function<bool(double)> check_method )
+			   function<bool(double)> check_method )
 {
 	if (required && value == "")
-		throw std::invalid_argument(error_msg);
+		throw invalid_argument(error_msg);
 	double ret = default_;
 	try {
 		if (value != "")
 			ret = std::stod(value);
-	} catch (std::exception& e) {
-		throw std::invalid_argument(error_msg);
+	} catch (exception& e) {
+		throw invalid_argument(error_msg);
 	}
 	if (check_method != nullptr && !check_method(ret))
-		throw std::invalid_argument(error_msg);
+		throw invalid_argument(error_msg);
 	return ret;
 }

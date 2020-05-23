@@ -5,20 +5,23 @@
 #include <thread>
 #include <functional>
 
+using std::string;
+using std::function;
+
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
 #define __CLASS__ ""
 
 bool monitor_fgets (char* buffer, int buffer_size, std::FILE* file, bool* stop, uint64_t interval=300);
 
-std::string command_output(const char* cmd, bool debug_out=false);
+string command_output(const char* cmd, bool debug_out=false);
 
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
 #define __CLASS__ "ProcessController::"
 
 class ProcessController {
-	std::string name;
+	string name;
 	bool        debug_out;
 
 	bool must_stop      = false;
@@ -35,8 +38,8 @@ class ProcessController {
 	bool               thread_stderr_active  = false;
 	std::exception_ptr thread_exception;
 
-	std::function<void(const char*)> handler_stdout;
-	std::function<void(const char*)> handler_stderr;
+	function<void(const char*)> handler_stdout;
+	function<void(const char*)> handler_stderr;
 
 	void threadStdout() noexcept;
 	void threadStderr() noexcept;
@@ -44,12 +47,12 @@ class ProcessController {
 
 	public: //---------------------------------------------------------------------
 	ProcessController(const char* name_, const char* cmd,
-			std::function<void(const char*)> handler_stdout_=ProcessController::default_stdout_handler,
-			std::function<void(const char*)> handler_stderr_=ProcessController::default_stderr_handler,
+			function<void(const char*)> handler_stdout_=ProcessController::default_stdout_handler,
+			function<void(const char*)> handler_stderr_=ProcessController::default_stderr_handler,
 			bool debug_out_=false);
 	~ProcessController();
 
-	bool puts(const std::string value) noexcept;
+	bool puts(const string value) noexcept;
 
 	bool isActive(bool throwexcept=false);
 	int  exit_code      = 0;

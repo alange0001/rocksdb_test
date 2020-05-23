@@ -19,6 +19,14 @@
 #include "util.h"
 #include "experiment_task.h"
 
+using std::string;
+using std::vector;
+using std::chrono::milliseconds;
+using std::runtime_error;
+using std::regex;
+using std::regex_search;
+using fmt::format;
+
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
 #define __CLASS__ "DBBench::"
@@ -28,13 +36,13 @@ class DBBench : public ExperimentTask {
 	uint number;
 
 	public:    //------------------------------------------------------------------
-	DBBench(Clock* clock_, Args* args_, uint number_) : ExperimentTask(fmt::format("db_bench[{}]", number_), clock_), args(args_), number(number_) {
+	DBBench(Clock* clock_, Args* args_, uint number_) : ExperimentTask(format("db_bench[{}]", number_), clock_), args(args_), number(number_) {
 		DEBUG_MSG("constructor");
 
-		if (args->db_create)
+		if (args->db_create())
 			createDB();
 
-		std::string cmd(getCmd());
+		string cmd(getCmd());
 		process.reset(new ProcessController(
 			name.c_str(),
 			cmd.c_str(),
@@ -52,9 +60,9 @@ class DBBench : public ExperimentTask {
 		spdlog::info("Creating Database. Command:\n{}", cmd);
 		auto ret = std::system(cmd.c_str());
 		if (ret != 0)
-			throw std::runtime_error("database creation error");
+			throw runtime_error("database creation error");
 	}
-	std::string commandCreateDB() {
+	string commandCreateDB() {
 		const char *template_cmd =
 		"db_bench                                         \\\n"
 		"	--db={}                                       \\\n"
@@ -67,18 +75,18 @@ class DBBench : public ExperimentTask {
 		"	--cache_size={}                               \\\n"
 		"	--key_size=48                                 \\\n"
 		"	--value_size=43                               ";
-		std::string ret = fmt::format(template_cmd,
-			args->db_path[number],
-			args->db_config_file[number],
-			args->db_num_keys[number],
-			args->db_cache_size[number]);
+		string ret = format(template_cmd,
+			args->db_path_list[number],
+			args->db_config_file_list[number],
+			args->db_num_keys_list[number],
+			args->db_cache_size_list[number]);
 
 		return ret;
 	}
-	std::string getCmd() {
-		uint32_t duration_s = args->duration * 60; /*minutes to seconds*/
-		double   sine_b   = 0.000073 * 24.0 * 60.0 * ((double)args->db_sine_cycles[number] / (double)args->duration); /*adjust the sine cycle*/
-		double   sine_c   = sine_b * (double)args->db_sine_shift[number] * 60.0;
+	string getCmd() {
+		uint32_t duration_s = args->duration() * 60; /*minutes to seconds*/
+		double   sine_b   = 0.000073 * 24.0 * 60.0 * ((double)args->db_sine_cycles_list[number] / (double)args->duration()); /*adjust the sine cycle*/
+		double   sine_c   = sine_b * (double)args->db_sine_shift_list[number] * 60.0;
 
 		const char *template_cmd =
 		"db_bench                                         \\\n"
@@ -113,16 +121,16 @@ class DBBench : public ExperimentTask {
 		"	--sine_b={}                                   \\\n"
 		"	--sine_c={}                                   \\\n"
 		"	{}  2>&1";
-		std::string ret = fmt::format(template_cmd,
-			args->db_path[number],
-			args->db_config_file[number],
-			args->db_num_keys[number],
-			args->stats_interval,
-			args->db_cache_size[number],
+		string ret = format(template_cmd,
+			args->db_path_list[number],
+			args->db_config_file_list[number],
+			args->db_num_keys_list[number],
+			args->stats_interval(),
+			args->db_cache_size_list[number],
 			duration_s,
 			sine_b,
 			sine_c,
-			args->db_bench_params[number]);
+			args->db_bench_params_list[number]);
 
 		spdlog::info("Executing db_bench[{}]. Command:\n{}", number, ret);
 		return ret;
@@ -134,7 +142,7 @@ class DBBench : public ExperimentTask {
 
 		spdlog::info("Task {}, stdout: {}", name, str_replace(buffer, '\n', ' '));
 
-		std::regex_search(buffer, cm, std::regex("thread [0-9]+: \\(([0-9.]+),([0-9.]+)\\) ops and \\(([0-9.]+),([0-9.]+)\\) ops/second in \\(([0-9.]+),([0-9.]+)\\) seconds.*"), flags);
+		regex_search(buffer, cm, regex("thread [0-9]+: \\(([0-9.]+),([0-9.]+)\\) ops and \\(([0-9.]+),([0-9.]+)\\) ops/second in \\(([0-9.]+),([0-9.]+)\\) seconds.*"), flags);
 		if( cm.size() >= 7 ){
 			data["ops"] = cm.str(1);
 			data["ops_total"] = cm.str(2);
@@ -144,7 +152,7 @@ class DBBench : public ExperimentTask {
 			data["stats_total"] = cm.str(5);
 			//DEBUG_OUT(args->debug_output_db_bench, "line parsed    : {}", buffer);
 		}
-		std::regex_search(buffer, cm, std::regex("Interval writes: ([0-9.]+[KMGT]*) writes, ([0-9.]+[KMGT]*) keys, ([0-9.]+[KMGT]*) commit groups, ([0-9.]+[KMGT]*) writes per commit group, ingest: ([0-9.]+) [KMGT]*B, ([0-9.]+) [KMGT]*B/s.*"), flags);
+		regex_search(buffer, cm, regex("Interval writes: ([0-9.]+[KMGT]*) writes, ([0-9.]+[KMGT]*) keys, ([0-9.]+[KMGT]*) commit groups, ([0-9.]+[KMGT]*) writes per commit group, ingest: ([0-9.]+) [KMGT]*B, ([0-9.]+) [KMGT]*B/s.*"), flags);
 		if( cm.size() >= 7 ){
 			data["writes"] = cm.str(1);
 			data["written_keys"] = cm.str(2);
@@ -153,7 +161,7 @@ class DBBench : public ExperimentTask {
 			data["ingest_MBps"] = cm.str(6);
 			//DEBUG_OUT(args->debug_output_db_bench, "line parsed    : {}", buffer);
 		}
-		std::regex_search(buffer, cm, std::regex("Interval WAL: ([0-9.]+[KMGT]*) writes, ([0-9.]+[KMGT]*) syncs, ([0-9.]+[KMGT]*) writes per sync, written: ([0-9.]+) [KMGT]*B, ([0-9.]+) [KMGT]*B/s.*"), flags);
+		regex_search(buffer, cm, regex("Interval WAL: ([0-9.]+[KMGT]*) writes, ([0-9.]+[KMGT]*) syncs, ([0-9.]+[KMGT]*) writes per sync, written: ([0-9.]+) [KMGT]*B, ([0-9.]+) [KMGT]*B/s.*"), flags);
 		if( cm.size() >= 5 ){
 			data["WAL_writes"] = cm.str(1);
 			data["WAL_syncs"] = cm.str(2);
@@ -161,7 +169,7 @@ class DBBench : public ExperimentTask {
 			data["WAL_written_MBps"] = cm.str(5);
 			//DEBUG_OUT(args->debug_output_db_bench, "line parsed    : {}", buffer);
 		}
-		std::regex_search(buffer, cm, std::regex("Interval stall: ([0-9:.]+) H:M:S, ([0-9.]+) percent.*"), flags);
+		regex_search(buffer, cm, regex("Interval stall: ([0-9:.]+) H:M:S, ([0-9.]+) percent.*"), flags);
 		if( cm.size() >= 3 ){
 			data["stall"] = cm.str(1);
 			data["stall_percent"] = cm.str(2);
@@ -184,22 +192,22 @@ class SystemStats : public ExperimentTask {
 	public: //----------------------------------------------------------------------
 	SystemStats(Clock* clock_, Args* args_) : ExperimentTask("systemstats", clock_), args(args_) {
 		DEBUG_MSG("constructor");
-		std::string cmd(fmt::format("while true; do sleep {} && uptime; done", args->stats_interval));
+		string cmd(format("while true; do sleep {} && uptime; done", args->stats_interval()));
 		process.reset(new ProcessController(
 			name.c_str(),
 			cmd.c_str(),
 			[this](const char* v){this->stdoutHandler(v);},
 			[this](const char* v){this->default_stderr_handler(v);},
-			args->debug_output
+			args->debug_output()
 			));
 	}
 	~SystemStats() {}
 
 	private: //---------------------------------------------------------------------
 	void stdoutHandler(const char* buffer) {
-		std::string aux;
+		string aux;
 		std::cmatch cm;
-		std::regex_search(buffer, cm, std::regex("load average:\\s+([0-9]+[.,][0-9]+),\\s+([0-9]+[.,][0-9]+),\\s+([0-9]+[.,][0-9]+)"));
+		regex_search(buffer, cm, regex("load average:\\s+([0-9]+[.,][0-9]+),\\s+([0-9]+[.,][0-9]+),\\s+([0-9]+[.,][0-9]+)"));
 		if( cm.size() >= 4 ){
 			data.clear();
 			data["load1"]  = str_replace(aux, cm.str(1), ',', '.');
@@ -217,21 +225,23 @@ class SystemStats : public ExperimentTask {
 
 class IOStat : public ExperimentTask {
 	Args* args;
+	string io_device;
 
 	bool first = true;
-	std::vector<std::string> columns;
+	vector<string> columns;
 
 	public: //----------------------------------------------------------------------
 	IOStat(Clock* clock_, Args* args_) : ExperimentTask("iostat", clock_), args(args_) {
 		DEBUG_MSG("constructor");
+		io_device = args->io_device();
 		devCheck();
-		std::string cmd(fmt::format("iostat -xm {} {}", args->stats_interval, args->io_device));
+		string cmd(format("iostat -xm {} {}", args->stats_interval(), io_device));
 		process.reset(new ProcessController(
 			name.c_str(),
 			cmd.c_str(),
 			[this](const char* v){this->stdoutHandler(v);},
 			[this](const char* v){this->default_stderr_handler(v);},
-			args->debug_output_iostat
+			args->debug_output_iostat()
 			));
 	}
 	~IOStat() {}
@@ -241,20 +251,20 @@ class IOStat : public ExperimentTask {
 		//Device            r/s     w/s     rMB/s     wMB/s   rrqm/s   wrqm/s  %rrqm  %wrqm r_await w_await aqu-sz rareq-sz wareq-sz  svctm  %util
 		//nvme0n1          0,00    0,00      0,00      0,00     0,00     0,00   0,00   0,00    0,00    0,00   0,00     0,00     0,00   0,00   0,00
 
-		if (std::regex_search(buffer, std::regex(fmt::format("^({})\\s+", args->io_device)))) {
+		if (regex_search(buffer, regex(format("^({})\\s+", io_device)))) {
 			if (first) {
 				first = false;
 			} else {
-				std::vector<std::string> values;
+				vector<string> values;
 				auto columns_s = columns.size();
-				auto values_s = split_columns(values, buffer, args->io_device.c_str());
+				auto values_s = split_columns(values, buffer, io_device.c_str());
 
 				if (values_s == 0 || values_s != columns_s) {
-					throw std::runtime_error(fmt::format("invalid iostat data: {}", buffer));
+					throw runtime_error(format("invalid iostat data: {}", buffer));
 				}
 
 				data.clear();
-				std::string aux;
+				string aux;
 				for (int i=0; i < columns_s; i++) {
 					data[columns[i]] = str_replace(aux, values[i], ',', '.');
 				}
@@ -262,23 +272,24 @@ class IOStat : public ExperimentTask {
 				print();
 			}
 
-		} else if (first && std::regex_search(buffer, std::regex("^(Device)\\s+"))) {
+		} else if (first && regex_search(buffer, regex("^(Device)\\s+"))) {
 			if (columns.size() > 0)
-				throw std::runtime_error("iostat header read twice");
+				throw runtime_error("iostat header read twice");
 			if (split_columns(columns, buffer, "Device") == 0)
-				throw std::runtime_error(fmt::format("invalid iostat header: {}", buffer));
+				throw runtime_error(format("invalid iostat header: {}", buffer));
 		}
 	}
 
 	void devCheck() {
-		if (args->io_device.length() == 0)
-			throw std::runtime_error("io_device not specified");
+		auto io_device = args->io_device();
+		if (io_device.length() == 0)
+			throw runtime_error("io_device not specified");
 
-		std::string filename("/dev/"); filename += args->io_device;
+		string filename("/dev/"); filename += io_device;
 		struct stat s;
 
 		if (stat(filename.c_str(), &s) != 0)
-			throw std::runtime_error(fmt::format("failed to read device {}", filename));
+			throw runtime_error(format("failed to read device {}", filename));
 	}
 };
 
@@ -328,8 +339,8 @@ class Program {
 			args.reset(new Args(argc, argv));
 			clock.reset(new Clock());
 
-			dbbench_list.reset(new std::unique_ptr<DBBench>[args->num_dbs]);
-			for (uint32_t i=0; i<args->num_dbs; i++) {
+			dbbench_list.reset(new std::unique_ptr<DBBench>[args->num_dbs()]);
+			for (uint32_t i=0; i<args->num_dbs(); i++) {
 				dbbench_list[i].reset(new DBBench(clock.get(), args.get(), i));
 			}
 
@@ -342,11 +353,11 @@ class Program {
 			        (iostat.get()  != nullptr && iostat->isActive())  &&
 			        (sysstat.get() != nullptr && sysstat->isActive()) )
 			{
-				for (uint32_t i=0; i<args->num_dbs; i++) {
+				for (uint32_t i=0; i<args->num_dbs(); i++) {
 					if (dbbench_list.get() == nullptr || dbbench_list[i].get() == nullptr || !dbbench_list[i]->isActive())
 						stop = true;
 				}
-				std::this_thread::sleep_for(std::chrono::milliseconds(500));
+				std::this_thread::sleep_for(milliseconds(500));
 			}
 
 			resetAll();

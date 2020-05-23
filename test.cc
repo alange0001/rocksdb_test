@@ -26,14 +26,6 @@ int64_t PowerCdfInversion(double u, double a, double b, double c) {
   return static_cast<int64_t>(ceil(ret));
 }
 
-struct Test {
-	int i = 0;
-
-	Test() {}
-	~Test() {
-		spdlog::info("Test destructor");
-	}
-};
 
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
@@ -42,15 +34,7 @@ struct Test {
 int main(int argc, char** argv) {
 	spdlog::set_level(spdlog::level::debug);
 
-	std::unique_ptr<std::unique_ptr<Test>[]> il;
-
-	il.reset(new std::unique_ptr<Test>[5]);
-	for (int i=0; i<5; i++) {
-		il[i].reset(new Test());
-		il[i]->i = i;
-		spdlog::info("{}", il[i]->i);
-	}
-	il.reset(nullptr);
+	Args args(argc, argv);
 
 	spdlog::info("return 0");
 	return 0;

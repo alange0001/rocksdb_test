@@ -32,36 +32,36 @@ DEFINE_uint64(filesize, 0,
 
 DEFINE_uint64(block_size, 4,
           "block size (KiB)");
-createValidator(block_size, uint64_t, (value >= 4), "Invalid {}: {}. Must be >= 4.");
+createValidator(block_size, uint64_t, (value >= 4), defaultValidatorMsg ". Must be >= 4.");
 
 DEFINE_uint64(flush_blocks, 1,
           "blocks written before a flush (0 = no flush)");
 
 DEFINE_bool(create_file, true,
           "create file");
-createValidator(filesize, uint64_t, (value >= 10 || !FLAGS_create_file), "Invalid {}: {}. Must be >= 10.");
+createValidator(filesize, uint64_t, (value >= 10 || !FLAGS_create_file), defaultValidatorMsg ". Must be >= 10.");
 
 DEFINE_bool(delete_file, true,
           "delete file if created");
 
 DEFINE_double(write_ratio, 0,
           "writes/reads ratio (0-1)");
-createValidator(write_ratio, double, (value >= 0 && value <=1), "Invalid {}: {}. The valid interval is [0..1].");
+createValidator(write_ratio, double, (value >= 0 && value <=1), defaultValidatorMsg ". The valid interval is [0..1].");
 
 DEFINE_double(random_ratio, 0,
           "random ratio (0-1)");
-createValidator(random_ratio, double, (value >= 0 && value <=1), "Invalid {}: {}. The valid interval is [0..1].");
+createValidator(random_ratio, double, (value >= 0 && value <=1), defaultValidatorMsg ". The valid interval is [0..1].");
 
 DEFINE_uint64(sleep_interval, 0,
           "sleep interval (ns)");
 
 DEFINE_uint64(sleep_count, 1,
           "number of IOs before sleep");
-createValidator(sleep_count, uint64_t, (value > 0), "Invalid {}: {}. Must be > 0.");
+createValidator(sleep_count, uint64_t, (value > 0), defaultValidatorMsg ". Must be > 0.");
 
 DEFINE_uint32(stats_interval, 5,
           "Statistics interval (seconds)");
-createValidator(stats_interval, uint32_t, (value > 0), "Invalid {}: {}. Must be > 0.");
+createValidator(stats_interval, uint32_t, (value > 0), defaultValidatorMsg ". Must be > 0.");
 
 DEFINE_bool(wait, false,
           "wait");
