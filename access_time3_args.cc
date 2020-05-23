@@ -23,6 +23,9 @@
 DEFINE_string(log_level, "info",
           "log level (debug,info,warn,error,critical,off)");
 
+DEFINE_bool(log_time_prefix, true,
+          "print date and time in each line");
+
 DEFINE_string(filename, "",
           "file name");
 createValidator(filename, std::string&, (value.length() != 0), defaultValidatorMsg);
@@ -86,7 +89,11 @@ Args::Args(int argc, char** argv) {
 	else if (FLAGS_log_level == "off"     ) spdlog::set_level(spdlog::level::off);
 	else throw std::invalid_argument(fmt::format("invalid --log_level={}", FLAGS_log_level));
 
-	std::string params_out(fmt::format("--log_level={}", FLAGS_log_level));
+	if (!FLAGS_log_time_prefix) {
+		spdlog::set_pattern("[%l] %v");
+	}
+
+	std::string params_out(fmt::format("--log_level={} --log_time_prefix={}", FLAGS_log_level, FLAGS_log_time_prefix));
 
 #	define assignValue(name) \
 		name = FLAGS_##name; \

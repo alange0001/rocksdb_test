@@ -155,28 +155,6 @@ using std::function;
 #define ARG__debug_output_iostat__d  false
 #define ARG__debug_output_iostat__fm "Debug iostat output"
 
-#define ALL_ARGS_F( _f )    \
-	_f(duration);           \
-	_f(stats_interval);     \
-	_f(num_dbs);            \
-	_f(db_create);          \
-	_f(db_path);            \
-	_f(db_config_file);     \
-	_f(db_num_keys);        \
-	_f(db_cache_size);      \
-	_f(db_sine_cycles);     \
-	_f(db_sine_shift);      \
-	_f(db_bench_params);    \
-	_f(num_at);             \
-	_f(at_file);            \
-	_f(at_block_size);      \
-	_f(at_params);          \
-	_f(at_script);          \
-	_f(io_device);          \
-	_f(log_level);          \
-	_f(debug_output);       \
-	_f(debug_output_iostat)
-
 #define ALL_ARGS_NoList_F( _f ) \
 	_f(duration);           \
 	_f(stats_interval);     \
@@ -200,6 +178,10 @@ using std::function;
 	_f(at_block_size);      \
 	_f(at_params);          \
 	_f(at_script)
+
+#define ALL_ARGS_F( _f )     \
+	ALL_ARGS_NoList_F( _f ); \
+	ALL_ARGS_List_F( _f )
 
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__

@@ -25,6 +25,7 @@ using std::chrono::milliseconds;
 using std::runtime_error;
 using std::regex;
 using std::regex_search;
+using std::unique_ptr;
 using fmt::format;
 
 ////////////////////////////////////////////////////////////////////////////////////
@@ -132,7 +133,7 @@ class DBBench : public ExperimentTask {
 			sine_c,
 			args->db_bench_params_list[number]);
 
-		spdlog::info("Executing db_bench[{}]. Command:\n{}", number, ret);
+		spdlog::info("Executing {}. Command:\n{}", name, ret);
 		return ret;
 	}
 
@@ -177,6 +178,63 @@ class DBBench : public ExperimentTask {
 
 			print();
 			data.clear();
+		}
+	}
+};
+
+////////////////////////////////////////////////////////////////////////////////////
+#undef __CLASS__
+#define __CLASS__ "AccessTime3::"
+
+class AccessTime3 : public ExperimentTask {
+	Args* args;
+	uint number;
+
+	public:    //------------------------------------------------------------------
+	AccessTime3(Clock* clock_, Args* args_, uint number_) : ExperimentTask(format("access_time3[{}]", number_), clock_), args(args_), number(number_) {
+		DEBUG_MSG("constructor");
+
+		string cmd( getCmd() );
+		process.reset(new ProcessController(
+			name.c_str(),
+			cmd.c_str(),
+			[this](const char* v){this->stdoutHandler(v);},
+			[this](const char* v){this->default_stderr_handler(v);},
+			false
+			));
+
+	}
+	~AccessTime3() {}
+
+	string getCmd() {
+		const char *template_cmd =
+		"access_time3                                     \\\n"
+		"   --stats_interval={}                           \\\n"
+		"   --log_time_prefix=false                       \\\n"
+		"	--filename=\"{}\"                             \\\n"
+		"	--create_file=false                           \\\n"
+		"	--block_size={}                               \\\n"
+		"	--command_script=\"{}\"                       \\\n"
+		"	{} 2>&1";
+		string ret( format(template_cmd,
+				args->stats_interval(),
+				args->at_file_list[number],
+				args->at_block_size_list[number],
+				args->at_script_list[number],
+				args->at_params_list[number]) );
+
+		spdlog::info("Executing {}. Command:\n{}", name, ret);
+		return ret;
+	}
+
+	void stdoutHandler(const char* buffer) {
+		std::cmatch cm;
+
+		spdlog::info("Task {}, stdout: {}", name, str_replace(buffer, '\n', ' '));
+
+		regex_search(buffer, cm, regex("STATS: \\{[^,]+, ([^\\}]+)\\}"));
+		if (cm.size() > 1) {
+			spdlog::info("Task {}, STATS: {} \"time\":\"{}\", {} {}", name, "{", clock->s(), cm.str(1), "}");
 		}
 	}
 };
@@ -298,13 +356,14 @@ class IOStat : public ExperimentTask {
 #define __CLASS__ "Program::"
 
 class Program {
-	static Program* this_;
-	std::unique_ptr<Args>        args;
-	std::unique_ptr<Clock>       clock;
+	static Program*   this_;
+	unique_ptr<Args>  args;
+	unique_ptr<Clock> clock;
 
-	std::unique_ptr<std::unique_ptr<DBBench>[]> dbbench_list;
-	std::unique_ptr<IOStat>      iostat;
-	std::unique_ptr<SystemStats> sysstat;
+	unique_ptr<unique_ptr<DBBench>[]>     dbbench_list;
+	unique_ptr<unique_ptr<AccessTime3>[]> at_list;
+	unique_ptr<IOStat>      iostat;
+	unique_ptr<SystemStats> sysstat;
 
 	public: //---------------------------------------------------------------------
 	Program() {
@@ -334,14 +393,22 @@ class Program {
 
 	int main(int argc, char** argv) noexcept {
 		DEBUG_MSG("initialized");
-		spdlog::info("rocksdb_test version: 1.1");
+		spdlog::info("rocksdb_test version: 1.2");
 		try {
 			args.reset(new Args(argc, argv));
 			clock.reset(new Clock());
 
-			dbbench_list.reset(new std::unique_ptr<DBBench>[args->num_dbs()]);
-			for (uint32_t i=0; i<args->num_dbs(); i++) {
+			auto num_dbs = args->num_dbs();
+			auto num_at  = args->num_at();
+
+			dbbench_list.reset(new unique_ptr<DBBench>[num_dbs]);
+			for (uint32_t i=0; i<num_dbs; i++) {
 				dbbench_list[i].reset(new DBBench(clock.get(), args.get(), i));
+			}
+
+			at_list.reset(new unique_ptr<AccessTime3>[num_at]);
+			for (uint32_t i=0; i<num_at; i++) {
+				at_list[i].reset(new AccessTime3(clock.get(), args.get(), i));
 			}
 
 			clock->reset();
@@ -353,10 +420,20 @@ class Program {
 			        (iostat.get()  != nullptr && iostat->isActive())  &&
 			        (sysstat.get() != nullptr && sysstat->isActive()) )
 			{
-				for (uint32_t i=0; i<args->num_dbs(); i++) {
-					if (dbbench_list.get() == nullptr || dbbench_list[i].get() == nullptr || !dbbench_list[i]->isActive())
+				for (uint32_t i=0; i<num_dbs; i++) {
+					if (dbbench_list.get() == nullptr || dbbench_list[i].get() == nullptr || !dbbench_list[i]->isActive()) {
 						stop = true;
+						break;
+					}
 				}
+				if (stop) break;
+				for (uint32_t i=0; i<num_at; i++) {
+					if (at_list.get() == nullptr || at_list[i].get() == nullptr || !at_list[i]->isActive()) {
+						stop = true;
+						break;
+					}
+				}
+				if (stop) break;
 				std::this_thread::sleep_for(milliseconds(500));
 			}
 
@@ -376,8 +453,10 @@ class Program {
 	void resetAll() noexcept {
 		DEBUG_MSG("destroy tasks");
 		dbbench_list.reset(nullptr);
+		at_list.reset(nullptr);
 		iostat.reset(nullptr);
 		sysstat.reset(nullptr);
+		std::this_thread::sleep_for(milliseconds(300));
 	}
 
 	static void signalWrapper(int signal) noexcept {

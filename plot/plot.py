@@ -32,7 +32,10 @@ class File:
 				parsed_line = re.findall(r'Task ([^,]+), STATS: (.+)', line)
 				if len(parsed_line) > 0:
 					task = parsed_line[0][0]
-					data = json.loads(parsed_line[0][1])
+					try:
+						data = json.loads(parsed_line[0][1])
+					except:
+						print("json exception (task {}): {}".format(task, parsed_line[0][1]))
 					#print("Task {}, data: {}".format(task, data))
 					if self._data.get(task) is None:
 						self._data[task] = []
@@ -161,6 +164,6 @@ def decimalSuffix(value):
 	else:
 		raise Exception("invalid number")
 
-f = File('data2/out3')
+f = File('data2/out5')
 f.graph1()
-#f.graph2()
+f.graph2()

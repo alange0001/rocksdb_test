@@ -394,7 +394,7 @@ class Program {
 							((aux_blocks_read  - elapsed_blocks_read)  * args->block_size * 1000)/(elapsed_ms * 1024),
 							((aux_blocks_write - elapsed_blocks_write) * args->block_size * 1000)/(elapsed_ms * 1024)
 							);
-					spdlog::info("STATS: {}{} {}{}", "{", aux_str, args->strStat(), "}");
+					spdlog::info("STATS: {}{}, {}{}", "{", aux_str, args->strStat(), "}");
 					time_elapsed         = time_aux;
 					elapsed_blocks       = aux_blocks;
 					elapsed_blocks_read  = aux_blocks_read;
