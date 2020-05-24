@@ -131,8 +131,8 @@ class File:
 		#ax.set_position([chartBox.x0, chartBox.y0, chartBox.width*0.65, chartBox.height])
 		#ax.legend(loc='upper center', bbox_to_anchor=(1.35, 0.9), title='threads', ncol=1, frameon=True)
 
-		axs[0].legend(loc='upper right', ncol=1, frameon=True)
-		axs[1].legend(loc='upper right', ncol=1, frameon=True)
+		axs[0].legend(loc='upper right', ncol=2, frameon=True)
+		axs[1].legend(loc='upper right', ncol=2, frameon=True)
 		axs[2].legend(loc='upper right', ncol=1, frameon=True)
 
 		fig.tight_layout()
@@ -164,6 +164,6 @@ def decimalSuffix(value):
 	else:
 		raise Exception("invalid number")
 
-f = File('data2/out5')
+f = File('data2/out2')
 f.graph1()
 f.graph2()

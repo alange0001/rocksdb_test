@@ -3,6 +3,7 @@
 
 #include <string>
 #include <stdexcept>
+#include <functional>
 
 #include <gflags/gflags.h>
 #include <spdlog/spdlog.h>
@@ -10,8 +11,10 @@
 
 #include "util.h"
 
+using std::string;
 using std::runtime_error;
 using std::invalid_argument;
+using std::function;
 using fmt::format;
 
 ////////////////////////////////////////////////////////////////////////////////////
@@ -19,25 +22,27 @@ using fmt::format;
 #define __CLASS__ ""
 
 ////////////////////////////////////////////////////////////////////////////////////
-#define declareFlag(name)                                        \
-	ARG__##name##__ft (name, ARG__##name##__d, ARG__##name##__fm)
-
-#define defaultValidatorMsg "Invalid {}: {}"
-
-#define createValidator(name, condition, message)                                    \
-	static bool validate_##name(const char* flagname, const ARG__##name##__t value) { \
-	   if (condition)                                                                \
-	     return true;                                                                \
-	   throw invalid_argument(format(message, flagname, value));           \
-	}                                                                                \
-	DEFINE_validator(name, &validate_##name)
+#define DEFINE_uint32_t uint32_t
+#define DEFINE_uint64_t uint64_t
+#define DEFINE_string_t string&
+#define DEFINE_bool_t bool
+#define declareFlag(ARG_name, ARG_type, ARG_flag_type, ARG_flag_default, ARG_help, ARG_condition, ARG_set_event, ...) \
+	ARG_flag_type (ARG_name, ARG_flag_default, ARG_help);                          \
+	static bool validate_##ARG_name(const char* flagname, const ARG_flag_type##_t value) { \
+		if (!(ARG_condition)) {                                                    \
+			throw std::invalid_argument(fmt::format(                               \
+				"Invalid value for the parameter {}: \"{}\"."                      \
+				"Condition: " #ARG_condition,                                      \
+				flagname, value));                                                 \
+		}                                                                          \
+		ARG_set_event;                                                             \
+		return true;                                                               \
+	}                                                                              \
+	//DEFINE_validator(ARG_name, &validate_##ARG_name)
 ////////////////////////////////////////////////////////////////////////////////////
 
-ALL_ARGS_F(declareFlag);
+ALL_ARGS_F( declareFlag );
 
-createValidator(duration, (value >= 10), defaultValidatorMsg ". Must be >=10");
-createValidator(stats_interval, (value > 0), defaultValidatorMsg ". Must be > 0.");
-createValidator(num_dbs, (value > 0), defaultValidatorMsg ". Must be > 0.");
 
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
@@ -52,38 +57,35 @@ Args::Args(int argc, char** argv){
 
 	gflags::SetUsageMessage(string("\nUSAGE:\n\t") + string(argv[0]) +
 				" [OPTIONS]...");
+	spdlog::set_level(spdlog::level::info);
 	gflags::ParseCommandLineFlags(&argc, &argv, true);
 
-	if      (FLAGS_log_level == "debug"   ) spdlog::set_level(spdlog::level::debug);
-	else if (FLAGS_log_level == "info"    ) spdlog::set_level(spdlog::level::info);
-	else if (FLAGS_log_level == "warn"    ) spdlog::set_level(spdlog::level::warn);
-	else if (FLAGS_log_level == "error"   ) spdlog::set_level(spdlog::level::err);
-	else if (FLAGS_log_level == "critical") spdlog::set_level(spdlog::level::critical);
-	else if (FLAGS_log_level == "off"     ) spdlog::set_level(spdlog::level::off);
-	else throw invalid_argument(format("invalid log_level: {}", FLAGS_log_level));
-
 	string params_str;
-#	define printParam(name) params_str += format("{}--" #name "=\"{}\"", (params_str.length()>0)?" ":"", FLAGS_##name)
-	ALL_ARGS_F(printParam);
+#	define printParam(ARG_name, ...) params_str += format("{}--" #ARG_name "=\"{}\"", (params_str.length()>0)?" ":"", FLAGS_##ARG_name)
+	ALL_ARGS_F( printParam );
 #	undef printParam
 	spdlog::info("parameters: {}", params_str);
 
 
-#	define assignList(name) \
-		name##_list = ARG__##name##__lf(name(), #name, ARG__##name##__ln(), [](const ARG__##name##__lt value)->bool{return ARG__##name##__lc;})
+#	define assignValue(ARG_name, ...) \
+		ARG_name = FLAGS_##ARG_name
+	ALL_ARGS_Direct_F( assignValue );
+#	undef assignValue
 
+#	define assignList(ARG_name, ARG_type, ARG_flag_type, ARG_flag_default, ARG_help, ARG_condition, ARG_set_event, ARG_item_type, ARG_item_condition, ARG_items, ...) \
+		ARG_name = parseList_##ARG_item_type(FLAGS_##ARG_name, #ARG_name, ARG_items, [](const ARG_item_type value)->bool{return (ARG_item_condition);})
 	ALL_ARGS_List_F( assignList );
-	checkUniqueStr("db_path", db_path_list);
-	checkUniqueStr("at_file", at_file_list);
 #	undef assignList
 
+	checkUniqueStr("db_path", db_path);
+	checkUniqueStr("at_file", at_file);
 
-#	define print_arg(name) \
-		spdlog::info("Args." #name ": {}", name())
-#	define print_arg_list(name) \
-		for (int i=0; i<name##_list.size(); i++) \
-			spdlog::info("Args." #name "[{}]: {}", i, name##_list[i])
-	ALL_ARGS_NoList_F( print_arg );
+#	define print_arg(ARG_name, ...) \
+		spdlog::info("Args." #ARG_name ": {}", ARG_name)
+#	define print_arg_list(ARG_name, ...) \
+		for (int i=0; i<ARG_name.size(); i++) \
+			spdlog::info("Args." #ARG_name "[{}]: {}", i, ARG_name[i])
+	ALL_ARGS_Direct_F( print_arg );
 	ALL_ARGS_List_F( print_arg_list );
 #	undef print_arg
 #	undef print_arg_list
@@ -93,16 +95,19 @@ Args::~Args() {
 	Args::this_ = nullptr;
 }
 
-#define declareGet(name)            \
-	ARG__##name##__t Args::name() {  \
-		return FLAGS_##name;        \
-	}
-ALL_ARGS_F( declareGet );
-#undef declareGet
+void Args::setLogLevel(const string& value) {
+	if      (FLAGS_log_level == "debug"   ) spdlog::set_level(spdlog::level::debug);
+	else if (FLAGS_log_level == "info"    ) spdlog::set_level(spdlog::level::info);
+	else if (FLAGS_log_level == "warn"    ) spdlog::set_level(spdlog::level::warn);
+	else if (FLAGS_log_level == "error"   ) spdlog::set_level(spdlog::level::err);
+	else if (FLAGS_log_level == "critical") spdlog::set_level(spdlog::level::critical);
+	else if (FLAGS_log_level == "off"     ) spdlog::set_level(spdlog::level::off);
+	else throw invalid_argument(format("invalid log_level: {}", FLAGS_log_level));
+}
 
 vector<string> Args::parseList_string(
 		const string& str, const char* name, const uint32_t num,
-		function<bool(const string&)> check)
+		function<bool(const string)> check)
 {
 	if (num == 0) return vector<string>();
 	vector<string> ret = split_str(str, param_delimiter);

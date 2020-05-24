@@ -40,7 +40,7 @@ class DBBench : public ExperimentTask {
 	DBBench(Clock* clock_, Args* args_, uint number_) : ExperimentTask(format("db_bench[{}]", number_), clock_), args(args_), number(number_) {
 		DEBUG_MSG("constructor");
 
-		if (args->db_create())
+		if (args->db_create)
 			createDB();
 
 		string cmd(getCmd());
@@ -77,17 +77,17 @@ class DBBench : public ExperimentTask {
 		"	--key_size=48                                 \\\n"
 		"	--value_size=43                               ";
 		string ret = format(template_cmd,
-			args->db_path_list[number],
-			args->db_config_file_list[number],
-			args->db_num_keys_list[number],
-			args->db_cache_size_list[number]);
+			args->db_path[number],
+			args->db_config_file[number],
+			args->db_num_keys[number],
+			args->db_cache_size[number]);
 
 		return ret;
 	}
 	string getCmd() {
-		uint32_t duration_s = args->duration() * 60; /*minutes to seconds*/
-		double   sine_b   = 0.000073 * 24.0 * 60.0 * ((double)args->db_sine_cycles_list[number] / (double)args->duration()); /*adjust the sine cycle*/
-		double   sine_c   = sine_b * (double)args->db_sine_shift_list[number] * 60.0;
+		uint32_t duration_s = args->duration * 60; /*minutes to seconds*/
+		double   sine_b   = 0.000073 * 24.0 * 60.0 * ((double)args->db_sine_cycles[number] / (double)args->duration); /*adjust the sine cycle*/
+		double   sine_c   = sine_b * (double)args->db_sine_shift[number] * 60.0;
 
 		const char *template_cmd =
 		"db_bench                                         \\\n"
@@ -123,15 +123,15 @@ class DBBench : public ExperimentTask {
 		"	--sine_c={}                                   \\\n"
 		"	{}  2>&1";
 		string ret = format(template_cmd,
-			args->db_path_list[number],
-			args->db_config_file_list[number],
-			args->db_num_keys_list[number],
-			args->stats_interval(),
-			args->db_cache_size_list[number],
+			args->db_path[number],
+			args->db_config_file[number],
+			args->db_num_keys[number],
+			args->stats_interval,
+			args->db_cache_size[number],
 			duration_s,
 			sine_b,
 			sine_c,
-			args->db_bench_params_list[number]);
+			args->db_bench_params[number]);
 
 		spdlog::info("Executing {}. Command:\n{}", name, ret);
 		return ret;
@@ -217,11 +217,11 @@ class AccessTime3 : public ExperimentTask {
 		"	--command_script=\"{}\"                       \\\n"
 		"	{} 2>&1";
 		string ret( format(template_cmd,
-				args->stats_interval(),
-				args->at_file_list[number],
-				args->at_block_size_list[number],
-				args->at_script_list[number],
-				args->at_params_list[number]) );
+				args->stats_interval,
+				args->at_file[number],
+				args->at_block_size[number],
+				args->at_script[number],
+				args->at_params[number]) );
 
 		spdlog::info("Executing {}. Command:\n{}", name, ret);
 		return ret;
@@ -250,13 +250,13 @@ class SystemStats : public ExperimentTask {
 	public: //----------------------------------------------------------------------
 	SystemStats(Clock* clock_, Args* args_) : ExperimentTask("systemstats", clock_), args(args_) {
 		DEBUG_MSG("constructor");
-		string cmd(format("while true; do sleep {} && uptime; done", args->stats_interval()));
+		string cmd(format("while true; do sleep {} && uptime; done", args->stats_interval));
 		process.reset(new ProcessController(
 			name.c_str(),
 			cmd.c_str(),
 			[this](const char* v){this->stdoutHandler(v);},
 			[this](const char* v){this->default_stderr_handler(v);},
-			args->debug_output()
+			args->debug_output
 			));
 	}
 	~SystemStats() {}
@@ -291,15 +291,15 @@ class IOStat : public ExperimentTask {
 	public: //----------------------------------------------------------------------
 	IOStat(Clock* clock_, Args* args_) : ExperimentTask("iostat", clock_), args(args_) {
 		DEBUG_MSG("constructor");
-		io_device = args->io_device();
+		io_device = args->io_device;
 		devCheck();
-		string cmd(format("iostat -xm {} {}", args->stats_interval(), io_device));
+		string cmd(format("iostat -xm {} {}", args->stats_interval, io_device));
 		process.reset(new ProcessController(
 			name.c_str(),
 			cmd.c_str(),
 			[this](const char* v){this->stdoutHandler(v);},
 			[this](const char* v){this->default_stderr_handler(v);},
-			args->debug_output_iostat()
+			args->debug_output_iostat
 			));
 	}
 	~IOStat() {}
@@ -339,11 +339,10 @@ class IOStat : public ExperimentTask {
 	}
 
 	void devCheck() {
-		auto io_device = args->io_device();
-		if (io_device.length() == 0)
+		if (args->io_device.length() == 0)
 			throw runtime_error("io_device not specified");
 
-		string filename("/dev/"); filename += io_device;
+		string filename("/dev/"); filename += args->io_device;
 		struct stat s;
 
 		if (stat(filename.c_str(), &s) != 0)
@@ -398,8 +397,8 @@ class Program {
 			args.reset(new Args(argc, argv));
 			clock.reset(new Clock());
 
-			auto num_dbs = args->num_dbs();
-			auto num_at  = args->num_at();
+			auto num_dbs = args->num_dbs;
+			auto num_at  = args->num_at;
 
 			dbbench_list.reset(new unique_ptr<DBBench>[num_dbs]);
 			for (uint32_t i=0; i<num_dbs; i++) {

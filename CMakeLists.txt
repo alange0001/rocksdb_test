@@ -40,5 +40,5 @@ target_link_libraries(rocksdb_test ${THIRDPARTY_LIBS})
 add_executable(access_time3 access_time3.cc access_time3_args.cc util.cc process.cc)
 target_link_libraries(access_time3 ${THIRDPARTY_LIBS})
 
-add_executable(test test.cc util.cc args.cc)
+add_executable(test test.cc util.cc)
 target_link_libraries(test ${THIRDPARTY_LIBS})
