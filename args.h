@@ -15,7 +15,7 @@ using std::function;
 #define ALL_ARGS_Direct_F( _f )                                   \
 	_f(log_level, string, DEFINE_string,                          \
 		"info",                                                   \
-		"Log level (debug,info,warn,error,critical,off)",         \
+		"Log level (debug,info,warn,err,critical,off)",           \
 		true,                                                     \
 		if(Args::this_ != nullptr) Args::this_->setLogLevel(value)); \
 	_f(duration, uint32_t, DEFINE_uint32,                         \
@@ -45,7 +45,7 @@ using std::function;
 		nullptr);                                                 \
 	_f(io_device, string, DEFINE_string,                          \
 		"",                                                       \
-		"I/O device to monitor in iostat",                        \
+		"I/O device monitored by iostat",                         \
 		value.length() > 0,                                       \
 		nullptr);                                                 \
 	_f(debug_output, bool, DEFINE_bool,                           \

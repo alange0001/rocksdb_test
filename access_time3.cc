@@ -158,7 +158,7 @@ class Worker {
 				if (args->sleep_interval > 0) {
 					if (++sleep_count > args->sleep_count) {
 						sleep_count = 0;
-						std::this_thread::sleep_for(std::chrono::nanoseconds(args->sleep_interval));
+						std::this_thread::sleep_for(std::chrono::microseconds(args->sleep_interval));
 					}
 				}
 			}
@@ -365,9 +365,9 @@ class Program {
 			while (worker->isActive() && reader->isActive()) {
 
 				auto cur_sec = duration_cast<seconds>(system_clock::now() - time_init).count();
-				while (args->commands.size() > 0 && args->commands[0].time < cur_sec) {
-					CommandLine c = args->commands.front();
-					args->commands.pop_front();
+				while (args->command_script.size() > 0 && args->command_script[0].time < cur_sec) {
+					CommandLine c = args->command_script.front();
+					args->command_script.pop_front();
 					spdlog::info("command_script time={}, command: {}", c.time, c.command);
 					if (c.command == "stop") {
 						stop = true;

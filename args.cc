@@ -38,7 +38,7 @@ using fmt::format;
 		ARG_set_event;                                                             \
 		return true;                                                               \
 	}                                                                              \
-	//DEFINE_validator(ARG_name, &validate_##ARG_name)
+	DEFINE_validator(ARG_name, &validate_##ARG_name)
 ////////////////////////////////////////////////////////////////////////////////////
 
 ALL_ARGS_F( declareFlag );
@@ -99,7 +99,7 @@ void Args::setLogLevel(const string& value) {
 	if      (FLAGS_log_level == "debug"   ) spdlog::set_level(spdlog::level::debug);
 	else if (FLAGS_log_level == "info"    ) spdlog::set_level(spdlog::level::info);
 	else if (FLAGS_log_level == "warn"    ) spdlog::set_level(spdlog::level::warn);
-	else if (FLAGS_log_level == "error"   ) spdlog::set_level(spdlog::level::err);
+	else if (FLAGS_log_level == "err"   )   spdlog::set_level(spdlog::level::err);
 	else if (FLAGS_log_level == "critical") spdlog::set_level(spdlog::level::critical);
 	else if (FLAGS_log_level == "off"     ) spdlog::set_level(spdlog::level::off);
 	else throw invalid_argument(format("invalid log_level: {}", FLAGS_log_level));

@@ -10,128 +10,117 @@
 
 #include "util.h"
 
+using std::string;
+using std::atomic;
+using std::deque;
+using std::invalid_argument;
+using fmt::format;
+
 ////////////////////////////////////////////////////////////////////////////////////
-#define defaultValidatorMsg "Invalid {}: {}"
-#define createValidator(name, type, condition, message)                            \
-	static bool validate_##name(const char* flagname, const type value) {          \
-	   if (condition)                                                              \
-	     return true;                                                              \
-	   throw std::invalid_argument(fmt::format(message, flagname, value));         \
+#define DEFINE_uint32_t uint32_t
+#define DEFINE_uint64_t uint64_t
+#define DEFINE_double_t double
+#define DEFINE_string_t string&
+#define DEFINE_bool_t bool
+#define declareFlag(ARG_name, ARG_type, ARG_flag_type, ARG_flag_default, ARG_help, ARG_condition, ARG_set_event, ...) \
+	ARG_flag_type (ARG_name, ARG_flag_default, ARG_help);                          \
+	static bool validate_##ARG_name(const char* flagname, const ARG_flag_type##_t value) { \
+		if (!(ARG_condition)) {                                                    \
+			throw invalid_argument(fmt::format(                               \
+				"Invalid value for the parameter {}: \"{}\"."                      \
+				"Condition: " #ARG_condition,                                      \
+				flagname, value));                                                 \
+		}                                                                          \
+		ARG_set_event;                                                             \
+		return true;                                                               \
 	}                                                                              \
-	DEFINE_validator(name, &validate_##name)
+	DEFINE_validator(ARG_name, &validate_##ARG_name)
 ////////////////////////////////////////////////////////////////////////////////////
-DEFINE_string(log_level, "info",
-          "log level (debug,info,warn,error,critical,off)");
 
-DEFINE_bool(log_time_prefix, true,
-          "print date and time in each line");
+ALL_ARGS_F( declareFlag );
 
-DEFINE_string(filename, "",
-          "file name");
-createValidator(filename, std::string&, (value.length() != 0), defaultValidatorMsg);
 
-DEFINE_uint64(filesize, 0,
-          "file size (MiB)");
+////////////////////////////////////////////////////////////////////////////////////
+#undef __CLASS__
+#define __CLASS__ "CommandScript::"
 
-DEFINE_uint64(block_size, 4,
-          "block size (KiB)");
-createValidator(block_size, uint64_t, (value >= 4), defaultValidatorMsg ". Must be >= 4.");
+CommandScript& CommandScript::operator=(const string& script) {
+	DEBUG_MSG("operator=");
+	if (script == "")
+		return *this;
 
-DEFINE_uint64(flush_blocks, 1,
-          "blocks written before a flush (0 = no flush)");
+	std::cmatch cm;
 
-DEFINE_bool(create_file, true,
-          "create file");
-createValidator(filesize, uint64_t, (value >= 10 || !FLAGS_create_file), defaultValidatorMsg ". Must be >= 10.");
+	auto list = split_str(script, ",");
+	for (auto i: list) {
+		auto aux = split_str(i, ":");
+		if (aux.size() != 2)
+			throw invalid_argument(fmt::format("Invalid command in command_script: {}", i));
 
-DEFINE_bool(delete_file, true,
-          "delete file if created");
+		uint64_t time;
+		std::regex_search(aux[0].c_str(), cm, std::regex("([0-9]+)([sm]*)$"));
+		if (cm.size() < 3)
+			throw invalid_argument(fmt::format("Invalid time: {}", aux[0]));
 
-DEFINE_double(write_ratio, 0,
-          "writes/reads ratio (0-1)");
-createValidator(write_ratio, double, (value >= 0 && value <=1), defaultValidatorMsg ". The valid interval is [0..1].");
+		time = parseUint64(cm.str(1), true, 0, "invalid time");
+		DEBUG_MSG("time_number={}, time_suffix={}, command:{}", cm.str(1), cm.str(2), aux[1]);
+		if (cm.str(2) == "m")
+			time *= 60;
 
-DEFINE_double(random_ratio, 0,
-          "random ratio (0-1)");
-createValidator(random_ratio, double, (value >= 0 && value <=1), defaultValidatorMsg ". The valid interval is [0..1].");
-
-DEFINE_uint64(sleep_interval, 0,
-          "sleep interval (ns)");
-
-DEFINE_uint64(sleep_count, 1,
-          "number of IOs before sleep");
-createValidator(sleep_count, uint64_t, (value > 0), defaultValidatorMsg ". Must be > 0.");
-
-DEFINE_uint32(stats_interval, 5,
-          "Statistics interval (seconds)");
-createValidator(stats_interval, uint32_t, (value > 0), defaultValidatorMsg ". Must be > 0.");
-
-DEFINE_bool(wait, false,
-          "wait");
-
-DEFINE_string(command_script, "",
-          "Script of commands. Syntax: \"time1:command1=value1,time2:command2=value2\"");
+		this->push_back(CommandLine{time,aux[1]});
+	}
+	return *this;
+}
 
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
 #define __CLASS__ "Args::"
 
+Args* Args::this_ = nullptr;
+
 Args::Args(int argc, char** argv) {
-	gflags::SetUsageMessage(std::string("\nUSAGE:\n\t") + std::string(argv[0]) +
+	if (Args::this_ != nullptr)
+		throw runtime_error("Args already initiated");
+	Args::this_ = this;
+
+	gflags::SetUsageMessage(string("\nUSAGE:\n\t") + string(argv[0]) +
 				" [OPTIONS]...");
+	spdlog::set_level(spdlog::level::info);
 	gflags::ParseCommandLineFlags(&argc, &argv, true);
 
-	if      (FLAGS_log_level == "debug"   ) spdlog::set_level(spdlog::level::debug);
-	else if (FLAGS_log_level == "info"    ) spdlog::set_level(spdlog::level::info);
-	else if (FLAGS_log_level == "warn"    ) spdlog::set_level(spdlog::level::warn);
-	else if (FLAGS_log_level == "error"   ) spdlog::set_level(spdlog::level::err);
-	else if (FLAGS_log_level == "critical") spdlog::set_level(spdlog::level::critical);
-	else if (FLAGS_log_level == "off"     ) spdlog::set_level(spdlog::level::off);
-	else throw std::invalid_argument(fmt::format("invalid --log_level={}", FLAGS_log_level));
+	string params_str;
+#	define printParam(ARG_name, ...) params_str += format("{}--" #ARG_name "=\"{}\"", (params_str.length()>0)?" ":"", FLAGS_##ARG_name)
+	ALL_ARGS_F( printParam );
+#	undef printParam
+	spdlog::info("parameters: {}", params_str);
 
-	if (!FLAGS_log_time_prefix) {
-		spdlog::set_pattern("[%l] %v");
-	}
-
-	std::string params_out(fmt::format("--log_level={} --log_time_prefix={}", FLAGS_log_level, FLAGS_log_time_prefix));
-
-#	define assignValue(name) \
-		name = FLAGS_##name; \
-		params_out += fmt::format(" --" #name "=\"{}\"", name)
-	assignValue(filename);
-	assignValue(filesize);
-	assignValue(block_size);
-	assignValue(flush_blocks);
-	assignValue(create_file);
-	assignValue(delete_file);
-	assignValue(write_ratio);
-	assignValue(random_ratio);
-	assignValue(sleep_interval);
-	assignValue(sleep_count);
-	assignValue(stats_interval);
-	assignValue(wait);
+#	define assignValue(ARG_name, ...) \
+		ARG_name = FLAGS_##ARG_name
+	ALL_ARGS_Direct_F( assignValue );
 #	undef assignValue
-
-	params_out += fmt::format(" --command_script=\"{}\"", FLAGS_command_script);
-	spdlog::info("parameters: {}", params_out);
 
 	validate_filename("filename", FLAGS_filename);
 	validate_filesize("filesize", FLAGS_filesize);
 
-	parseCommandScript(FLAGS_command_script);
 	if (FLAGS_log_level == "debug") {
-		for (int i=0; i<commands.size(); i++) {
-			spdlog::debug("command[{}]: {}:{}", i, commands[i].time, commands[i].command);
+		for (int i=0; i<command_script.size(); i++) {
+			spdlog::debug("command_script[{}]: {}:{}", i, command_script[i].time, command_script[i].command);
 		}
 	}
 }
 
-void Args::executeCommand(const std::string& command_line) {
+void Args::setLogLevel(const string& value) {
+	if      (FLAGS_log_level == "debug"   ) spdlog::set_level(spdlog::level::debug);
+	else if (FLAGS_log_level == "info"    ) spdlog::set_level(spdlog::level::info);
+	else throw invalid_argument(format("invalid log_level: {}", FLAGS_log_level));
+}
+
+void Args::executeCommand(const string& command_line) {
 	DEBUG_MSG("command_line: \"{}\"", command_line);
 
 	auto aux = split_str(command_line, "=");
-	std::string command(aux[0]);
-	std::string value( (aux.size() < 2) ? "" : aux[1].c_str() );
+	string command(aux[0]);
+	string value( (aux.size() < 2) ? "" : aux[1].c_str() );
 
 	if (command == "help") {
 		spdlog::info(
@@ -170,37 +159,11 @@ void Args::executeCommand(const std::string& command_line) {
 #	undef parseLineCommand
 #	undef parseLineCommandValidate
 
-	throw std::invalid_argument(fmt::format("Invalid command: {}", command));
+	throw invalid_argument(fmt::format("Invalid command: {}", command));
 }
 
-void Args::parseCommandScript(const std::string& script) {
-	if (script == "")
-		return;
-
-	std::cmatch cm;
-
-	auto list = split_str(script, ",");
-	for (auto i: list) {
-		auto aux = split_str(i, ":");
-		if (aux.size() != 2)
-			throw std::invalid_argument(fmt::format("Invalid command in command_script: {}", i));
-
-		uint64_t time;
-		std::regex_search(aux[0].c_str(), cm, std::regex("([0-9]+)([sm]*)$"));
-		if (cm.size() < 3)
-			throw std::invalid_argument(fmt::format("Invalid time: {}", aux[0]));
-
-		time = parseUint64(cm.str(1), true, 0, "invalid time");
-		DEBUG_MSG("time_number={}, time_suffix={}, command:{}", cm.str(1), cm.str(2), aux[1]);
-		if (cm.str(2) == "m")
-			time *= 60;
-
-		commands.push_back(CommandLine{time,aux[1]});
-	}
-}
-
-std::string Args::strStat() {
-	std::string ret;
+string Args::strStat() {
+	string ret;
 
 #	define addArgStr(name) ret += fmt::format("{}\"{}\":\"{}\"", (ret.length()>0) ?", " :"", #name, name)
 	addArgStr(wait);
