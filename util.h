@@ -5,6 +5,7 @@
 #include <deque>
 #include <algorithm>
 #include <chrono>
+#include <type_traits>
 
 #include <spdlog/spdlog.h>
 #include <fmt/format.h>
@@ -203,5 +204,67 @@ struct Clock {
 	}
 };
 
+////////////////////////////////////////////////////////////////////////////////////
+#undef __CLASS__
+#define __CLASS__ "VectorParser::"
+
+template <typename T>
+class VectorParser : public vector<T> {
+protected:
+	const char*  name;
+	const char*  delimiter;
+	function<bool(T)> check;
+	unsigned int* num;
+public:
+	VectorParser()
+		: name(""), delimiter(","), check(nullptr), num(nullptr), vector<T>() {}
+	VectorParser(const char* name, const char* delimiter, function<bool(T)> check=nullptr, unsigned int* num=nullptr)
+		: name(name), delimiter(delimiter), check(check), num(num), vector<T>() {}
+
+	void configure(const char* name_, const char* delimiter_, function<bool(T)> check_=nullptr, unsigned int* num_=nullptr) {
+		name = name_;
+		delimiter = delimiter_;
+		check = check_;
+		num = num_;
+	}
+
+	VectorParser<T>& operator=(const string& src) {
+		DEBUG_MSG("receiving: {}", src);
+
+		this->clear();
+		if (num != nullptr && *num == 0) return *this;
+
+		auto aux = split_str(src, delimiter);
+		for (auto i: aux) {
+			if constexpr (std::is_same<T, string>::value) {
+				if (check != nullptr && !check(i))
+					throw invalid_argument(format("invalid value in the list {}: {}", name, i));
+				this->push_back( i );
+			} else if constexpr (std::is_same<T, uint32_t>::value) {
+				this->push_back( parseUint32(i, true, 0, format("invalid value in the list {}: {}", name, i).c_str(), check) );
+			} else if constexpr (std::is_same<T, uint64_t>::value) {
+				this->push_back( parseUint64(i, true, 0, format("invalid value in the list {}: {}", name, i).c_str(), check) );
+			} else if constexpr (std::is_same<T, double>::value) {
+				this->push_back( parseDouble(i, true, 0, format("invalid value in the list {}: {}", name, i).c_str(), check) );
+			} else {
+				throw invalid_argument("type not implemented for the template VectorParser");
+			}
+		}
+
+		if (num != nullptr) {
+			if (*num < this->size())
+				throw invalid_argument(format("the list {} is greater than {}", name, *num));
+			if (*num > 1 && this->size() > 1 && this->size() < *num)
+				throw invalid_argument(format("the list {} must have either one element or {}", name, *num));
+			while (*num > this->size()) {
+				this->push_back(this->operator [](0));
+			}
+		}
+
+		return *this;
+	}
+};
+
+////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
 #define __CLASS__ ""

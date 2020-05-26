@@ -3,6 +3,7 @@
 #include <map>
 #include <algorithm>
 #include <regex>
+#include <type_traits>
 
 #include <spdlog/spdlog.h>
 #include <fmt/format.h>
@@ -10,6 +11,7 @@
 #include <gflags/gflags.h>
 
 #include "util.h"
+#include "args.h"
 
 using namespace std;
 using fmt::format;
@@ -32,6 +34,7 @@ int64_t PowerCdfInversion(double u, double a, double b, double c) {
 
 
 
+
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
 #define __CLASS__ ""
@@ -39,6 +42,7 @@ int64_t PowerCdfInversion(double u, double a, double b, double c) {
 int main(int argc, char** argv) {
 	spdlog::set_level(spdlog::level::debug);
 
+	Args args(argc, argv);
 
 	spdlog::info("return 0");
 	return 0;
