@@ -26,6 +26,7 @@ using std::runtime_error;
 using std::regex;
 using std::regex_search;
 using std::unique_ptr;
+using std::runtime_error;
 using fmt::format;
 
 ////////////////////////////////////////////////////////////////////////////////////
@@ -43,7 +44,8 @@ class DBBench : public ExperimentTask {
 		if (args->db_create)
 			createDB();
 
-		string cmd(getCmd());
+		string cmd(get_cmd_run());
+		spdlog::info("Executing {}. Command:\n{}", name, cmd);
 		process.reset(new ProcessController(
 			name.c_str(),
 			cmd.c_str(),
@@ -51,106 +53,201 @@ class DBBench : public ExperimentTask {
 			[this](const char* v){this->default_stderr_handler(v);},
 			false
 			));
-
 	}
 	~DBBench() {}
 
 	private: //------------------------------------------------------------------
 	void createDB() {
-		auto cmd = commandCreateDB();
-		spdlog::info("Creating Database. Command:\n{}", cmd);
+		string stats =
+			format("    --statistics=0                                \\\n") +
+			format("    --stats_per_interval=1                        \\\n") +
+			format("    --stats_interval_seconds=60                   \\\n") +
+			format("    --histogram=1                                 \\\n");
+
+		string cmd =
+			format("db_bench --benchmarks=fillrandom                  \\\n") +
+			format("    --use_existing_db=0                           \\\n") +
+			format("    --disable_auto_compactions=1                  \\\n") +
+			format("    --sync=0                                      \\\n") +
+			get_params_bulkload() +
+			format("    --threads=1                                   \\\n") +
+			format("    --memtablerep=vector                          \\\n") +
+			format("    --allow_concurrent_memtable_write=false       \\\n") +
+			format("    --disable_wal=1                               \\\n") +
+			format("    --seed=$( date +%s )                          \\\n") +
+			stats +
+			format("    2>&1 ");
+		spdlog::info("Bulkload {}. Command:\n{}", name, cmd);
 		auto ret = std::system(cmd.c_str());
 		if (ret != 0)
-			throw runtime_error("database creation error");
-	}
-	string commandCreateDB() {
-		const char *template_cmd =
-		"db_bench                                         \\\n"
-		"	--db={}                                       \\\n"
-		"	--options_file={}                             \\\n"
-		"	--num={}                                      \\\n"
-		"	--benchmarks=fillrandom                       \\\n"
-		"	--perf_level=3                                \\\n"
-		"	--use_direct_io_for_flush_and_compaction=true \\\n"
-		"	--use_direct_reads=true                       \\\n"
-		"	--cache_size={}                               \\\n"
-		"	--key_size=48                                 \\\n"
-		"	--value_size=43                               ";
-		string ret = format(template_cmd,
-			args->db_path[number],
-			args->db_config_file[number],
-			args->db_num_keys[number],
-			args->db_cache_size[number]);
+			throw runtime_error("database bulkload error");
 
+		cmd =
+			format("db_bench --benchmarks=compact                     \\\n") +
+			format("    --use_existing_db=1                           \\\n") +
+			format("    --disable_auto_compactions=1                  \\\n") +
+			format("    --sync=0                                      \\\n") +
+			get_params_w() +
+			format("    --threads=1                                   \\\n") +
+			stats +
+			format("    2>&1 ");
+		spdlog::info("Compact {}. Command:\n{}", name, cmd);
+		ret = std::system(cmd.c_str());
+		if (ret != 0)
+			throw runtime_error("database compact error");
+	}
+
+	string get_const_params() {
+		string config;
+		if (args->db_config_file[number].length() > 0)
+			config = fmt::format("	--options_file=\"{}\" \\\n", args->db_config_file[number]);
+		string ret =
+			format("    --db=\"{}\"                                   \\\n", args->db_path[number]) +
+			format("    --wal_dir=\"{}\"                              \\\n", args->db_path[number]) +
+			config +
+			format("    --num={}                                      \\\n", args->db_num_keys[number]) +
+			format("    --num_levels=6                                \\\n") +
+			format("    --key_size={}                                 \\\n", 20 /* mixgraph: 48 */) +
+			format("    --value_size={}                               \\\n", 400 /* mixgraph 43 */) +
+			format("    --block_size={}                               \\\n", 8 * 1024) +
+			format("    --cache_size={}                               \\\n", args->db_cache_size[number]) +
+			format("    --cache_numshardbits=6                        \\\n") +
+			format("    --compression_max_dict_bytes={}               \\\n", 0) +
+			format("    --compression_ratio=0.5                       \\\n") +
+			format("    --compression_type=\"{}\"                     \\\n", "zstd") +
+			format("    --level_compaction_dynamic_level_bytes=true   \\\n") +
+			format("    --bytes_per_sync={}                           \\\n", 8 * 1024 * 1024) +
+			format("    --cache_index_and_filter_blocks=0             \\\n") +
+			format("    --pin_l0_filter_and_index_blocks_in_cache=1   \\\n") +
+			format("    --benchmark_write_rate_limit={}               \\\n", 0) +
+			format("                                                  \\\n") +
+			format("    --hard_rate_limit=3                           \\\n") +
+			format("    --rate_limit_delay_max_milliseconds=1000000   \\\n") +
+			format("    --write_buffer_size={}                        \\\n", 128 * 1024 * 1024) +
+			format("    --target_file_size_base={}                    \\\n", 128 * 1024 * 1024) +
+			format("    --max_bytes_for_level_base={}                 \\\n", 1 * 1024 * 1024 * 1024) +
+			format("                                                  \\\n") +
+			format("    --verify_checksum=1                           \\\n") +
+			format("    --delete_obsolete_files_period_micros={}      \\\n", 60 * 1024 * 1024) +
+			format("    --max_bytes_for_level_multiplier=8            \\\n") +
+			format("                                                  \\\n") +
+		//	format("    --statistics=0                                \\\n") +
+		//	format("    --stats_per_interval=1                        \\\n") +
+		//	format("    --stats_interval_seconds=60                   \\\n") +
+		//	format("    --histogram=1                                 \\\n") +
+		//	format("                                                  \\\n") +
+			format("    --memtablerep=skip_list                       \\\n") +
+			format("    --bloom_bits=10                               \\\n") +
+			format("    --open_files=-1                               \\\n");
 		return ret;
 	}
-	string getCmd() {
+	string get_params_bulkload() {
+		string ret =
+			get_const_params() +
+			format("    --max_background_compactions=16               \\\n") +
+			format("    --max_write_buffer_number=8                   \\\n") +
+			format("    --allow_concurrent_memtable_write=false       \\\n") +
+			format("    --max_background_flushes=7                    \\\n") +
+			format("    --level0_file_num_compaction_trigger={}       \\\n", 10 * 1024 * 1024) +
+			format("    --level0_slowdown_writes_trigger={}           \\\n", 10 * 1024 * 1024) +
+			format("    --level0_stop_writes_trigger={}               \\\n", 10 * 1024 * 1024);
+		return ret;
+	}
+	string get_params_w() {
+		string ret =
+			get_const_params() +
+			format("    --level0_file_num_compaction_trigger=4        \\\n") +  //l0_config
+			format("    --level0_stop_writes_trigger=20               \\\n") +  //l0_config
+			format("    --max_background_compactions=16               \\\n") +
+			format("    --max_write_buffer_number=8                   \\\n") +
+			format("    --max_background_flushes=7                    \\\n");
+		return ret;
+	}
+
+	string get_cmd_run() {
+#		define returnCommand(name) \
+			if (args->db_benchmark[number] == #name) \
+				return get_cmd_##name();
+
+		returnCommand(readwhilewriting)
+		returnCommand(mixgraph)
+#		undef returnCommand
+
+		throw runtime_error(format("invalid benchmark name: \"{}\"", args->db_benchmark[number]));
+	}
+	string get_cmd_readwhilewriting() {
+		uint32_t duration_s = args->duration * 60; /*minutes to seconds*/
+
+		string ret =
+			format("db_bench --benchmarks=readwhilewriting            \\\n") +
+			format("    --duration={}                                 \\\n", duration_s) +
+			get_params_w() +
+			format("    --use_existing_db=true                        \\\n") +
+			format("    --threads={}                                  \\\n", args->db_threads[number]) +
+			format("                                                  \\\n") +
+			format("    --perf_level=2                                \\\n") +
+			format("    --stats_interval_seconds={}                   \\\n", args->stats_interval) +
+			format("    --stats_per_interval=1                        \\\n") +
+			format("                                                  \\\n") +
+			format("    --sync={}                                     \\\n", 1 /*syncval*/) +
+			format("    --merge_operator=\"put\"                      \\\n") +
+			format("    --seed=$( date +%s )                          \\\n") +
+			format("    {}  2>&1 ", args->db_bench_params[number]);
+		return ret;
+	}
+	string get_cmd_mixgraph() {
 		uint32_t duration_s = args->duration * 60; /*minutes to seconds*/
 		double   sine_b   = 0.000073 * 24.0 * 60.0 * ((double)args->db_sine_cycles[number] / (double)args->duration); /*adjust the sine cycle*/
 		double   sine_c   = sine_b * (double)args->db_sine_shift[number] * 60.0;
 
-		const char *template_cmd =
-		"db_bench                                         \\\n"
-		"	--db=\"{}\"                                   \\\n"
-		"	--use_existing_db=true                        \\\n"
-		"	--options_file=\"{}\"                         \\\n"
-		"	--num={}                                      \\\n"
-		"	--key_size=48                                 \\\n"
-		"	--perf_level=2                                \\\n"
-		"	--stats_interval_seconds={}                   \\\n"
-		"	--stats_per_interval=1                        \\\n"
-		"	--benchmarks=mixgraph                         \\\n"
-		"	--use_direct_io_for_flush_and_compaction=true \\\n"
-		"	--use_direct_reads=true                       \\\n"
-		"	--cache_size={}                               \\\n"
-		"	--key_dist_a=0.002312                         \\\n"
-		"	--key_dist_b=0.3467                           \\\n"
-		"	--keyrange_dist_a=14.18                       \\\n"
-		"	--keyrange_dist_b=-2.917                      \\\n"
-		"	--keyrange_dist_c=0.0164                      \\\n"
-		"	--keyrange_dist_d=-0.08082                    \\\n"
-		"	--keyrange_num=30                             \\\n"
-		"	--value_k=0.2615                              \\\n"
-		"	--value_sigma=25.45                           \\\n"
-		"	--iter_k=2.517                                \\\n"
-		"	--iter_sigma=14.236                           \\\n"
-		"	--mix_get_ratio=0.83                          \\\n"
-		"	--mix_put_ratio=0.14                          \\\n"
-		"	--mix_seek_ratio=0.03                         \\\n"
-		"	--sine_mix_rate_interval_milliseconds=5000    \\\n"
-		"	--duration={}                                 \\\n"
-		"	--sine_b={}                                   \\\n"
-		"	--sine_c={}                                   \\\n"
-		"	{}  2>&1";
-		string ret = format(template_cmd,
-			args->db_path[number],
-			args->db_config_file[number],
-			args->db_num_keys[number],
-			args->stats_interval,
-			args->db_cache_size[number],
-			duration_s,
-			sine_b,
-			sine_c,
-			args->db_bench_params[number]);
-
-		spdlog::info("Executing {}. Command:\n{}", name, ret);
+		string ret =
+			format("db_bench --benchmarks=mixgraph                    \\\n") +
+			format("    --duration={}                                 \\\n", duration_s) +
+			get_params_w() +
+			format("    --use_existing_db=true                        \\\n") +
+			format("    --threads={}                                  \\\n", args->db_threads[number]) +
+			format("                                                  \\\n") +
+			format("    --perf_level=2                                \\\n") +
+			format("    --stats_interval_seconds={}                   \\\n", args->stats_interval) +
+			format("    --stats_per_interval=1                        \\\n") +
+			format("                                                  \\\n") +
+			format("    --key_dist_a=0.002312                         \\\n") +
+			format("    --key_dist_b=0.3467                           \\\n") +
+			format("    --keyrange_dist_a=14.18                       \\\n") +
+			format("    --keyrange_dist_b=-2.917                      \\\n") +
+			format("    --keyrange_dist_c=0.0164                      \\\n") +
+			format("    --keyrange_dist_d=-0.08082                    \\\n") +
+			format("    --keyrange_num=30                             \\\n") +
+			format("    --value_k=0.2615                              \\\n") +
+			format("    --value_sigma=25.45                           \\\n") +
+			format("    --iter_k=2.517                                \\\n") +
+			format("    --iter_sigma=14.236                           \\\n") +
+			format("    --mix_get_ratio=0.83                          \\\n") +
+			format("    --mix_put_ratio=0.14                          \\\n") +
+			format("    --mix_seek_ratio=0.03                         \\\n") +
+			format("    --sine_mix_rate_interval_milliseconds=5000    \\\n") +
+			format("    --sine_b={}                                   \\\n", sine_b) +
+			format("    --sine_c={}                                   \\\n", sine_c) +
+			format("    {} {}  2>&1 ", args->db_mixgraph_params, args->db_bench_params[number]);
 		return ret;
 	}
 
+	uint64_t ops = 0;
+	double ops_per_s = 0;
 	void stdoutHandler(const char* buffer) {
 		auto flags = std::regex_constants::match_any;
 		std::cmatch cm;
 
 		spdlog::info("Task {}, stdout: {}", name, str_replace(buffer, '\n', ' '));
 
-		regex_search(buffer, cm, regex("thread [0-9]+: \\(([0-9.]+),([0-9.]+)\\) ops and \\(([0-9.]+),([0-9.]+)\\) ops/second in \\(([0-9.]+),([0-9.]+)\\) seconds.*"), flags);
-		if( cm.size() >= 7 ){
-			data["ops"] = cm.str(1);
-			data["ops_total"] = cm.str(2);
-			data["ops_per_s"] = cm.str(3);
-			data["ops_per_s_total"] = cm.str(4);
-			data["stats_interval"] = cm.str(5);
-			data["stats_total"] = cm.str(5);
+		regex_search(buffer, cm, regex("thread ([0-9]+): \\(([0-9.]+),([0-9.]+)\\) ops and \\(([0-9.]+),([0-9.]+)\\) ops/second in \\(([0-9.]+),([0-9.]+)\\) seconds.*"), flags);
+		if( cm.size() >= 8 ){
+			ops += parseUint64(cm.str(2), true, 0, "invalid ops");
+			ops_per_s += parseDouble(cm.str(4), true, 0, "invalid ops_per_s");
+			data["ops"] = format("{}", ops);
+			data["ops_per_s"] = format("{:.1f}", ops_per_s);
+			data[format("ops[{}]", cm.str(1))] = cm.str(2);
+			data[format("ops_per_s[{}]", cm.str(1))] = cm.str(4);
 			//DEBUG_OUT(args->debug_output_db_bench, "line parsed    : {}", buffer);
 		}
 		regex_search(buffer, cm, regex("Interval writes: ([0-9.]+[KMGT]*) writes, ([0-9.]+[KMGT]*) keys, ([0-9.]+[KMGT]*) commit groups, ([0-9.]+[KMGT]*) writes per commit group, ingest: ([0-9.]+) [KMGT]*B, ([0-9.]+) [KMGT]*B/s.*"), flags);
@@ -178,6 +275,8 @@ class DBBench : public ExperimentTask {
 
 			print();
 			data.clear();
+			ops = 0;
+			ops_per_s = 0;
 		}
 	}
 };
@@ -392,7 +491,7 @@ class Program {
 
 	int main(int argc, char** argv) noexcept {
 		DEBUG_MSG("initialized");
-		spdlog::info("rocksdb_test version: 1.2");
+		spdlog::info("rocksdb_test version: 1.3");
 		try {
 			args.reset(new Args(argc, argv));
 			clock.reset(new Clock());
@@ -468,6 +567,7 @@ class Program {
 
 		resetAll();
 
+		fflush(stdout);
 		std::signal(signal, SIG_DFL);
 		killpg(group, signal);
 	}

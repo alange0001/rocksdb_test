@@ -29,10 +29,11 @@ using fmt::format;
 #define declareFlag(ARG_name, ARG_type, ARG_flag_type, ARG_flag_default, ARG_help, ARG_condition, ARG_set_event, ...) \
 	ARG_flag_type (ARG_name, ARG_flag_default, ARG_help);                          \
 	static bool validate_##ARG_name(const char* flagname, const ARG_flag_type##_t value) { \
+		DEBUG_MSG("flagname={}, value={}", flagname, value);              \
 		if (!(ARG_condition)) {                                                    \
 			throw std::invalid_argument(fmt::format(                               \
-				"Invalid value for the parameter {}: \"{}\"."                      \
-				"Condition: " #ARG_condition,                                      \
+				"Invalid value for the parameter {}: \"{}\". "                     \
+				"Condition: " #ARG_condition ".",                                  \
 				flagname, value));                                                 \
 		}                                                                          \
 		ARG_set_event;                                                             \
@@ -41,6 +42,13 @@ using fmt::format;
 	DEFINE_validator(ARG_name, &validate_##ARG_name);
 ////////////////////////////////////////////////////////////////////////////////////
 
+static void setLogLevel(const string& value) {
+	DEBUG_MSG("set log_level to {}", value);
+	if      (value == "debug"   ) spdlog::set_level(spdlog::level::debug);
+	else if (value == "info"    ) spdlog::set_level(spdlog::level::info);
+	else throw invalid_argument(format("invalid log_level: {}", value));
+}
+
 ALL_ARGS_F( declareFlag );
 
 
@@ -48,15 +56,10 @@ ALL_ARGS_F( declareFlag );
 #undef __CLASS__
 #define __CLASS__ "Args::"
 
-Args* Args::this_ = nullptr;
-
 #define initializeList(ARG_name, ARG_type, ARG_flag_type, ARG_flag_default, ARG_help, ARG_condition, ARG_set_event, ARG_item_type, ARG_item_condition, ARG_items) \
 		ARG_name(#ARG_name, param_delimiter, [](const ARG_item_type value)->bool{return (ARG_item_condition);}, &ARG_items),
 
 Args::Args(int argc, char** argv) : ALL_ARGS_List_F(initializeList) log_level("info") {
-	if (Args::this_ != nullptr)
-		throw runtime_error("Args already initiated");
-	Args::this_ = this;
 
 	gflags::SetUsageMessage(string("\nUSAGE:\n\t") + string(argv[0]) +
 				" [OPTIONS]...");
@@ -70,14 +73,8 @@ Args::Args(int argc, char** argv) : ALL_ARGS_List_F(initializeList) log_level("i
 #	undef printParam
 	spdlog::info("parameters: {}", params_str);
 
-/*
-#	define configureList(ARG_name, ARG_type, ARG_flag_type, ARG_flag_default, ARG_help, ARG_condition, ARG_set_event, ARG_item_type, ARG_item_condition, ARG_items) \
-		ARG_name.configure(#ARG_name, param_delimiter, [](const ARG_item_type value)->bool{return (ARG_item_condition);}, &ARG_items);
-	ALL_ARGS_List_F( configureList );
-#	undef configureList
-*/
-
 #	define assignValue(ARG_name, ...) \
+		DEBUG_MSG("assign " #ARG_name " = {}", FLAGS_##ARG_name);\
 		ARG_name = FLAGS_##ARG_name;
 	ALL_ARGS_F( assignValue );
 #	undef assignValue
@@ -94,16 +91,6 @@ Args::Args(int argc, char** argv) : ALL_ARGS_List_F(initializeList) log_level("i
 	ALL_ARGS_List_F( print_arg_list );
 #	undef print_arg
 #	undef print_arg_list
-}
-
-Args::~Args() {
-	Args::this_ = nullptr;
-}
-
-void Args::setLogLevel(const string& value) {
-	if      (FLAGS_log_level == "debug"   ) spdlog::set_level(spdlog::level::debug);
-	else if (FLAGS_log_level == "info"    ) spdlog::set_level(spdlog::level::info);
-	else throw invalid_argument(format("invalid log_level: {}", FLAGS_log_level));
 }
 
 void Args::checkUniqueStr(const char* name, const vector<string>& src) {

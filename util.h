@@ -214,14 +214,14 @@ protected:
 	const char*  name;
 	const char*  delimiter;
 	function<bool(T)> check;
-	unsigned int* num;
+	uint32_t* num;
 public:
 	VectorParser()
 		: name(""), delimiter(","), check(nullptr), num(nullptr), vector<T>() {}
-	VectorParser(const char* name, const char* delimiter, function<bool(T)> check=nullptr, unsigned int* num=nullptr)
+	VectorParser(const char* name, const char* delimiter, function<bool(T)> check=nullptr, uint32_t* num=nullptr)
 		: name(name), delimiter(delimiter), check(check), num(num), vector<T>() {}
 
-	void configure(const char* name_, const char* delimiter_, function<bool(T)> check_=nullptr, unsigned int* num_=nullptr) {
+	void configure(const char* name_, const char* delimiter_, function<bool(T)> check_=nullptr, uint32_t* num_=nullptr) {
 		name = name_;
 		delimiter = delimiter_;
 		check = check_;
@@ -230,6 +230,7 @@ public:
 
 	VectorParser<T>& operator=(const string& src) {
 		DEBUG_MSG("receiving: {}", src);
+		const char* error_msg = "invalid value in the list {}: \"{}\"";
 
 		this->clear();
 		if (num != nullptr && *num == 0) return *this;
@@ -238,26 +239,28 @@ public:
 		for (auto i: aux) {
 			if constexpr (std::is_same<T, string>::value) {
 				if (check != nullptr && !check(i))
-					throw invalid_argument(format("invalid value in the list {}: {}", name, i));
+					throw invalid_argument(format(error_msg, name, i));
 				this->push_back( i );
 			} else if constexpr (std::is_same<T, uint32_t>::value) {
-				this->push_back( parseUint32(i, true, 0, format("invalid value in the list {}: {}", name, i).c_str(), check) );
+				this->push_back( parseUint32(i, true, 0, format(error_msg, name, i).c_str(), check) );
 			} else if constexpr (std::is_same<T, uint64_t>::value) {
-				this->push_back( parseUint64(i, true, 0, format("invalid value in the list {}: {}", name, i).c_str(), check) );
+				this->push_back( parseUint64(i, true, 0, format(error_msg, name, i).c_str(), check) );
 			} else if constexpr (std::is_same<T, double>::value) {
-				this->push_back( parseDouble(i, true, 0, format("invalid value in the list {}: {}", name, i).c_str(), check) );
+				this->push_back( parseDouble(i, true, 0, format(error_msg, name, i).c_str(), check) );
 			} else {
-				throw invalid_argument("type not implemented for the template VectorParser");
+				throw invalid_argument(format("type not implemented for list {}", name));
 			}
 		}
 
 		if (num != nullptr) {
-			if (*num < this->size())
-				throw invalid_argument(format("the list {} is greater than {}", name, *num));
+			while (*num < this->size()) {
+				this->pop_back();
+			}
 			if (*num > 1 && this->size() > 1 && this->size() < *num)
 				throw invalid_argument(format("the list {} must have either one element or {}", name, *num));
 			while (*num > this->size()) {
-				this->push_back(this->operator [](0));
+				auto aux2 = this->operator [](0);
+				this->push_back(aux2);
 			}
 		}
 

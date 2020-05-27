@@ -87,8 +87,13 @@ class File:
 			Y = [i['ops_per_s'] for i in self._data['db_bench[{}]'.format(i)]]
 			ax.plot(X, Y, '-', lw=1, label='db {}, real'.format(i))
 
-			Y = [ self._dbbench[i]['sine_a'] * math.sin(self._dbbench[i]['sine_b'] * x + self._dbbench[i]['sine_c']) + self._dbbench[i]['sine_d'] for x in X]
-			ax.plot(X, Y, '-', lw=1, label='db {}, expect'.format(i))
+			if self._dbbench[i].get("sine_d") is not None:
+				sine_a = coalesce(self._dbbench[i]['sine_a'], 0)
+				sine_b = coalesce(self._dbbench[i]['sine_b'], 0)
+				sine_c = coalesce(self._dbbench[i]['sine_c'], 0)
+				sine_d = coalesce(self._dbbench[i]['sine_d'], 0)
+				Y = [ sine_a * math.sin(sine_b * x + sine_c) + sine_d for x in X]
+				ax.plot(X, Y, '-', lw=1, label='db {}, expect'.format(i))
 
 		ax.set(title="rocksdb throughput", xlabel="time (s)", ylabel="tx/s")
 
@@ -142,6 +147,12 @@ class File:
 			fig.savefig(save_name)
 		plt.show()
 
+def coalesce(*values):
+	for v in values:
+		if v is not None:
+			return v;
+	return None
+
 def tryConvert(value, *types):
 	for t in types:
 		try:
@@ -164,6 +175,6 @@ def decimalSuffix(value):
 	else:
 		raise Exception("invalid number")
 
-f = File('data2/outt')
+f = File('data3/out3')
 f.graph1()
 f.graph2()

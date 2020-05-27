@@ -18,8 +18,8 @@ using std::function;
 	_f(log_level, string, DEFINE_string,                          \
 		"info",                                                   \
 		"Log level (debug,info)",                                 \
-		true,                                                     \
-		if(Args::this_ != nullptr) Args::this_->setLogLevel(value)) \
+		value == "info" || value == "debug",                      \
+		setLogLevel(value))                                       \
 	_f(duration, uint32_t, DEFINE_uint32,                         \
 		60,                                                       \
 		"Duration of the experiment (minutes)",                   \
@@ -34,6 +34,11 @@ using std::function;
 		1,                                                        \
 		"Number of databases",                                    \
 		value > 0,                                                \
+		nullptr)                                                  \
+	_f(db_mixgraph_params, string, DEFINE_string,                 \
+		"--sine_a=1000 --sine_d=4500",                            \
+		"Other parameters used in the mixgraph benchmark",        \
+		true,                                                     \
 		nullptr)                                                  \
 	_f(num_at, uint32_t, DEFINE_uint32,                           \
 		0,                                                        \
@@ -63,6 +68,14 @@ using std::function;
 
 /*_f(ARG_name, ARG_type, ARG_flag_type, ARG_flag_default, ARG_help, ARG_condition, ARG_set_event, ARG_item_type, ARG_item_condition, ARG_items)*/
 #define ALL_ARGS_List_F( _f )                                     \
+	_f(db_benchmark, VectorParser<string>, DEFINE_string,         \
+		"readwhilewriting",                                       \
+		"Database Benchmark (list)",                              \
+		true,                                                     \
+		nullptr,                                                  \
+		string,                                                   \
+		value == "readwhilewriting" || value == "mixgraph",       \
+		num_dbs)                                                  \
 	_f(db_path, VectorParser<string>, DEFINE_string,              \
 		"/media/auto/work/rocksdb",                               \
 		"Database Path (list)",                                   \
@@ -72,12 +85,12 @@ using std::function;
 		value.length() > 0,                                       \
 		num_dbs)                                                  \
 	_f(db_config_file, VectorParser<string>, DEFINE_string,       \
-		"files/rocksdb.options",                                  \
+		"",                                                       \
 		"Database Configuration File (list)",                     \
 		true,                                                     \
 		nullptr,                                                  \
 		string,                                                   \
-		value.length() > 0,                                       \
+		true,                                                     \
 		num_dbs)                                                  \
 	_f(db_num_keys, VectorParser<uint64_t>, DEFINE_string,        \
 		"50000000",                                               \
@@ -95,9 +108,17 @@ using std::function;
 		uint64_t,                                                 \
 		value >= (1024 * 1024),                                   \
 		num_dbs)                                                  \
+	_f(db_threads, VectorParser<uint32_t>, DEFINE_string,         \
+		"1",                                                      \
+		"Database threads (list)",                                \
+		value != "",                                              \
+		nullptr,                                                  \
+		uint32_t,                                                 \
+		value >= 1,                                               \
+		num_dbs)                                                  \
 	_f(db_sine_cycles, VectorParser<uint32_t>, DEFINE_string,     \
 		"1",                                                      \
-		"Number of sine cycles in the experiment (list)",         \
+		"Number of sine cycles in the mixgraph experiment (list)",\
 		true,                                                     \
 		nullptr,                                                  \
 		uint32_t,                                                 \
@@ -112,7 +133,7 @@ using std::function;
 		true,                                                     \
 		num_dbs)                                                  \
 	_f(db_bench_params, VectorParser<string>, DEFINE_string,      \
-		"--sine_a=1000 --sine_d=4500",                            \
+		"",                                                       \
 		"Other parameters used in db_bench (list)",               \
 		true,                                                     \
 		nullptr,                                                  \
@@ -162,17 +183,14 @@ using std::function;
 #define __CLASS__ "Args::"
 
 struct Args {
-	static Args*  this_;
 	const char*   param_delimiter = ";";
 
 	Args(int argc, char** argv);
-	~Args();
 
 #	define declareArg(ARG_name, ARG_type, ...) ARG_type ARG_name;
 	ALL_ARGS_F( declareArg );
 #	undef declareArg
 
-	void setLogLevel(const string& value);
 private:
 	void checkUniqueStr(const char* name, const vector<string>& src);
 };
