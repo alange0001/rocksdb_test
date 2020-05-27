@@ -34,24 +34,17 @@ class Worker {
 	std::thread        thread;
 	std::thread        thread_flush;
 	std::exception_ptr thread_exception;
-	bool               stop_;
-
-	std::atomic<bool>  flush;
+	bool               stop_ = false;
 
 	std::default_random_engine rand_eng;
 
 	public: //---------------------------------------------------------------------
-	std::atomic<uint64_t> blocks;
-	std::atomic<uint64_t> blocks_read;
-	std::atomic<uint64_t> blocks_write;
+	uint64_t              blocks        = 0;
+	uint64_t              blocks_read   = 0;
+	uint64_t              blocks_write  = 0;
 
 	Worker(Args* args_) : args(args_) {
 		DEBUG_MSG("constructor");
-		stop_ = false;
-		blocks       = 0;
-		blocks_read  = 0;
-		blocks_write = 0;
-		flush = false;
 
 		if (args->create_file)
 			createFile();
@@ -75,7 +68,6 @@ class Worker {
 			throw std::runtime_error("can't open file");
 
 		thread       = std::thread( [this]{this->threadMain();} );
-		thread_flush = std::thread( [this]{this->threadFlush();} );
 	}
 	~Worker() {
 		DEBUG_MSG("destructor");
@@ -143,7 +135,7 @@ class Worker {
 
 					if (args->flush_blocks) {
 						if (++flush_count >= args->flush_blocks) {
-							flush = true;
+							std::fflush(file);
 							flush_count = 0;
 						}
 					}
@@ -167,23 +159,6 @@ class Worker {
 			thread_exception = std::current_exception();
 		}
 		spdlog::info("worker thread finished");
-	}
-	void threadFlush() {
-		uint32_t count_wait = 0;
-		while (!stop_) {
-			if (file != NULL && !args->wait && flush) {
-				flush = false;
-				std::fflush(file);
-				count_wait = 0;
-				continue;
-			}
-			if (count_wait < 5) {
-				count_wait++;
-				std::this_thread::yield();
-			} else {
-				std::this_thread::sleep_for(std::chrono::milliseconds(50));
-			}
-		}
 	}
 	bool isActive() {
 		if (thread_exception) std::rethrow_exception(thread_exception);

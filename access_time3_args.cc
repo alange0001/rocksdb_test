@@ -25,17 +25,25 @@ using fmt::format;
 #define declareFlag(ARG_name, ARG_type, ARG_flag_type, ARG_flag_default, ARG_help, ARG_condition, ARG_set_event, ...) \
 	ARG_flag_type (ARG_name, ARG_flag_default, ARG_help);                          \
 	static bool validate_##ARG_name(const char* flagname, const ARG_flag_type##_t value) { \
+		DEBUG_MSG("flagname={}, value={}", flagname, value);              \
 		if (!(ARG_condition)) {                                                    \
-			throw invalid_argument(fmt::format(                               \
-				"Invalid value for the parameter {}: \"{}\"."                      \
-				"Condition: " #ARG_condition,                                      \
+			throw std::invalid_argument(fmt::format(                               \
+				"Invalid value for the parameter {}: \"{}\". "                     \
+				"Condition: " #ARG_condition ".",                                  \
 				flagname, value));                                                 \
 		}                                                                          \
 		ARG_set_event;                                                             \
 		return true;                                                               \
 	}                                                                              \
-	DEFINE_validator(ARG_name, &validate_##ARG_name)
+	DEFINE_validator(ARG_name, &validate_##ARG_name);
 ////////////////////////////////////////////////////////////////////////////////////
+
+static void setLogLevel(const string& value) {
+	DEBUG_MSG("set log_level to {}", value);
+	if      (value == "debug"   ) spdlog::set_level(spdlog::level::debug);
+	else if (value == "info"    ) spdlog::set_level(spdlog::level::info);
+	else throw invalid_argument(format("invalid log_level: {}", value));
+}
 
 ALL_ARGS_F( declareFlag );
 
@@ -76,26 +84,20 @@ CommandScript& CommandScript::operator=(const string& script) {
 #undef __CLASS__
 #define __CLASS__ "Args::"
 
-Args* Args::this_ = nullptr;
-
 Args::Args(int argc, char** argv) {
-	if (Args::this_ != nullptr)
-		throw runtime_error("Args already initiated");
-	Args::this_ = this;
-
 	gflags::SetUsageMessage(string("\nUSAGE:\n\t") + string(argv[0]) +
 				" [OPTIONS]...");
 	spdlog::set_level(spdlog::level::info);
 	gflags::ParseCommandLineFlags(&argc, &argv, true);
 
 	string params_str;
-#	define printParam(ARG_name, ...) params_str += format("{}--" #ARG_name "=\"{}\"", (params_str.length()>0)?" ":"", FLAGS_##ARG_name)
+#	define printParam(ARG_name, ...) params_str += format("{}--" #ARG_name "=\"{}\"", (params_str.length()>0)?" ":"", FLAGS_##ARG_name);
 	ALL_ARGS_F( printParam );
 #	undef printParam
 	spdlog::info("parameters: {}", params_str);
 
 #	define assignValue(ARG_name, ...) \
-		ARG_name = FLAGS_##ARG_name
+		ARG_name = FLAGS_##ARG_name;
 	ALL_ARGS_Direct_F( assignValue );
 #	undef assignValue
 
@@ -107,12 +109,6 @@ Args::Args(int argc, char** argv) {
 			spdlog::debug("command_script[{}]: {}:{}", i, command_script[i].time, command_script[i].command);
 		}
 	}
-}
-
-void Args::setLogLevel(const string& value) {
-	if      (FLAGS_log_level == "debug"   ) spdlog::set_level(spdlog::level::debug);
-	else if (FLAGS_log_level == "info"    ) spdlog::set_level(spdlog::level::info);
-	else throw invalid_argument(format("invalid log_level: {}", FLAGS_log_level));
 }
 
 void Args::executeCommand(const string& command_line) {
