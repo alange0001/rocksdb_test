@@ -55,6 +55,8 @@ string command_output(const char* cmd, bool debug_out) {
 	const uint buffer_size = 512;
 	char buffer[buffer_size]; buffer[0] = '\0'; buffer[buffer_size -1] = '\0';
 
+	DEBUG_MSG("command: {}", cmd);
+
 	std::FILE* f = popen(cmd, "r");
 	if (f == NULL)
 		throw runtime_error(format("error executing command \"{}\"", cmd));

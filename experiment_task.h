@@ -17,6 +17,8 @@ using fmt::format;
 #undef __CLASS__
 #define __CLASS__ "ExperimentTask::"
 
+const char* stat_format = "Task {}, STATS: {}";
+
 class ExperimentTask {
 	protected: //------------------------------------------------------------------
 	string name = "";

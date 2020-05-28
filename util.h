@@ -72,6 +72,15 @@ double parseDouble(const string &value, const bool required=true, const double d
                const char* error_msg="invalid value (double)",
 			   function<bool(double)> check_method=nullptr );
 
+template <typename T>
+T sum(const vector<T>& src) {
+	T ret = 0;
+	for (auto i: src) {
+		ret += i;
+	}
+	return ret;
+}
+
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
 #define __CLASS__ "Defer::"
@@ -266,6 +275,54 @@ public:
 
 		return *this;
 	}
+};
+
+////////////////////////////////////////////////////////////////////////////////////
+#undef __CLASS__
+#define __CLASS__ "SystemStat::"
+
+struct SystemStat {
+public: //----------------------------------------------------------------------
+	struct CPUCounters {
+		enum Types {
+			S_USER = 0, S_NICE, S_SYSTEM, S_IDLE, S_IOWAIT, S_IRQ, S_SOFTIRQ,
+			S_STEAL, S_GUEST, S_GUEST_NICE,
+			NUM_COUNTERS
+		};
+		vector<uint64_t> data;
+		uint64_t total = 0;
+		uint64_t active = 0;
+		uint64_t idle = 0;
+		CPUCounters(const string& src);
+		CPUCounters(const CPUCounters& src) {*this = src;}
+		CPUCounters() {}
+		CPUCounters& operator=(const CPUCounters& src) {
+			data =src.data; total = src.total; active = src.active; idle =src.idle;
+			return *this;
+		}
+		double getActive(const CPUCounters& prev) const {
+			return static_cast<double>(100 * (active - prev.active)) / static_cast<double>(total - prev.total);
+		}
+		double getByType(const CPUCounters& prev, Types type) const {
+			return static_cast<double>(100 * (data[type] - prev.data[type])) / static_cast<double>(total - prev.total);
+		}
+	};
+
+	bool debug_out = false;
+	double load1;
+	double load5;
+	double load15;
+
+	CPUCounters cpu_all;
+	vector<CPUCounters> cpu;
+
+	SystemStat();
+	~SystemStat();
+	string json(const SystemStat& prev, const string& first_attributes="");
+
+private: //---------------------------------------------------------------------
+	void getLoad();
+	void getCPU();
 };
 
 ////////////////////////////////////////////////////////////////////////////////////

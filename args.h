@@ -31,9 +31,9 @@ using std::function;
 		value > 0,                                                \
 		nullptr)                                                  \
 	_f(num_dbs, uint32_t, DEFINE_uint32,                          \
-		1,                                                        \
+		0,                                                        \
 		"Number of databases",                                    \
-		value > 0,                                                \
+		true,                                                     \
 		nullptr)                                                  \
 	_f(db_mixgraph_params, string, DEFINE_string,                 \
 		"--sine_a=1000 --sine_d=4500",                            \

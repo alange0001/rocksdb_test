@@ -42,6 +42,6 @@ add_executable(access_time3 access_time3.cc access_time3_args.cc util.cc process
 target_link_libraries(access_time3 ${THIRDPARTY_LIBS})
 set_property(TARGET access_time3 PROPERTY CXX_STANDARD 17)
 
-add_executable(test test.cc util.cc args.cc)
+add_executable(test test.cc util.cc process.cc)
 target_link_libraries(test ${THIRDPARTY_LIBS})
 set_property(TARGET test PROPERTY CXX_STANDARD 17)

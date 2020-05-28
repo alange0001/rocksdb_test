@@ -15,6 +15,7 @@ import numpy
 
 class Options:
 	format = 'png'
+	save = False
 
 class File:
 	_filename = None
@@ -76,7 +77,9 @@ class File:
 						self._dbbench[cur_db][parsed_line[0][0]] = tryConvert(parsed_line[0][1], int, float)
 						continue
 
-	def graph1(self, save=False):
+	def graph_db(self):
+		if len(self._dbbench) == 0:
+			return
 		fig, ax = plt.subplots()
 		fig.set_figheight(5)
 		fig.set_figwidth(8)
@@ -102,12 +105,14 @@ class File:
 		#ax.legend(loc='upper center', bbox_to_anchor=(1.35, 0.9), title='threads', ncol=1, frameon=True)
 		ax.legend(loc='best', ncol=1, frameon=True)
 
-		if save:
-			save_name = '{}_graph1.{}'.format(self._filename, Options.format)
+		if Options.save:
+			save_name = '{}_graph_db.{}'.format(self._filename, Options.format)
 			fig.savefig(save_name)
 		plt.show()
 
-	def graph2(self, save=False):
+	def graph_io(self):
+		if self._data.get('iostat') is None:
+			return
 		fig, axs = plt.subplots(3, 1)
 		fig.set_figheight(5)
 		fig.set_figwidth(8)
@@ -131,6 +136,7 @@ class File:
 		Y = [i['%util']     for i in self._data['iostat']]
 		axs[2].plot(X, Y, '-', lw=1, label='%util')
 		axs[2].set(xlabel="time (s)", ylabel="percent")
+		axs[2].set_ylim([-5, 105])
 
 		#chartBox = ax.get_position()
 		#ax.set_position([chartBox.x0, chartBox.y0, chartBox.width*0.65, chartBox.height])
@@ -142,8 +148,46 @@ class File:
 
 		fig.tight_layout()
 
-		if save:
-			save_name = '{}_graph2.{}'.format(self._filename, Options.format)
+		if Options.save:
+			save_name = '{}_graph_io.{}'.format(self._filename, Options.format)
+			fig.savefig(save_name)
+		plt.show()
+
+	def graph_cpu(self):
+		if self._data['systemstats'][0].get('cpus.active') is None:
+			return
+		fig, axs = plt.subplots(2, 1)
+		fig.set_figheight(5)
+		fig.set_figwidth(8)
+		axs[0].grid()
+		axs[1].grid()
+
+		X = [i['time']      for i in self._data['systemstats']]
+		Y = [i['cpus.active'] for i in self._data['systemstats']]
+		axs[0].plot(X, Y, '-', lw=1, label='usage (all)')
+
+		Y = [i['cpus.iowait'] for i in self._data['systemstats']]
+		axs[0].plot(X, Y, '-', lw=1, label='iowait')
+
+		for i in range(0,1024):
+			if self._data['systemstats'][0].get('cpu[{}].active'.format(i)) is None:
+				break
+			Y = [j['cpu[{}].active'.format(i)] for j in self._data['systemstats']]
+			axs[1].plot(X, Y, '-', lw=1, label='cpu{}'.format(i))
+
+		axs[0].set_ylim([-5, 105])
+		axs[1].set_ylim([-5, 105])
+		axs[0].set(title="cpu", ylabel="%")
+		axs[1].set(xlabel="time (s)", ylabel="%")
+
+		#chartBox = ax.get_position()
+		#ax.set_position([chartBox.x0, chartBox.y0, chartBox.width*0.65, chartBox.height])
+		#ax.legend(loc='upper center', bbox_to_anchor=(1.35, 0.9), title='threads', ncol=1, frameon=True)
+
+		axs[0].legend(loc='upper right', ncol=2, frameon=True)
+
+		if Options.save:
+			save_name = '{}_graph_cpu.{}'.format(self._filename, Options.format)
 			fig.savefig(save_name)
 		plt.show()
 
@@ -175,6 +219,8 @@ def decimalSuffix(value):
 	else:
 		raise Exception("invalid number")
 
-f = File('data3/out3')
-f.graph1()
-f.graph2()
+Options.save = True
+f = File('data2/out7')
+f.graph_db()
+f.graph_io()
+f.graph_cpu()

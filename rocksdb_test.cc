@@ -43,7 +43,10 @@ class DBBench : public ExperimentTask {
 
 		if (args->db_create)
 			createDB();
+	}
+	~DBBench() {}
 
+	void start() {
 		string cmd(get_cmd_run());
 		spdlog::info("Executing {}. Command:\n{}", name, cmd);
 		process.reset(new ProcessController(
@@ -54,7 +57,6 @@ class DBBench : public ExperimentTask {
 			false
 			));
 	}
-	~DBBench() {}
 
 	private: //------------------------------------------------------------------
 	void createDB() {
@@ -292,7 +294,10 @@ class AccessTime3 : public ExperimentTask {
 	public:    //------------------------------------------------------------------
 	AccessTime3(Clock* clock_, Args* args_, uint number_) : ExperimentTask(format("access_time3[{}]", number_), clock_), args(args_), number(number_) {
 		DEBUG_MSG("constructor");
+	}
+	~AccessTime3() {}
 
+	void start() {
 		string cmd( getCmd() );
 		process.reset(new ProcessController(
 			name.c_str(),
@@ -301,9 +306,7 @@ class AccessTime3 : public ExperimentTask {
 			[this](const char* v){this->default_stderr_handler(v);},
 			false
 			));
-
 	}
-	~AccessTime3() {}
 
 	string getCmd() {
 		const char *template_cmd =
@@ -334,44 +337,6 @@ class AccessTime3 : public ExperimentTask {
 		regex_search(buffer, cm, regex("STATS: \\{[^,]+, ([^\\}]+)\\}"));
 		if (cm.size() > 1) {
 			spdlog::info("Task {}, STATS: {} \"time\":\"{}\", {} {}", name, "{", clock->s(), cm.str(1), "}");
-		}
-	}
-};
-
-////////////////////////////////////////////////////////////////////////////////////
-#undef __CLASS__
-#define __CLASS__ "SystemStats::"
-
-class SystemStats : public ExperimentTask {
-	Args* args;
-	bool debug_out = false;
-
-	public: //----------------------------------------------------------------------
-	SystemStats(Clock* clock_, Args* args_) : ExperimentTask("systemstats", clock_), args(args_) {
-		DEBUG_MSG("constructor");
-		string cmd(format("while true; do sleep {} && uptime; done", args->stats_interval));
-		process.reset(new ProcessController(
-			name.c_str(),
-			cmd.c_str(),
-			[this](const char* v){this->stdoutHandler(v);},
-			[this](const char* v){this->default_stderr_handler(v);},
-			args->debug_output
-			));
-	}
-	~SystemStats() {}
-
-	private: //---------------------------------------------------------------------
-	void stdoutHandler(const char* buffer) {
-		string aux;
-		std::cmatch cm;
-		regex_search(buffer, cm, regex("load average:\\s+([0-9]+[.,][0-9]+),\\s+([0-9]+[.,][0-9]+),\\s+([0-9]+[.,][0-9]+)"));
-		if( cm.size() >= 4 ){
-			data.clear();
-			data["load1"]  = str_replace(aux, cm.str(1), ',', '.');
-			data["load5"]  = str_replace(aux, cm.str(2), ',', '.');
-			data["load15"] = str_replace(aux, cm.str(3), ',', '.');
-
-			print();
 		}
 	}
 };
@@ -461,7 +426,6 @@ class Program {
 	unique_ptr<unique_ptr<DBBench>[]>     dbbench_list;
 	unique_ptr<unique_ptr<AccessTime3>[]> at_list;
 	unique_ptr<IOStat>      iostat;
-	unique_ptr<SystemStats> sysstat;
 
 	public: //---------------------------------------------------------------------
 	Program() {
@@ -491,33 +455,47 @@ class Program {
 
 	int main(int argc, char** argv) noexcept {
 		DEBUG_MSG("initialized");
-		spdlog::info("rocksdb_test version: 1.3");
+		spdlog::info("rocksdb_test version: 1.4");
 		try {
 			args.reset(new Args(argc, argv));
 			clock.reset(new Clock());
 
 			auto num_dbs = args->num_dbs;
 			auto num_at  = args->num_at;
+			if (num_dbs == 0 && num_at == 0) {
+				spdlog::warn("no benchmark specified");
+				return 0;
+			}
 
+			// create DBBench instances and create DBs, if necessary
 			dbbench_list.reset(new unique_ptr<DBBench>[num_dbs]);
 			for (uint32_t i=0; i<num_dbs; i++) {
 				dbbench_list[i].reset(new DBBench(clock.get(), args.get(), i));
 			}
 
+			clock->reset(); // reset clock
+
+			// start DBs
+			for (uint32_t i=0; i<num_dbs; i++) {
+				dbbench_list[i]->start();
+			}
+
+			// create and start access_time3 instances
 			at_list.reset(new unique_ptr<AccessTime3>[num_at]);
 			for (uint32_t i=0; i<num_at; i++) {
 				at_list[i].reset(new AccessTime3(clock.get(), args.get(), i));
+				at_list[i]->start();
 			}
 
-			clock->reset();
 			iostat.reset(new IOStat(clock.get(), args.get()));
-			sysstat.reset(new SystemStats(clock.get(), args.get()));
+
+			SystemStat s1;
+			uint64_t s_last = clock->s();
 
 			bool stop = false;
-			while ( !stop &&
-			        (iostat.get()  != nullptr && iostat->isActive())  &&
-			        (sysstat.get() != nullptr && sysstat->isActive()) )
+			while ( !stop && (iostat.get() != nullptr && iostat->isActive()) )
 			{
+				// db_bench
 				for (uint32_t i=0; i<num_dbs; i++) {
 					if (dbbench_list.get() == nullptr || dbbench_list[i].get() == nullptr || !dbbench_list[i]->isActive()) {
 						stop = true;
@@ -525,6 +503,8 @@ class Program {
 					}
 				}
 				if (stop) break;
+
+				// access_time3
 				for (uint32_t i=0; i<num_at; i++) {
 					if (at_list.get() == nullptr || at_list[i].get() == nullptr || !at_list[i]->isActive()) {
 						stop = true;
@@ -532,6 +512,15 @@ class Program {
 					}
 				}
 				if (stop) break;
+
+				// systemstats
+				if (clock->s() - s_last > args->stats_interval) {
+					s_last = clock->s();
+					SystemStat s2;
+					spdlog::info(stat_format, "systemstats", s2.json(s1, format("\"time\":\"{}\"", s_last)));
+					s1 = s2;
+				}
+
 				std::this_thread::sleep_for(milliseconds(500));
 			}
 
@@ -553,7 +542,6 @@ class Program {
 		dbbench_list.reset(nullptr);
 		at_list.reset(nullptr);
 		iostat.reset(nullptr);
-		sysstat.reset(nullptr);
 		std::this_thread::sleep_for(milliseconds(300));
 	}
 
