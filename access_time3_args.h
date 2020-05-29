@@ -15,74 +15,84 @@ using std::deque;
 #define ALL_ARGS_Direct_F( _f )                                   \
 	_f(log_level, string, DEFINE_string,                          \
 		"info",                                                   \
-		"Log level (debug,info)",         \
+		"Log level (debug,info)",                                 \
 		value == "info" || value == "debug",                      \
 		setLogLevel(value))                                       \
 	_f(log_time_prefix, bool, DEFINE_bool,                        \
 		true,                                                     \
 		"print date and time in each line",                       \
 		true,                                                     \
-		if (!value) spdlog::set_pattern("[%l] %v"))             \
+		if (!value) spdlog::set_pattern("[%l] %v"))               \
+	_f(duration, uint32_t, DEFINE_uint32,                         \
+		0,                                                        \
+		"duration time of the experiment (seconds)",              \
+		true,                                                     \
+		nullptr)                                                  \
 	_f(filename, string, DEFINE_string,                           \
 		"",                                                       \
 		"file name",                                              \
 		value.length() != 0,                                      \
-		nullptr)                                                 \
+		nullptr)                                                  \
 	_f(create_file, bool, DEFINE_bool,                            \
-		true,                                                     \
+		false,                                                    \
 		"create file",                                            \
 		true,                                                     \
-		nullptr)                                                 \
+		nullptr)                                                  \
 	_f(delete_file, bool, DEFINE_bool,                            \
-		true,                                                     \
+		false,                                                    \
 		"delete file if created",                                 \
 		true,                                                     \
-		nullptr)                                                 \
+		nullptr)                                                  \
 	_f(filesize, uint64_t, DEFINE_uint64,                         \
 		0,                                                        \
 		"file size (MiB)",                                        \
 		value >= 10 || !FLAGS_create_file,                        \
-		nullptr)                                                 \
+		nullptr)                                                  \
 	_f(block_size, uint64_t, DEFINE_uint64,                       \
 		4,                                                        \
 		"block size (KiB)",                                       \
 		value >= 4,                                               \
-		nullptr)                                                 \
+		nullptr)                                                  \
 	_f(flush_blocks, uint64_t, DEFINE_uint64,                     \
 		1,                                                        \
 		"blocks written before a flush (0 = no flush)",           \
 		true,                                                     \
-		nullptr)                                                 \
+		nullptr)                                                  \
 	_f(write_ratio, double, DEFINE_double,                        \
 		0.0,                                                      \
 		"writes/reads ratio (0-1)",                               \
 		value >= 0.0 && value <= 1.0,                             \
-		nullptr)                                                 \
+		nullptr)                                                  \
 	_f(random_ratio, double, DEFINE_double,                       \
 		0.0,                                                      \
 		"random ratio (0-1)",                                     \
 		value >= 0.0 && value <= 1.0,                             \
-		nullptr)                                                 \
+		nullptr)                                                  \
 	_f(sleep_interval, uint64_t, DEFINE_uint64,                   \
 		0,                                                        \
-		"sleep interval (ms)",                                    \
+		"sleep interval (us)",                                    \
 		true,                                                     \
-		nullptr)                                                 \
+		nullptr)                                                  \
 	_f(sleep_count, uint64_t, DEFINE_uint64,                      \
 		1,                                                        \
 		"number of IOs before sleep",                             \
 		value > 0,                                                \
-		nullptr)                                                 \
+		nullptr)                                                  \
+	_f(direct_io, bool, DEFINE_bool,                               \
+		false,                                                    \
+		"use direct_io",                                           \
+		true,                                                     \
+		nullptr)                                                  \
 	_f(stats_interval, uint32_t, DEFINE_uint32,                   \
 		5,                                                        \
 		"Statistics interval (seconds)",                          \
 		value > 0,                                                \
-		nullptr)                                                 \
+		nullptr)                                                  \
 	_f(wait, bool, DEFINE_bool,                                   \
 		false,                                                    \
 		"wait",                                                   \
 		true,                                                     \
-		nullptr)                                                 \
+		nullptr)                                                  \
 	_f(command_script, CommandScript, DEFINE_string,              \
 		"",                                                       \
 		"Script of commands. Syntax: \"time1:command1=value1,time2:command2=value2\"", \

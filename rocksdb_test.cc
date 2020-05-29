@@ -299,6 +299,7 @@ class AccessTime3 : public ExperimentTask {
 
 	void start() {
 		string cmd( getCmd() );
+		spdlog::info("Executing {}. Command:\n{}", name, cmd);
 		process.reset(new ProcessController(
 			name.c_str(),
 			cmd.c_str(),
@@ -309,23 +310,18 @@ class AccessTime3 : public ExperimentTask {
 	}
 
 	string getCmd() {
-		const char *template_cmd =
-		"access_time3                                     \\\n"
-		"   --stats_interval={}                           \\\n"
-		"   --log_time_prefix=false                       \\\n"
-		"	--filename=\"{}\"                             \\\n"
-		"	--create_file=false                           \\\n"
-		"	--block_size={}                               \\\n"
-		"	--command_script=\"{}\"                       \\\n"
-		"	{} 2>&1";
-		string ret( format(template_cmd,
-				args->stats_interval,
-				args->at_file[number],
-				args->at_block_size[number],
-				args->at_script[number],
-				args->at_params[number]) );
+		string ret =
+			format("                                                  \\\n") +
+			format("access_time3                                      \\\n") +
+			format("    -duration={}                                  \\\n", args->duration * 60) +
+			format("    -stats_interval={}                            \\\n", args->stats_interval) +
+			format("    -log_time_prefix=false                        \\\n") +
+			format("    --filename=\"{}\"                             \\\n", args->at_file[number]) +
+			format("    --create_file=false                           \\\n") +
+			format("    --block_size={}                               \\\n", args->at_block_size[number]) +
+			format("    --command_script=\"{}\"                       \\\n", args->at_script[number]) +
+			format("    {} 2>&1 ", args->at_params[number]);
 
-		spdlog::info("Executing {}. Command:\n{}", name, ret);
 		return ret;
 	}
 

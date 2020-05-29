@@ -15,6 +15,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <fcntl.h>
 
 #include <spdlog/spdlog.h>
 #include <fmt/format.h>
@@ -23,13 +24,15 @@
 #include "util.h"
 #include "process.h"
 
+const uint32_t buffer_align = 512;
+
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
 #define __CLASS__ "Worker::"
 
 class Worker {
 	Args*       args;
-	std::FILE*  file;
+	int         filed = -1;
 
 	std::thread        thread;
 	std::thread        thread_flush;
@@ -63,11 +66,14 @@ class Worker {
 			args->filesize = size;
 		}
 		DEBUG_MSG("open file");
-		file = std::fopen(args->filename.c_str(), "r+");
-		if (file == NULL)
+		int flags = O_RDWR;
+		if (args->direct_io)
+			flags = flags|O_DIRECT;
+		filed = open(args->filename.c_str(), flags, 0640);
+		if (filed < 0)
 			throw std::runtime_error("can't open file");
 
-		thread       = std::thread( [this]{this->threadMain();} );
+		thread = std::thread( [this]{this->threadMain();} );
 	}
 	~Worker() {
 		DEBUG_MSG("destructor");
@@ -76,25 +82,30 @@ class Worker {
 			thread.join();
 		if (thread_flush.joinable())
 			thread_flush.join();
-		if (file != NULL) {
+		if (filed >= 0) {
 			DEBUG_MSG("close file");
-			std::fclose(file);
+			close(filed);
 			if (args->create_file && args->delete_file) {
-				DEBUG_MSG("delete file");
+				spdlog::info("delete file {}", args->filename);
 				std::remove(args->filename.c_str());
 			}
 		}
 	}
 
 	void threadMain() noexcept {
+		struct alignas(buffer_align) buffer_t {
+			char data[buffer_align];
+		};
+
 		spdlog::info("initiating worker thread");
 		try {
 			const uint32_t random_scale = 10000;
 			std::uniform_int_distribution<uint32_t> rand_ratio(0,random_scale -1);
 
 			uint64_t buffer_size = args->block_size * 1024; // KiB to B
-			std::unique_ptr<char[]> buffer(new char[buffer_size]);
-			randomize_buffer(buffer.get(), buffer_size);
+			std::unique_ptr<buffer_t[]> buffer_mem(new buffer_t[buffer_size/buffer_align]);
+			char* buffer = buffer_mem[0].data;
+			randomize_buffer(buffer, buffer_size);
 
 			uint64_t filesize_bytes = args->filesize * 1024 * 1024;
 			uint64_t file_blocks = (args->filesize * 1024) / args->block_size;
@@ -102,6 +113,8 @@ class Worker {
 
 			uint64_t flush_count = 0;
 			uint64_t sleep_count = 0;
+
+			uint64_t cur_block = 0;
 
 			while (!stop_) {
 				if (args->wait)
@@ -119,29 +132,32 @@ class Worker {
 				uint32_t random_ratio_uint = (uint32_t) (args->random_ratio * random_scale);
 
 				if (rand_ratio(rand_eng) < random_ratio_uint) { //random access
-					if (std::fseek(file, rand_block(rand_eng) * buffer_size, SEEK_SET) != 0)
-						throw std::runtime_error("fseek error");
+					cur_block = rand_block(rand_eng);
+					if (lseek(filed, cur_block * buffer_size, SEEK_SET) == -1)
+						throw std::runtime_error(fmt::format("seek error ({})", strerror(errno)));
 				} else {                                        //sequential access
-					uint64_t pos = std::ftell(file);
-					if (pos >  (filesize_bytes - buffer_size -1))
-						if (std::fseek(file, 0, SEEK_SET) != 0)
-							throw std::runtime_error("fseek begin error");
+					cur_block++;
+					if (cur_block >= file_blocks) {
+						if (lseek(filed, 0, SEEK_SET) == -1)
+							throw std::runtime_error(fmt::format("seek error ({})", strerror(errno)));
+						cur_block = 0;
+					}
 				}
 
 				if (rand_ratio(rand_eng) < write_ratio_uint) { //write
-					if (std::fwrite(buffer.get(), buffer_size, 1, file) != 1)
-						throw std::runtime_error("fwrite error");
+					if (write(filed, buffer, buffer_size) == -1)
+						throw std::runtime_error(fmt::format("write error ({})", strerror(errno)));
 					blocks_write++;
 
-					if (args->flush_blocks) {
+					if (!args->direct_io && args->flush_blocks) {
 						if (++flush_count >= args->flush_blocks) {
-							std::fflush(file);
+							fsync(filed);
 							flush_count = 0;
 						}
 					}
 				} else {                                       //read
-					if (std::fread(buffer.get(), buffer_size, 1, file) != 1)
-						throw std::runtime_error("fread error");
+					if (read(filed, buffer, buffer_size) == -1)
+						throw std::runtime_error(fmt::format("read error ({})", strerror(errno)));
 					blocks_read++;
 				}
 
@@ -173,38 +189,28 @@ class Worker {
 
 	private: //--------------------------------------------------------------------
 	void createFile() {
-		uint32_t buffer_size = 1024 * 1024;
-		char buffer[buffer_size];
+		const uint32_t buffer_size = 1024 * 1024;
+		alignas(buffer_align) char buffer[buffer_size];
 		randomize_buffer(buffer, buffer_size);
 
 		spdlog::info("creating file {}", args->filename);
-		std::FILE* f = std::fopen(args->filename.c_str(), "w");
-		if (f == NULL)
+		auto fd = open(args->filename.c_str(), O_CREAT|O_RDWR|O_DIRECT, 0640);
+		if (fd < 0)
 			throw std::runtime_error("can't create file");
 		try {
+			size_t write_ret;
 			for (uint64_t i=0; i<args->filesize; i++) {
-				if (std::fwrite(buffer, buffer_size, 1, f) != 1) {
-					std::fclose(f);
-					std::remove(args->filename.c_str());
-					throw std::runtime_error("write error");
-				}
-				if (i==0) {
-					std::fflush(f);
-					struct stat st;
-					if (stat(args->filename.c_str(), &st) == EOF)
-						throw std::runtime_error("can't read file stats");
-					if ((args->block_size * 1024) % st.st_blksize != 0)
-						throw std::runtime_error("block size must be multiple of filesystem's block size");
+				if ((write_ret = write(fd, buffer, buffer_size)) == -1) {
+					throw std::runtime_error(fmt::format("write error ({})", strerror(errno)));
 				}
 			}
 			DEBUG_MSG("file created");
 		} catch (std::exception& e) {
-			std::fclose(f);
+			close(fd);
 			std::remove(args->filename.c_str());
-			throw e;
+			throw std::runtime_error(fmt::format("create file error: {}", e.what()));
 		}
-		std::fflush(f);
-		std::fclose(f);
+		close(fd);
 	}
 
 	void randomize_buffer(char* buffer, uint32_t size) {
@@ -353,6 +359,13 @@ class Program {
 					}
 				}
 				if (stop) break;
+
+				if (args->duration > 0 && duration_cast<seconds>(system_clock::now() - time_init).count() > args->duration) {
+					spdlog::info("duration time exceeded: {} seconds", args->duration);
+					reader->stop();
+					worker->stop();
+					break;
+				}
 
 				std::this_thread::sleep_for(milliseconds(200));
 

@@ -6,6 +6,7 @@
 #include <regex>
 
 #include <csignal>
+#include <errno.h>
 
 #include <spdlog/spdlog.h>
 #include <fmt/format.h>
@@ -56,36 +57,37 @@ int main(int argc, char** argv) {
 	spdlog::set_level(spdlog::level::debug);
 	DEBUG_MSG("Initiating...");
 
-	const char* text =
-		"cpu  313892 1287 68028 28424789 70547 0 7296 0 0 0\n"
-		"cpu0 22943 70 5033 2373361 5259 0 5110 0 0 0\n"
-		"cpu1 26435 62 5258 2369911 5576 0 971 0 0 0\n"
-		"cpu2 24732 82 4982 2372649 4422 0 446 0 0 0\n"
-		"cpu3 34396 120 5572 2360117 6033 0 182 0 0 0\n"
-		"cpu4 28420 52 5815 2366623 5142 0 86 0 0 0\n"
-		"cpu5 29346 146 5861 2366267 5160 0 34 0 0 0\n"
-		"cpu6 23343 92 4844 2373571 5125 0 18 0 0 0\n"
-		"cpu7 22541 82 4886 2373092 5312 0 203 0 0 0\n"
-		"cpu8 25123 78 5042 2372701 4140 0 18 0 0 0\n"
-		"cpu9 23921 204 9146 2369869 1915 0 11 0 0 0\n"
-		"cpu10 27918 160 5639 2370371 3142 0 4 0 0 0\n"
-		"cpu11 24771 133 5946 2356252 19315 0 210 0 0 0\n";
-
 
 	try {
 #		define CODE1
 #		ifdef CODE1
 
-		SystemStat s1;
+		const char* filename = "/media/auto/work/tmp/1";
+		const uint32_t filesize = 100;
 
-		while (true) {
-			this_thread::sleep_for(std::chrono::seconds(1));
+		const size_t buffer_align = 512;
+		const size_t buffer_size = 1024 * 1024;
+		alignas(buffer_align) char buffer[buffer_size];
 
-			SystemStat s2;
-
-			spdlog::info("stats = {}", s2.json(s1));
-			s1 = s2;
+		spdlog::info("creating file {}", filename);
+		auto fd = open(filename, O_CREAT|O_WRONLY|O_DIRECT, 0640);
+		DEBUG_MSG("fd={}", fd);
+		if (fd < 0)
+			throw std::runtime_error("can't create file");
+		try {
+			size_t write_ret;
+			for (uint64_t i=0; i<filesize; i++) {
+				if ((write_ret = write(fd, buffer, buffer_size)) == -1) {
+					throw std::runtime_error(fmt::format("write error: {}", strerror(errno)));
+				}
+			}
+			DEBUG_MSG("file created");
+		} catch (std::exception& e) {
+			close(fd);
+			std::remove(filename);
+			throw std::runtime_error(e.what());
 		}
+		close(fd);
 
 #		else
 

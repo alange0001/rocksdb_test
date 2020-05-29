@@ -191,6 +191,47 @@ class File:
 			fig.savefig(save_name)
 		plt.show()
 
+	def graph_at3(self):
+		num_at = 0
+		for i in range(0,1024):
+			if self._data.get('access_time3[{}]'.format(i)) is None:
+				break
+			num_at += 1
+		if num_at == 0:
+			return
+
+		fig, axs = plt.subplots(num_at, 1)
+		fig.set_figheight(5)
+		fig.set_figwidth(8)
+
+		for i in range(0,num_at):
+			ax = axs[i] if num_at > 1 else axs
+			ax.grid()
+			cur_at = self._data['access_time3[{}]'.format(i)]
+			X = [j['time'] for j in cur_at]
+			Y = [j['total_MiB/s'] for j in cur_at]
+			ax.plot(X, Y, '-', lw=1, label='{}:total'.format(i))
+			Y = [j['read_MiB/s'] for j in cur_at]
+			ax.plot(X, Y, '-.', lw=1, label='{}:read'.format(i))
+			Y = [j['write_MiB/s'] for j in cur_at]
+			ax.plot(X, Y, '-.', lw=1, label='{}:write'.format(i))
+			ax.legend(loc='upper right', ncol=3, frameon=True)
+			if i == 0:
+				ax.set(title="access_time3", ylabel="MiB/s")
+			elif i == num_at -1:
+				ax.set(xlabel="time (s)", ylabel="MiB/s")
+			else:
+				ax.set(ylabel="MiB/s")
+
+		#chartBox = ax.get_position()
+		#ax.set_position([chartBox.x0, chartBox.y0, chartBox.width*0.65, chartBox.height])
+		#ax.legend(loc='upper center', bbox_to_anchor=(1.35, 0.9), title='threads', ncol=1, frameon=True)
+
+		if Options.save:
+			save_name = '{}_graph_at3.{}'.format(self._filename, Options.format)
+			fig.savefig(save_name)
+		plt.show()
+
 def coalesce(*values):
 	for v in values:
 		if v is not None:
@@ -220,7 +261,8 @@ def decimalSuffix(value):
 		raise Exception("invalid number")
 
 Options.save = True
-f = File('data2/out7')
+f = File('data3/outt')
 f.graph_db()
 f.graph_io()
 f.graph_cpu()
+f.graph_at3()
