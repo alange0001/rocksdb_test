@@ -25,11 +25,12 @@ class ExperimentTask {
 	Clock* clock = nullptr;
 	OrderedDict data;
 	std::unique_ptr<ProcessController> process;
+	uint64_t warm_period_s;
 
 	ExperimentTask() {}
 
 	public: //---------------------------------------------------------------------
-	ExperimentTask(const string name_, Clock* clock_) : name(name_), clock(clock_) {
+	ExperimentTask(const string name_, Clock* clock_, uint64_t warm_period_s_=0) : name(name_), clock(clock_), warm_period_s(warm_period_s_) {
 		DEBUG_MSG("constructor of task {}", name);
 		if (clock == nullptr)
 			throw runtime_error("invalid clock");
@@ -55,8 +56,11 @@ class ExperimentTask {
 	void print() {
 		if (data.size() == 0)
 			spdlog::warn("no data in task {}", name);
-		data.push_front("time", format("{}", clock->s()));
-		spdlog::info("Task {}, STATS: {}", name, data.json());
+		auto clock_s = clock->s();
+		if (clock_s > warm_period_s) {
+			data.push_front("time", format("{}", clock_s - warm_period_s));
+			spdlog::info("Task {}, STATS: {}", name, data.json());
+		}
 	}
 
 	void default_stderr_handler (const char* buffer) {

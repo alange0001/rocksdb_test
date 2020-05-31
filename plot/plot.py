@@ -175,7 +175,7 @@ class File:
 			Y = [j['cpu[{}].active'.format(i)] for j in self._data['systemstats']]
 			axs[1].plot(X, Y, '-', lw=1, label='cpu{}'.format(i))
 
-		axs[0].set_ylim([-5, 105])
+		axs[0].set_ylim([-5, None])
 		axs[1].set_ylim([-5, 105])
 		axs[0].set(title="cpu", ylabel="%")
 		axs[1].set(xlabel="time (s)", ylabel="%")
@@ -201,7 +201,7 @@ class File:
 			return
 
 		fig, axs = plt.subplots(num_at, 1)
-		fig.set_figheight(5)
+		fig.set_figheight(6)
 		fig.set_figwidth(8)
 
 		for i in range(0,num_at):
@@ -210,22 +210,29 @@ class File:
 			cur_at = self._data['access_time3[{}]'.format(i)]
 			X = [j['time'] for j in cur_at]
 			Y = [j['total_MiB/s'] for j in cur_at]
-			ax.plot(X, Y, '-', lw=1, label='{}:total'.format(i))
+			ax.plot(X, Y, '-', lw=1, label='total')
 			Y = [j['read_MiB/s'] for j in cur_at]
-			ax.plot(X, Y, '-.', lw=1, label='{}:read'.format(i))
+			ax.plot(X, Y, '-.', lw=1, label='read')
 			Y = [j['write_MiB/s'] for j in cur_at]
-			ax.plot(X, Y, '-.', lw=1, label='{}:write'.format(i))
-			ax.legend(loc='upper right', ncol=3, frameon=True)
-			if i == 0:
-				ax.set(title="access_time3", ylabel="MiB/s")
-			elif i == num_at -1:
-				ax.set(xlabel="time (s)", ylabel="MiB/s")
-			else:
-				ax.set(ylabel="MiB/s")
+			ax.plot(X, Y, '-.', lw=1, label='write')
 
-		#chartBox = ax.get_position()
-		#ax.set_position([chartBox.x0, chartBox.y0, chartBox.width*0.65, chartBox.height])
-		#ax.legend(loc='upper center', bbox_to_anchor=(1.35, 0.9), title='threads', ncol=1, frameon=True)
+			ax_set = dict()
+			ax_set['ylabel'] ="MiB/s"
+
+			if i == 0:
+				ax_set['title'] = "access_time3"
+			if i == num_at -1:
+				ax_set['xlabel'] = "time (s)"
+				ax.legend(bbox_to_anchor=(0., -1.2, 1., .102), loc='lower left',
+					ncol=3, mode="expand", borderaxespad=0.)
+			if i>=0 and i < num_at -1:
+				ax.xaxis.set_ticklabels([])
+
+			ax.set(**ax_set)
+
+			#chartBox = ax.get_position()
+			#ax.set_position([chartBox.x0, chartBox.y0, chartBox.width*0.75, chartBox.height])
+			#ax.legend(loc='upper center', bbox_to_anchor=(1.25, 1.0), ncol=2, frameon=True)
 
 		if Options.save:
 			save_name = '{}_graph_at3.{}'.format(self._filename, Options.format)

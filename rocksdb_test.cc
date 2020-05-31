@@ -38,7 +38,7 @@ class DBBench : public ExperimentTask {
 	uint number;
 
 	public:    //------------------------------------------------------------------
-	DBBench(Clock* clock_, Args* args_, uint number_) : ExperimentTask(format("db_bench[{}]", number_), clock_), args(args_), number(number_) {
+	DBBench(Clock* clock_, Args* args_, uint number_) : ExperimentTask(format("db_bench[{}]", number_), clock_, args_->warm_period * 60), args(args_), number(number_) {
 		DEBUG_MSG("constructor");
 
 		if (args->db_create)
@@ -292,7 +292,7 @@ class AccessTime3 : public ExperimentTask {
 	uint number;
 
 	public:    //------------------------------------------------------------------
-	AccessTime3(Clock* clock_, Args* args_, uint number_) : ExperimentTask(format("access_time3[{}]", number_), clock_), args(args_), number(number_) {
+	AccessTime3(Clock* clock_, Args* args_, uint number_) : ExperimentTask(format("access_time3[{}]", number_), clock_, args_->warm_period * 60), args(args_), number(number_) {
 		DEBUG_MSG("constructor");
 	}
 	~AccessTime3() {}
@@ -309,6 +309,7 @@ class AccessTime3 : public ExperimentTask {
 			));
 	}
 
+	private:    //------------------------------------------------------------------
 	string getCmd() {
 		string ret =
 			format("                                                  \\\n") +
@@ -332,7 +333,10 @@ class AccessTime3 : public ExperimentTask {
 
 		regex_search(buffer, cm, regex("STATS: \\{[^,]+, ([^\\}]+)\\}"));
 		if (cm.size() > 1) {
-			spdlog::info("Task {}, STATS: {} \"time\":\"{}\", {} {}", name, "{", clock->s(), cm.str(1), "}");
+			auto clock_s = clock->s();
+			if (clock_s > warm_period_s) {
+				spdlog::info("Task {}, STATS: {} \"time\":\"{}\", {} {}", name, "{", clock_s - warm_period_s, cm.str(1), "}");
+			}
 		}
 	}
 };
@@ -349,7 +353,7 @@ class IOStat : public ExperimentTask {
 	vector<string> columns;
 
 	public: //----------------------------------------------------------------------
-	IOStat(Clock* clock_, Args* args_) : ExperimentTask("iostat", clock_), args(args_) {
+	IOStat(Clock* clock_, Args* args_) : ExperimentTask("iostat", clock_, args_->warm_period * 60), args(args_) {
 		DEBUG_MSG("constructor");
 		io_device = args->io_device;
 		devCheck();
@@ -470,6 +474,7 @@ class Program {
 			}
 
 			clock->reset(); // reset clock
+			uint64_t warm_period_s = 60 * args->warm_period;
 
 			// start DBs
 			for (uint32_t i=0; i<num_dbs; i++) {
@@ -510,10 +515,12 @@ class Program {
 				if (stop) break;
 
 				// systemstats
-				if (clock->s() - s_last > args->stats_interval) {
-					s_last = clock->s();
+				auto clock_s = clock->s();
+				if ((clock_s - s_last) > args->stats_interval) {
+					s_last = clock_s;
 					SystemStat s2;
-					spdlog::info(stat_format, "systemstats", s2.json(s1, format("\"time\":\"{}\"", s_last)));
+					if (clock_s > warm_period_s)
+						spdlog::info(stat_format, "systemstats", s2.json(s1, format("\"time\":\"{}\"", s_last - warm_period_s)));
 					s1 = s2;
 				}
 

@@ -36,6 +36,16 @@ int64_t PowerCdfInversion(double u, double a, double b, double c) {
   return static_cast<int64_t>(ceil(ret));
 }
 
+int F_i1 = 0;
+int F_i2 = 3;
+string F_s("test");
+
+struct S {
+	int& i1;
+	int& i2;
+	string& s;
+	S() : i1(F_i1), i2(F_i2), s(F_s) {}
+};
 
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
@@ -57,37 +67,16 @@ int main(int argc, char** argv) {
 	spdlog::set_level(spdlog::level::debug);
 	DEBUG_MSG("Initiating...");
 
-
 	try {
 #		define CODE1
 #		ifdef CODE1
 
-		const char* filename = "/media/auto/work/tmp/1";
-		const uint32_t filesize = 100;
-
-		const size_t buffer_align = 512;
-		const size_t buffer_size = 1024 * 1024;
-		alignas(buffer_align) char buffer[buffer_size];
-
-		spdlog::info("creating file {}", filename);
-		auto fd = open(filename, O_CREAT|O_WRONLY|O_DIRECT, 0640);
-		DEBUG_MSG("fd={}", fd);
-		if (fd < 0)
-			throw std::runtime_error("can't create file");
-		try {
-			size_t write_ret;
-			for (uint64_t i=0; i<filesize; i++) {
-				if ((write_ret = write(fd, buffer, buffer_size)) == -1) {
-					throw std::runtime_error(fmt::format("write error: {}", strerror(errno)));
-				}
-			}
-			DEBUG_MSG("file created");
-		} catch (std::exception& e) {
-			close(fd);
-			std::remove(filename);
-			throw std::runtime_error(e.what());
-		}
-		close(fd);
+		S test;
+		fmt::print(stdout, "{}\n", test.s);
+		F_s = "test2";
+		fmt::print(stdout, "{}\n", test.s);
+		test.s = "test3";
+		fmt::print(stdout, "{}\n", F_s);
 
 #		else
 

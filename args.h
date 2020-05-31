@@ -22,8 +22,13 @@ using std::function;
 		setLogLevel(value))                                       \
 	_f(duration, uint32_t, DEFINE_uint32,                         \
 		60,                                                       \
-		"Duration of the experiment (minutes)",                   \
+		"Duration of the experiment (minutes) including warm_period", \
 		value >= 10,                                              \
+		nullptr)                                                  \
+	_f(warm_period, uint32_t, DEFINE_uint32,                      \
+		0,                                                        \
+		"Warm time before the experiment (minutes). Do not report stats during this time.", \
+		true,                                                     \
 		nullptr)                                                  \
 	_f(stats_interval, uint32_t, DEFINE_uint32,                   \
 		5,                                                        \
