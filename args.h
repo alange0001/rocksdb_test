@@ -40,19 +40,34 @@ using std::function;
 		"Number of databases",                                    \
 		true,                                                     \
 		nullptr)                                                  \
+	_f(db_create, bool, DEFINE_bool,                              \
+		false,                                                    \
+		"Create db_bench database",                               \
+		true,                                                     \
+		nullptr)                                                  \
 	_f(db_mixgraph_params, string, DEFINE_string,                 \
 		"--sine_a=1000 --sine_d=4500",                            \
 		"Other parameters used in the mixgraph benchmark",        \
 		true,                                                     \
 		nullptr)                                                  \
+	_f(num_ydbs, uint32_t, DEFINE_uint32,                         \
+		0,                                                        \
+		"Number of YCSB databases",                               \
+		true,                                                     \
+		nullptr)                                                  \
+	_f(ydb_create, bool, DEFINE_bool,                             \
+		false,                                                    \
+		"Create YCSB database",                                   \
+		true,                                                     \
+		nullptr)                                                  \
+	_f(rocksdb_config_file, string, DEFINE_string,                \
+		"",                                                       \
+		"Rocksdb Configuration File",                             \
+		true,                                                     \
+		nullptr)                                                  \
 	_f(num_at, uint32_t, DEFINE_uint32,                           \
 		0,                                                        \
 		"Number of access_time3 instances",                       \
-		true,                                                     \
-		nullptr)                                                  \
-	_f(db_create, bool, DEFINE_bool,                              \
-		false,                                                    \
-		"Create the database",                                    \
 		true,                                                     \
 		nullptr)                                                  \
 	_f(io_device, string, DEFINE_string,                          \
@@ -88,14 +103,6 @@ using std::function;
 		nullptr,                                                  \
 		string,                                                   \
 		value.length() > 0,                                       \
-		num_dbs)                                                  \
-	_f(db_config_file, VectorParser<string>, DEFINE_string,       \
-		"",                                                       \
-		"Database Configuration File (list)",                     \
-		true,                                                     \
-		nullptr,                                                  \
-		string,                                                   \
-		true,                                                     \
 		num_dbs)                                                  \
 	_f(db_num_keys, VectorParser<uint64_t>, DEFINE_string,        \
 		"50000000",                                               \
@@ -145,6 +152,46 @@ using std::function;
 		string,                                                   \
 		true,                                                     \
 		num_dbs)                                                  \
+	_f(ydb_path, VectorParser<string>, DEFINE_string,             \
+		"/media/auto/work/rocksdb",                               \
+		"YCSB Database Path (list)",                              \
+		true,                                                     \
+		nullptr,                                                  \
+		string,                                                   \
+		value.length() > 0,                                       \
+		num_ydbs)                                                 \
+	_f(ydb_workload, VectorParser<string>, DEFINE_string,         \
+		"",                                                       \
+		"YCSB workload file (list)",                              \
+		true,                                                     \
+		nullptr,                                                  \
+		string,                                                   \
+		true,                                                     \
+		num_ydbs)                                                 \
+	_f(ydb_num_keys, VectorParser<uint64_t>, DEFINE_string,       \
+		"50000000",                                               \
+		"Number of keys in the database (list)",                  \
+		true,                                                     \
+		nullptr,                                                  \
+		uint64_t,                                                 \
+		value > 1000,                                             \
+		num_ydbs)                                                 \
+	_f(ydb_threads, VectorParser<uint32_t>, DEFINE_string,        \
+		"1",                                                      \
+		"Number of keys in the database (list)",                  \
+		true,                                                     \
+		nullptr,                                                  \
+		uint32_t,                                                 \
+		value >= 1,                                               \
+		num_ydbs)                                                 \
+	_f(ydb_params, VectorParser<string>, DEFINE_string,           \
+		"",                                                       \
+		"Other parameters used in YCSB (list)",                   \
+		true,                                                     \
+		nullptr,                                                  \
+		string,                                                   \
+		true,                                                     \
+		num_ydbs)                                                 \
 	_f(at_file, VectorParser<string>, DEFINE_string,              \
 		"",                                                       \
 		"access_time3 --filename (list)",                         \

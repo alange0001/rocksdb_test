@@ -68,7 +68,7 @@ int main(int argc, char** argv) {
 	DEBUG_MSG("Initiating...");
 
 	try {
-#		define CODE1
+#		define CODE
 #		ifdef CODE1
 
 		S test;
@@ -80,16 +80,11 @@ int main(int argc, char** argv) {
 
 #		else
 
-		auto flags = std::regex_constants::match_any;
-		std::cmatch cm;
-		const char* prefix = "cpu1";
-		regex_search(text, cm, regex(format("{} +(.*)", prefix)), flags);
-		if (cm.size() >= 2) {
-			auto aux = split_str(cm.str(1), " ");
-			for (auto i: aux) {
-				spdlog::info("{}: {}", prefix, i);
-			}
+		auto p = get_children(0);
+		for (auto i: p) {
+			spdlog::info("child pid: {}", i);
 		}
+
 
 #		endif
 	} catch (const std::exception& e) {

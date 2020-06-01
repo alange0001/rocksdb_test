@@ -4,7 +4,11 @@
 #include <string>
 #include <thread>
 #include <functional>
+#include <vector>
 
+#include <sched.h>
+
+using std::vector;
 using std::string;
 using std::function;
 
@@ -15,6 +19,8 @@ using std::function;
 bool monitor_fgets (char* buffer, int buffer_size, std::FILE* file, bool* stop, uint64_t interval=300);
 
 string command_output(const char* cmd, bool debug_out=false);
+
+vector<pid_t> get_children(pid_t parent_pid);
 
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
@@ -61,3 +67,7 @@ class ProcessController {
 	static void default_stderr_handler(const char* v) { std::fputs(v, stderr); }
 	static void default_stdout_handler(const char* v) { std::fputs(v, stdout); }
 };
+
+////////////////////////////////////////////////////////////////////////////////////
+#undef __CLASS__
+#define __CLASS__ ""

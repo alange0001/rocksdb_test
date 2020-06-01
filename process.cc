@@ -77,6 +77,40 @@ string command_output(const char* cmd, bool debug_out) {
 	return ret;
 }
 
+vector<pid_t> get_children(pid_t parent_pid) {
+	vector<pid_t> ret;
+	DEBUG_MSG("parent pid: {}", parent_pid);
+	try {
+		string cmd = format(
+			"getcpid() {{                       \n"
+			"    cpids=$(pgrep -P $1|xargs)     \n"
+			"    for cpid in $cpids;            \n"
+			"    do                             \n"
+			"        echo \"$cpid\"             \n"
+			"        getcpid $cpid              \n"
+			"    done                           \n"
+			"}}                                 \n"
+			"getcpid {} |xargs"
+			,parent_pid);
+		auto children = command_output(cmd.c_str());
+		DEBUG_MSG("children: {}", children);
+		auto pids = split_str(children, " ");
+		for (auto i: pids) {
+			if (i.length() == 0) continue;
+			try {
+				pid_t pid = parseUint64(i, true, 0, format("error parsing child pid (value={})", i).c_str());
+				ret.push_back(pid);
+			} catch (const std::exception& e) {
+				spdlog::error("ERROR: {}", e.what());
+			}
+		}
+	} catch (const std::exception& e) {
+		spdlog::error("ERROR: {}", e.what());
+	}
+
+	return ret;
+}
+
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
 #define __CLASS__ "ProcessController::"
@@ -111,7 +145,6 @@ ProcessController::ProcessController(const char* name_, const char* cmd,
 		close(pipe_stderr[0]);
 		dup2(pipe_stderr[1], STDERR_FILENO);
 
-		setpgid(child_pid, child_pid);
 		execl("/bin/bash", "/bin/bash", "-c", cmd, (char*)NULL);
 		exit(EXIT_FAILURE);
 	}
@@ -144,8 +177,15 @@ ProcessController::~ProcessController() {
 
 	if (checkStatus()) {
 		std::this_thread::sleep_for(milliseconds(100));
-		spdlog::warn("process {} (pid {}) still active. kill it", name, pid);
-		killpg(pid, SIGTERM);
+		if (checkStatus()) {
+			spdlog::warn("process {} (pid {}) still active. kill it", name, pid);
+			auto children = get_children(pid);
+			for (auto i: children) {
+				spdlog::warn("child (pid {}) of process {} (pid {}) still active. kill it", i, name, pid);
+				kill(i, SIGTERM);
+			}
+			kill(pid, SIGTERM);
+		}
 	}
 
 	auto status_f_stdin = std::fclose(f_stdin);

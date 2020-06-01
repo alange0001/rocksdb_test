@@ -101,8 +101,8 @@ class DBBench : public ExperimentTask {
 
 	string get_const_params() {
 		string config;
-		if (args->db_config_file[number].length() > 0)
-			config = fmt::format("	--options_file=\"{}\" \\\n", args->db_config_file[number]);
+		if (args->rocksdb_config_file.length() > 0)
+			config = fmt::format("	--options_file=\"{}\" \\\n", args->rocksdb_config_file);
 		string ret =
 			format("    --db=\"{}\"                                   \\\n", args->db_path[number]) +
 			format("    --wal_dir=\"{}\"                              \\\n", args->db_path[number]) +
@@ -285,6 +285,121 @@ class DBBench : public ExperimentTask {
 
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
+#define __CLASS__ "YCSB::"
+
+class YCSB : public ExperimentTask {
+	Args* args;
+	uint number;
+
+	public:    //------------------------------------------------------------------
+	YCSB(Clock* clock_, Args* args_, uint number_) : ExperimentTask(format("ycsb[{}]", number_), clock_, args_->warm_period * 60), args(args_), number(number_) {
+		DEBUG_MSG("constructor");
+
+		if (args->ydb_create)
+			createDB();
+	}
+	~YCSB() {}
+
+	void start() {
+		string cmd(get_cmd_run());
+		spdlog::info("Executing {}. Command:\n{}", name, cmd);
+		process.reset(new ProcessController(
+			name.c_str(),
+			cmd.c_str(),
+			[this](const char* v){this->stdoutHandler(v);},
+			[this](const char* v){this->default_stderr_handler(v);},
+			false
+			));
+	}
+
+	private: //------------------------------------------------------------------
+	void createDB() {
+		string config;
+		if (args->rocksdb_config_file.length() > 0)
+			config = format("    -p rocksdb.optionsfile=\"{}\"  \\\n", args->rocksdb_config_file);
+		string cmd =
+			format("ycsb.sh load rocksdb -s                           \\\n") +
+			get_const_params() +
+			config +
+			format("    2>&1 ");
+
+		spdlog::info("Bulkload {}. Command:\n{}", name, cmd);
+		auto ret = std::system(cmd.c_str());
+		if (ret != 0)
+			throw runtime_error("database bulkload error");
+	}
+
+	string get_const_params() {
+		string ret =
+			format("    -P \"{}\"                                     \\\n", args->ydb_workload[number]) +
+			format("    -p rocksdb.dir=\"{}\"                         \\\n", args->ydb_path[number]) +
+			format("    -p recordcount={}                             \\\n", args->ydb_num_keys[number]);
+		return ret;
+	}
+
+	string get_cmd_run() {
+		string cmd =
+			format("ycsb.sh run rocksdb -s                            \\\n") +
+			get_const_params() +
+			format("    -p operationcount={}                          \\\n", 260000 * 60 * args->duration) +
+			format("    -p status.interval={}                         \\\n", args->stats_interval) +
+			format("    -threads {}                                   \\\n", args->ydb_threads[number]) +
+			format("    {}                                            \\\n", args->ydb_params[number]) +
+			format("    2>&1 ");
+
+		return cmd;
+	}
+
+	void stdoutHandler(const char* buffer) {
+		const bool debug_handler = false;
+		auto flags = std::regex_constants::match_any;
+		std::cmatch cm;
+
+		spdlog::info("Task {}, stdout: {}", name, str_replace(buffer, '\n', ' '));
+
+		/* 2020-05-31 12:37:56:062 40 sec: 8898270 operations; 181027 current ops/sec; est completion in 5 second [READ: Count=452553, Max=2329, Min=1, Avg=19,59, 90=45, 99=69, 99.9=108, 99.99=602] [UPDATE: Count=452135, Max=404479, Min=5, Avg=87,65, 90=74, 99=1152, 99.9=1233, 99.99=2257] */
+
+		regex_search(buffer, cm, regex("[0-9]{4}-[0-9]{2}-[0-9]{2} +[0-9:]+ +[0-9]+ +sec: +([0-9]+) +operations; +([0-9.,]+) +current[^\\[]+(.*)"));
+		if (debug_handler) for (int i = 0; i < cm.size(); i++) {
+			spdlog::info("text cm: {}", cm.str(i));
+		}
+		if (cm.size() >= 4) {
+			string aux_replace;
+			data["ops"] = cm.str(1);
+			data["ops_per_s"] = str_replace(aux_replace, cm.str(2), ',', '.');
+
+			string aux1 = cm.str(3);
+			while (aux1.length() > 0) {
+				regex_search(aux1.c_str(), cm, regex("\\[([^:]+): *([^\\]]+)\\] *(\\[.*)*"));
+				if (cm.size() >=4) {
+					if (debug_handler) for (int i = 0; i < cm.size(); i++) {
+						spdlog::info("aux1 cm: {}", cm.str(i));
+					}
+
+					string prefix = cm.str(1);
+					auto aux2 = split_str(cm.str(2), ", ");
+					for (auto i: aux2) {
+						auto aux3 = split_str(i, "=");
+						if (aux3.size() >= 2){
+							data[format("{}_{}", prefix, aux3[0])] = str_replace(aux_replace, aux3[1], ',', '.');
+						}
+					}
+
+					aux1 = cm.str(3);
+					if (debug_handler) spdlog::info("new aux1: {}", aux1);
+				} else {
+					break;
+				}
+			}
+
+			print();
+			data.clear();
+		}
+	}
+};
+
+////////////////////////////////////////////////////////////////////////////////////
+#undef __CLASS__
 #define __CLASS__ "AccessTime3::"
 
 class AccessTime3 : public ExperimentTask {
@@ -424,6 +539,7 @@ class Program {
 	unique_ptr<Clock> clock;
 
 	unique_ptr<unique_ptr<DBBench>[]>     dbbench_list;
+	unique_ptr<unique_ptr<YCSB>[]>        ycsb_list;
 	unique_ptr<unique_ptr<AccessTime3>[]> at_list;
 	unique_ptr<IOStat>      iostat;
 
@@ -461,8 +577,9 @@ class Program {
 			clock.reset(new Clock());
 
 			auto num_dbs = args->num_dbs;
+			auto num_ydbs = args->num_ydbs;
 			auto num_at  = args->num_at;
-			if (num_dbs == 0 && num_at == 0) {
+			if (num_dbs == 0 && num_ydbs == 0 && num_at == 0) {
 				spdlog::warn("no benchmark specified");
 				return 0;
 			}
@@ -472,6 +589,11 @@ class Program {
 			for (uint32_t i=0; i<num_dbs; i++) {
 				dbbench_list[i].reset(new DBBench(clock.get(), args.get(), i));
 			}
+			// create YCSB instances and create DBs, if necessary
+			ycsb_list.reset(new unique_ptr<YCSB>[num_ydbs]);
+			for (uint32_t i=0; i<num_ydbs; i++) {
+				ycsb_list[i].reset(new YCSB(clock.get(), args.get(), i));
+			}
 
 			clock->reset(); // reset clock
 			uint64_t warm_period_s = 60 * args->warm_period;
@@ -479,6 +601,9 @@ class Program {
 			// start DBs
 			for (uint32_t i=0; i<num_dbs; i++) {
 				dbbench_list[i]->start();
+			}
+			for (uint32_t i=0; i<num_ydbs; i++) {
+				ycsb_list[i]->start();
 			}
 
 			// create and start access_time3 instances
@@ -494,11 +619,20 @@ class Program {
 			uint64_t s_last = clock->s();
 
 			bool stop = false;
-			while ( !stop && (iostat.get() != nullptr && iostat->isActive()) )
+			while ( !stop && clock->s() <= (args->duration * 60) && (iostat.get() != nullptr && iostat->isActive()) )
 			{
 				// db_bench
 				for (uint32_t i=0; i<num_dbs; i++) {
 					if (dbbench_list.get() == nullptr || dbbench_list[i].get() == nullptr || !dbbench_list[i]->isActive()) {
+						stop = true;
+						break;
+					}
+				}
+				if (stop) break;
+
+				// ycsb
+				for (uint32_t i=0; i<num_ydbs; i++) {
+					if (ycsb_list.get() == nullptr || ycsb_list[i].get() == nullptr || !ycsb_list[i]->isActive()) {
 						stop = true;
 						break;
 					}
@@ -543,9 +677,16 @@ class Program {
 	void resetAll() noexcept {
 		DEBUG_MSG("destroy tasks");
 		dbbench_list.reset(nullptr);
+		ycsb_list.reset(nullptr);
 		at_list.reset(nullptr);
 		iostat.reset(nullptr);
+
 		std::this_thread::sleep_for(milliseconds(300));
+		auto children = get_children(getpid());
+		for (auto i: children) {
+			spdlog::warn("child (pid {}) still active. kill it", i);
+			kill(i, SIGTERM);
+		}
 	}
 
 	static void signalWrapper(int signal) noexcept {
@@ -555,11 +696,10 @@ class Program {
 	void signalHandler(int signal) noexcept {
 		auto group = getpgrp();
 		spdlog::warn("received signal {}, process group = {}", signal, group);
+		std::signal(signal, SIG_DFL);
 
 		resetAll();
 
-		fflush(stdout);
-		std::signal(signal, SIG_DFL);
 		killpg(group, signal);
 	}
 };

@@ -80,6 +80,7 @@ Args::Args(int argc, char** argv) : ALL_ARGS_List_F(initializeList) log_level("i
 #	undef assignValue
 
 	checkUniqueStr("db_path", db_path);
+	checkUniqueStr("ydb_path", ydb_path);
 	checkUniqueStr("at_file", at_file);
 
 #	define print_arg(ARG_name, ...) \
