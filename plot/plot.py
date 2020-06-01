@@ -110,6 +110,36 @@ class File:
 			fig.savefig(save_name)
 		plt.show()
 
+	def graph_ycsb(self):
+		num_ycsb = 0
+		for i in range(0,1024):
+			if self._data.get('ycsb[{}]'.format(i)) is None:
+				break
+			num_ycsb += 1
+		if num_ycsb == 0: return
+
+		fig, ax = plt.subplots()
+		fig.set_figheight(5)
+		fig.set_figwidth(8)
+		ax.grid()
+
+		for i in range(0, num_ycsb):
+			X = [i['time']      for i in self._data['ycsb[{}]'.format(i)]]
+			Y = [i['ops_per_s'] for i in self._data['ycsb[{}]'.format(i)]]
+			ax.plot(X, Y, '-', lw=1, label='db {}'.format(i))
+
+		ax.set(title="YCSB throughput", xlabel="time (s)", ylabel="tx/s")
+
+		#chartBox = ax.get_position()
+		#ax.set_position([chartBox.x0, chartBox.y0, chartBox.width*0.65, chartBox.height])
+		#ax.legend(loc='upper center', bbox_to_anchor=(1.35, 0.9), title='threads', ncol=1, frameon=True)
+		ax.legend(loc='best', ncol=1, frameon=True)
+
+		if Options.save:
+			save_name = '{}_graph_ycsb.{}'.format(self._filename, Options.format)
+			fig.savefig(save_name)
+		plt.show()
+
 	def graph_io(self):
 		if self._data.get('iostat') is None:
 			return
@@ -268,8 +298,9 @@ def decimalSuffix(value):
 		raise Exception("invalid number")
 
 Options.save = True
-f = File('data3/outt')
+f = File('data3/outt2')
 f.graph_db()
+f.graph_ycsb()
 f.graph_io()
 f.graph_cpu()
 f.graph_at3()
