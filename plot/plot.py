@@ -11,7 +11,7 @@ import collections
 import re
 import json
 import matplotlib.pyplot as plt
-import numpy
+#import numpy
 
 class Options:
 	format = 'png'
@@ -19,11 +19,13 @@ class Options:
 
 class File:
 	_filename = None
-	_data = dict()
-	_dbbench = list()
+	_data = None
+	_dbbench = None
 
 	def __init__(self, filename):
 		self._filename = filename
+		self._data = dict()
+		self._dbbench = list()
 		self.getDBBenchParams()
 		self.loadData()
 
@@ -86,7 +88,7 @@ class File:
 		ax.grid()
 
 		for i in range(0, len(self._dbbench)):
-			X = [i['time']      for i in self._data['db_bench[{}]'.format(i)]]
+			X = [i['time']/60.0 for i in self._data['db_bench[{}]'.format(i)]]
 			Y = [i['ops_per_s'] for i in self._data['db_bench[{}]'.format(i)]]
 			ax.plot(X, Y, '-', lw=1, label='db {}, real'.format(i))
 
@@ -98,7 +100,7 @@ class File:
 				Y = [ sine_a * math.sin(sine_b * x + sine_c) + sine_d for x in X]
 				ax.plot(X, Y, '-', lw=1, label='db {}, expect'.format(i))
 
-		ax.set(title="rocksdb throughput", xlabel="time (s)", ylabel="tx/s")
+		ax.set(title="db_bench throughput", xlabel="time (min)", ylabel="tx/s")
 
 		#chartBox = ax.get_position()
 		#ax.set_position([chartBox.x0, chartBox.y0, chartBox.width*0.65, chartBox.height])
@@ -124,11 +126,11 @@ class File:
 		ax.grid()
 
 		for i in range(0, num_ycsb):
-			X = [i['time']      for i in self._data['ycsb[{}]'.format(i)]]
+			X = [i['time']/60.0 for i in self._data['ycsb[{}]'.format(i)]]
 			Y = [i['ops_per_s'] for i in self._data['ycsb[{}]'.format(i)]]
 			ax.plot(X, Y, '-', lw=1, label='db {}'.format(i))
 
-		ax.set(title="YCSB throughput", xlabel="time (s)", ylabel="tx/s")
+		ax.set(title="YCSB throughput", xlabel="time (min)", ylabel="tx/s")
 
 		#chartBox = ax.get_position()
 		#ax.set_position([chartBox.x0, chartBox.y0, chartBox.width*0.65, chartBox.height])
@@ -150,7 +152,7 @@ class File:
 		axs[1].grid()
 		axs[2].grid()
 
-		X = [i['time']      for i in self._data['iostat']]
+		X = [i['time']/60.0 for i in self._data['iostat']]
 		Y = [i['rMB/s']     for i in self._data['iostat']]
 		axs[0].plot(X, Y, '-', lw=1, label='read')
 		Y = [i['wMB/s']     for i in self._data['iostat']]
@@ -165,7 +167,7 @@ class File:
 
 		Y = [i['%util']     for i in self._data['iostat']]
 		axs[2].plot(X, Y, '-', lw=1, label='%util')
-		axs[2].set(xlabel="time (s)", ylabel="percent")
+		axs[2].set(xlabel="time (min)", ylabel="percent")
 		axs[2].set_ylim([-5, 105])
 
 		#chartBox = ax.get_position()
@@ -192,7 +194,7 @@ class File:
 		axs[0].grid()
 		axs[1].grid()
 
-		X = [i['time']      for i in self._data['systemstats']]
+		X = [i['time']/60.0   for i in self._data['systemstats']]
 		Y = [i['cpus.active'] for i in self._data['systemstats']]
 		axs[0].plot(X, Y, '-', lw=1, label='usage (all)')
 
@@ -207,8 +209,8 @@ class File:
 
 		axs[0].set_ylim([-5, None])
 		axs[1].set_ylim([-5, 105])
-		axs[0].set(title="cpu", ylabel="%")
-		axs[1].set(xlabel="time (s)", ylabel="%")
+		axs[0].set(title="cpu", ylabel="all CPUs (%)")
+		axs[1].set(xlabel="time (min)", ylabel="per CPU (%)")
 
 		#chartBox = ax.get_position()
 		#ax.set_position([chartBox.x0, chartBox.y0, chartBox.width*0.65, chartBox.height])
@@ -238,7 +240,7 @@ class File:
 			ax = axs[i] if num_at > 1 else axs
 			ax.grid()
 			cur_at = self._data['access_time3[{}]'.format(i)]
-			X = [j['time'] for j in cur_at]
+			X = [j['time']/60.0 for j in cur_at]
 			Y = [j['total_MiB/s'] for j in cur_at]
 			ax.plot(X, Y, '-', lw=1, label='total')
 			Y = [j['read_MiB/s'] for j in cur_at]
@@ -252,7 +254,7 @@ class File:
 			if i == 0:
 				ax_set['title'] = "access_time3"
 			if i == num_at -1:
-				ax_set['xlabel'] = "time (s)"
+				ax_set['xlabel'] = "time (min)"
 				ax.legend(bbox_to_anchor=(0., -1.2, 1., .102), loc='lower left',
 					ncol=3, mode="expand", borderaxespad=0.)
 			if i>=0 and i < num_at -1:
@@ -268,6 +270,13 @@ class File:
 			save_name = '{}_graph_at3.{}'.format(self._filename, Options.format)
 			fig.savefig(save_name)
 		plt.show()
+
+	def graph_all(self):
+		self.graph_db()
+		self.graph_ycsb()
+		self.graph_io()
+		self.graph_cpu()
+		self.graph_at3()
 
 def coalesce(*values):
 	for v in values:
@@ -298,9 +307,9 @@ def decimalSuffix(value):
 		raise Exception("invalid number")
 
 Options.save = True
-f = File('data3/outt2')
-f.graph_db()
-f.graph_ycsb()
-f.graph_io()
-f.graph_cpu()
-f.graph_at3()
+
+files = ['outt']
+for i in files:
+	f = File('data3/{}'.format(i))
+	f.graph_all()
+	del f
