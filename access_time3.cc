@@ -68,7 +68,7 @@ class Worker {
 		DEBUG_MSG("open file");
 		int flags = O_RDWR;
 		if (args->direct_io)
-			flags = flags|O_DIRECT;
+			flags = flags|O_DIRECT|O_DSYNC;
 		filed = open(args->filename.c_str(), flags, 0640);
 		if (filed < 0)
 			throw std::runtime_error("can't open file");
