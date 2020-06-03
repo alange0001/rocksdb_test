@@ -124,6 +124,7 @@ public:
 #define __CLASS__ "Args::"
 
 struct Args {
+	bool changed = false;
 
 #	define declareArg(ARG_name, ARG_type, ...) ARG_type ARG_name;
 	ALL_ARGS_F( declareArg );

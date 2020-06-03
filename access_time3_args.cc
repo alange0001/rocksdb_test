@@ -123,6 +123,7 @@ void Args::executeCommand(const string& command_line) {
 				"COMMANDS:\n"
 				"    stop           - terminate\n"
 				"    wait           - (true|false)\n"
+				"    block_size     - [4..] in KiB\n"
 				"    sleep_interval - nanoseconds\n"
 				"    sleep_count    - [1..]\n"
 				"    write_ratio    - [0..1]\n"
@@ -138,19 +139,21 @@ void Args::executeCommand(const string& command_line) {
 				spdlog::info("set {}={}", command, name); \
 				return; \
 		}
-#	define parseLineCommandValidate(name, parser, validator) \
+#	define parseLineCommandValidate(name, parser) \
 		if (command == #name) { \
 				auto aux = parser(value, true); \
-				validator(command.c_str(), aux); \
+				validate_##name(command.c_str(), aux); \
 				name = aux; \
 				spdlog::info("set {}={}", command, aux); \
+				changed = true; \
 				return; \
 		}
 	parseLineCommand(wait, parseBool, false, true);
 	parseLineCommand(sleep_interval, parseUint64, true, 0);
-	parseLineCommandValidate(sleep_count, parseUint64, validate_sleep_count);
-	parseLineCommandValidate(write_ratio, parseDouble, validate_write_ratio);
-	parseLineCommandValidate(random_ratio, parseDouble, validate_random_ratio);
+	parseLineCommandValidate(block_size, parseUint64);
+	parseLineCommandValidate(sleep_count, parseUint64);
+	parseLineCommandValidate(write_ratio, parseDouble);
+	parseLineCommandValidate(random_ratio, parseDouble);
 	parseLineCommand(flush_blocks, parseUint64, true, 0);
 #	undef parseLineCommand
 #	undef parseLineCommandValidate

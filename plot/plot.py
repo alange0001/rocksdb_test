@@ -308,8 +308,11 @@ def decimalSuffix(value):
 
 Options.save = True
 
-files = ['outt']
+files = ['out1ya']
 for i in files:
 	f = File('data3/{}'.format(i))
+	Options.format = 'png'
+	f.graph_all()
+	Options.format = 'pdf'
 	f.graph_all()
 	del f

@@ -28,6 +28,23 @@ const uint32_t buffer_align = 512;
 
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
+#define __CLASS__ "Stats::"
+
+struct Stats {
+	uint64_t blocks = 0;
+	uint64_t KB_read = 0;
+	uint64_t KB_write = 0;
+	Stats operator- (const Stats& val) {
+		Stats ret = *this;
+		ret.blocks -= val.blocks;
+		ret.KB_read -= val.KB_read;
+		ret.KB_write -= val.KB_write;
+		return ret;
+	}
+};
+
+////////////////////////////////////////////////////////////////////////////////////
+#undef __CLASS__
 #define __CLASS__ "Worker::"
 
 class Worker {
@@ -42,9 +59,7 @@ class Worker {
 	std::default_random_engine rand_eng;
 
 	public: //---------------------------------------------------------------------
-	uint64_t              blocks        = 0;
-	uint64_t              blocks_read   = 0;
-	uint64_t              blocks_write  = 0;
+	Stats stats;
 
 	Worker(Args* args_) : args(args_) {
 		DEBUG_MSG("constructor");
@@ -102,18 +117,16 @@ class Worker {
 			const uint32_t random_scale = 10000;
 			std::uniform_int_distribution<uint32_t> rand_ratio(0,random_scale -1);
 
-			uint64_t buffer_size = args->block_size * 1024; // KiB to B
-			std::unique_ptr<buffer_t[]> buffer_mem(new buffer_t[buffer_size/buffer_align]);
-			char* buffer = buffer_mem[0].data;
-			randomize_buffer(buffer, buffer_size);
+			uint64_t cur_block_size = 0;
+			uint64_t buffer_size;
+			std::unique_ptr<buffer_t[]> buffer_mem;
+			char* buffer;
+			uint64_t file_blocks;
 
-			uint64_t filesize_bytes = args->filesize * 1024 * 1024;
-			uint64_t file_blocks = (args->filesize * 1024) / args->block_size;
-			std::uniform_int_distribution<uint64_t> rand_block(0, file_blocks -1);
+			std::unique_ptr<std::uniform_int_distribution<uint64_t>> rand_block;
 
 			uint64_t flush_count = 0;
 			uint64_t sleep_count = 0;
-
 			uint64_t cur_block = 0;
 
 			while (!stop_) {
@@ -128,11 +141,26 @@ class Worker {
 				}
 				if (stop_) break;
 
+				if (cur_block_size != args->block_size) { // change block size
+					cur_block_size = args->block_size;
+
+					buffer_size = cur_block_size * 1024; // KiB to B
+					buffer_mem.reset(new buffer_t[buffer_size/buffer_align]);
+					buffer = buffer_mem[0].data;
+					randomize_buffer(buffer, buffer_size);
+
+					file_blocks = (args->filesize * 1024) / cur_block_size;
+
+					rand_block.reset(new std::uniform_int_distribution<uint64_t>(0, file_blocks -1));
+
+					cur_block = file_blocks; // lseek 0 if next sequential I/O
+				}
+
 				uint32_t write_ratio_uint = (uint32_t) (args->write_ratio * random_scale);
 				uint32_t random_ratio_uint = (uint32_t) (args->random_ratio * random_scale);
 
 				if (rand_ratio(rand_eng) < random_ratio_uint) { //random access
-					cur_block = rand_block(rand_eng);
+					cur_block = (*rand_block)(rand_eng);
 					if (lseek(filed, cur_block * buffer_size, SEEK_SET) == -1)
 						throw std::runtime_error(fmt::format("seek error ({})", strerror(errno)));
 				} else {                                        //sequential access
@@ -147,21 +175,21 @@ class Worker {
 				if (rand_ratio(rand_eng) < write_ratio_uint) { //write
 					if (write(filed, buffer, buffer_size) == -1)
 						throw std::runtime_error(fmt::format("write error ({})", strerror(errno)));
-					blocks_write++;
+					stats.KB_write += cur_block_size;
 
 					if (!args->direct_io && args->flush_blocks) {
 						if (++flush_count >= args->flush_blocks) {
-							fsync(filed);
+							fdatasync(filed);
 							flush_count = 0;
 						}
 					}
 				} else {                                       //read
 					if (read(filed, buffer, buffer_size) == -1)
 						throw std::runtime_error(fmt::format("read error ({})", strerror(errno)));
-					blocks_read++;
+					stats.KB_read += cur_block_size;
 				}
 
-				blocks++;
+				stats.blocks++;
 
 				if (args->sleep_interval > 0) {
 					if (++sleep_count > args->sleep_count) {
@@ -332,10 +360,7 @@ class Program {
 			system_clock::time_point time_elapsed = time_init;
 			system_clock::time_point time_aux;
 
-			uint64_t elapsed_blocks       = 0;
-			uint64_t elapsed_blocks_read  = 0;
-			uint64_t elapsed_blocks_write = 0;
-
+			Stats    elapsed_stats;
 			uint64_t elapsed_ms;
 			uint64_t stats_interval_ms = args->stats_interval * 1000;
 
@@ -373,20 +398,22 @@ class Program {
 				time_aux = system_clock::now();
 				elapsed_ms = duration_cast<milliseconds>(time_aux - time_elapsed).count();
 				if (elapsed_ms > stats_interval_ms) {
-					uint64_t aux_blocks       = worker->blocks;
-					uint64_t aux_blocks_read  = worker->blocks_read;
-					uint64_t aux_blocks_write = worker->blocks_write;
-					std::string aux_str = fmt::format("\"time\":\"{}\", \"total_MiB/s\":\"{}\", \"read_MiB/s\":\"{}\", \"write_MiB/s\":\"{}\"",
-							duration_cast<seconds>(time_aux - time_init).count(),
-							((aux_blocks       - elapsed_blocks)       * args->block_size * 1000)/(elapsed_ms * 1024),
-							((aux_blocks_read  - elapsed_blocks_read)  * args->block_size * 1000)/(elapsed_ms * 1024),
-							((aux_blocks_write - elapsed_blocks_write) * args->block_size * 1000)/(elapsed_ms * 1024)
-							);
-					spdlog::info("STATS: {}{}, {}{}", "{", aux_str, args->strStat(), "}");
+					auto cur_stats = worker->stats;
+					if (! args->changed) {
+						std::string aux_args = args->strStat();
+						auto delta = cur_stats - elapsed_stats;
+						std::string aux_str =
+							fmt::format("\"time\":\"{}\"", duration_cast<seconds>(time_aux - time_init).count()) +
+							fmt::format(", \"total_MiB/s\":\"{:.1f}\"", static_cast<double>((delta.KB_read + delta.KB_write) * 1000)/static_cast<double>(elapsed_ms * 1024) ) +
+							fmt::format(", \"read_MiB/s\":\"{:.1f}\"",  static_cast<double>(delta.KB_read  * 1000)/static_cast<double>(elapsed_ms * 1024) ) +
+							fmt::format(", \"write_MiB/s\":\"{:.1f}\"", static_cast<double>(delta.KB_write * 1000)/static_cast<double>(elapsed_ms * 1024) ) +
+							fmt::format(", \"blocks/s\":\"{:.1f}\"",    static_cast<double>(delta.blocks   * 1000)/static_cast<double>(elapsed_ms) );
+						spdlog::info("STATS: {{{}, {}}}", aux_str, aux_args);
+					} else { // args changed. skip stats for one period
+						args->changed = false;
+					}
 					time_elapsed         = time_aux;
-					elapsed_blocks       = aux_blocks;
-					elapsed_blocks_read  = aux_blocks_read;
-					elapsed_blocks_write = aux_blocks_write;
+					elapsed_stats        = cur_stats;
 				}
 			}
 
