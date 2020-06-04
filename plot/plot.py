@@ -11,16 +11,55 @@ import collections
 import re
 import json
 import matplotlib.pyplot as plt
-#import numpy
+import sqlite3
+import numpy
 
 class Options:
 	format = 'png'
 	save = False
 
+class DBClass:
+	conn = sqlite3.connect(':memory:')
+	file_id = 0
+
+	def __init__(self):
+		cur = self.conn.cursor()
+		cur.execute('''CREATE TABLE files (
+			  file_id INT PRIMARY KEY, name TEXT,
+			  number INT)''')
+		cur.execute('''CREATE TABLE data (
+			file_id INT, number INT, time INT,
+			block_size INT, random_ratio DOUBLE, write_ratio DOUBLE,
+			mbps DOUBLE, mbps_read DOUBLE, mbps_write DOUBLE, blocks_ps DOUBLE,
+			PRIMARY KEY(file_id, number, time))''')
+		self.conn.commit()
+
+	def getFileId(self):
+		ret = self.file_id
+		self.file_id += 1
+		return ret
+
+	def getCursor(self):
+		return self.conn.cursor()
+
+	def query(self, sql, printsql=False):
+		if printsql:
+			print('SQL: ' + sql)
+		return self.conn.cursor().execute(sql)
+
+	def commit(self):
+		self.conn.commit()
+
+DB = DBClass()
+
 class File:
 	_filename = None
+	_stats_interval = None
 	_data = None
 	_dbbench = None
+
+	_file_id = None
+	_num_at = None
 
 	def __init__(self, filename):
 		self._filename = filename
@@ -28,10 +67,15 @@ class File:
 		self._dbbench = list()
 		self.getDBBenchParams()
 		self.loadData()
+		self.load_at3()
 
 	def loadData(self):
 		with open(self._filename) as file:
 			for line in file.readlines():
+				if self._stats_interval is None:
+					parsed_line = re.findall(r'Args\.stats_interval: *([0-9]+)', line)
+					if len(parsed_line) > 0:
+						self._stats_interval = parsed_line[0][0]
 				parsed_line = re.findall(r'Task ([^,]+), STATS: (.+)', line)
 				if len(parsed_line) > 0:
 					task = parsed_line[0][0]
@@ -78,6 +122,33 @@ class File:
 					if len(parsed_line) > 0:
 						self._dbbench[cur_db][parsed_line[0][0]] = tryConvert(parsed_line[0][1], int, float)
 						continue
+
+	def load_at3(self):
+		file_id = DB.getFileId()
+		self._file_id = file_id
+		num_at = 0
+		for i in range(0,1024):
+			if self._data.get('access_time3[{}]'.format(i)) is None:
+				break
+			num_at += 1
+		self._num_at = num_at
+		DB.query("insert into files values ({}, '{}', {})".format(file_id, self._filename, num_at))
+		for i in range(0, num_at):
+			for j in self._data['access_time3[{}]'.format(i)]:
+				values = collections.OrderedDict()
+				values['file_id']      = file_id
+				values['number']       = i
+				values['time']         = j['time']
+				values['block_size']   = j['block_size']
+				values['random_ratio'] = j['random_ratio']
+				values['write_ratio']  = j['write_ratio']
+				values['mbps']         = j['total_MiB/s']
+				values['mbps_read']    = j['read_MiB/s']
+				values['mbps_write']   = j['write_MiB/s']
+				values['blocks_ps']    = j['blocks/s']
+				query = "insert into data (" + ', '.join(values.keys()) + ") values ({" + '}, {'.join(values.keys()) + "})"
+				DB.query(query.format(**values))
+		DB.commit()
 
 	def graph_db(self):
 		if len(self._dbbench) == 0:
@@ -224,20 +295,16 @@ class File:
 		plt.show()
 
 	def graph_at3(self):
-		num_at = 0
-		for i in range(0,1024):
-			if self._data.get('access_time3[{}]'.format(i)) is None:
-				break
-			num_at += 1
-		if num_at == 0:
+		if self._num_at == 0 or self._num_at is None:
 			return
 
-		fig, axs = plt.subplots(num_at, 1)
-		fig.set_figheight(6)
+		fig, axs = plt.subplots(self._num_at, 1)
+		a = 0.99
+		fig.set_figheight(a * self._num_at + (6 - 6*a))
 		fig.set_figwidth(8)
 
-		for i in range(0,num_at):
-			ax = axs[i] if num_at > 1 else axs
+		for i in range(0,self._num_at):
+			ax = axs[i] if self._num_at > 1 else axs
 			ax.grid()
 			cur_at = self._data['access_time3[{}]'.format(i)]
 			X = [j['time']/60.0 for j in cur_at]
@@ -253,11 +320,11 @@ class File:
 
 			if i == 0:
 				ax_set['title'] = "access_time3"
-			if i == num_at -1:
+			if i == self._num_at -1:
 				ax_set['xlabel'] = "time (min)"
 				ax.legend(bbox_to_anchor=(0., -1.2, 1., .102), loc='lower left',
 					ncol=3, mode="expand", borderaxespad=0.)
-			if i>=0 and i < num_at -1:
+			if i>=0 and i < self._num_at -1:
 				ax.xaxis.set_ticklabels([])
 
 			ax.set(**ax_set)
@@ -270,6 +337,54 @@ class File:
 			save_name = '{}_graph_at3.{}'.format(self._filename, Options.format)
 			fig.savefig(save_name)
 		plt.show()
+
+	def graph_at3_write_ratio(self):
+		if self._num_at == 0 or self._num_at is None:
+			return
+		colors = plt.get_cmap('tab10').colors
+
+		block_sizes = DB.query("select distinct block_size from data where file_id = {} order by block_size".format(self._file_id)).fetchall()
+		random_ratios = DB.query("select distinct random_ratio from data where file_id = {} order by random_ratio".format(self._file_id)).fetchall()
+
+		for i_bs in block_sizes:
+			bs = i_bs[0]
+			ci = 0
+			fig, ax = plt.subplots()
+			fig.set_figheight(5)
+			fig.set_figwidth(8)
+			ax.grid()
+			for i_rr in random_ratios:
+				rr = i_rr[0]
+				sql1 = '''SELECT write_ratio, AVG(mbps) * {}
+					FROM data
+					WHERE file_id = {} AND block_size = {} AND random_ratio = {}
+					GROUP BY write_ratio ORDER BY write_ratio'''
+				q1 = DB.query(sql1.format(self._num_at, self._file_id, bs, rr))
+				sql2 = '''SELECT write_ratio, AVG(mbps)
+					FROM data
+					WHERE file_id = {} AND block_size = {} AND random_ratio = {} AND number = 0
+					GROUP BY write_ratio ORDER BY write_ratio'''
+				q2 = DB.query(sql2.format(self._file_id, bs, rr))
+
+				A = numpy.array(q1.fetchall()).T
+				B = numpy.array(q2.fetchall()).T
+
+				ax.plot(A[0], A[1], '-', color=colors[ci], lw=1, label='rand {}%, total'.format(int(rr*100)))
+				ax.plot(B[0], B[1], '.-', color=colors[ci], lw=1, label='rand {}%, thread0'.format(int(rr*100)))
+				ci += 1
+
+			ax.set(title='jobs={}, bs={}'.format(self._num_at, bs),
+				xlabel='writes/reads', ylabel='MiB/s')
+
+			chartBox = ax.get_position()
+			ax.set_position([chartBox.x0, chartBox.y0, chartBox.width*0.65, chartBox.height])
+			ax.legend(loc='upper center', bbox_to_anchor=(1.25, 0.9), title='threads', ncol=1, frameon=True)
+			#ax.legend(loc='best', ncol=1, frameon=True)
+
+			if Options.save:
+				save_name = '{}-bs{}.{}'.format(self._filename.replace('.out', ''), bs, Options.format)
+				fig.savefig(save_name)
+			plt.show()
 
 	def graph_all(self):
 		self.graph_db()
@@ -308,11 +423,12 @@ def decimalSuffix(value):
 
 Options.save = True
 
-files = ['out1ya']
+files = ['at_files-6.out']
 for i in files:
-	f = File('data3/{}'.format(i))
+	f = File('data_at/{}'.format(i))
 	Options.format = 'png'
 	f.graph_all()
-	Options.format = 'pdf'
-	f.graph_all()
-	del f
+	f.graph_at3_write_ratio()
+	#Options.format = 'pdf'
+	#f.graph_all()
+	#del f
