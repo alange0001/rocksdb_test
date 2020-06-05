@@ -6,6 +6,7 @@ Created on Sat May 16 08:54:54 2020
 @author: Adriano Lange <alange0001@gmail.com>
 """
 
+import os
 import math
 import collections
 import re
@@ -67,7 +68,6 @@ class File:
 		self._dbbench = list()
 		self.getDBBenchParams()
 		self.loadData()
-		self.load_at3()
 
 	def loadData(self):
 		with open(self._filename) as file:
@@ -75,7 +75,11 @@ class File:
 				if self._stats_interval is None:
 					parsed_line = re.findall(r'Args\.stats_interval: *([0-9]+)', line)
 					if len(parsed_line) > 0:
-						self._stats_interval = parsed_line[0][0]
+						self._stats_interval = tryConvert(parsed_line[0][0], int, float)
+				if self._num_at is None:
+					parsed_line = re.findall(r'Args\.num_at: *([0-9]+)', line)
+					if len(parsed_line) > 0:
+						self._num_at = tryConvert(parsed_line[0][0], int, float)
 				parsed_line = re.findall(r'Task ([^,]+), STATS: (.+)', line)
 				if len(parsed_line) > 0:
 					task = parsed_line[0][0]
@@ -126,12 +130,8 @@ class File:
 	def load_at3(self):
 		file_id = DB.getFileId()
 		self._file_id = file_id
-		num_at = 0
-		for i in range(0,1024):
-			if self._data.get('access_time3[{}]'.format(i)) is None:
-				break
-			num_at += 1
-		self._num_at = num_at
+		num_at = self._num_at
+
 		DB.query("insert into files values ({}, '{}', {})".format(file_id, self._filename, num_at))
 		for i in range(0, num_at):
 			for j in self._data['access_time3[{}]'.format(i)]:
@@ -145,7 +145,7 @@ class File:
 				values['mbps']         = j['total_MiB/s']
 				values['mbps_read']    = j['read_MiB/s']
 				values['mbps_write']   = j['write_MiB/s']
-				values['blocks_ps']    = j['blocks/s']
+				values['blocks_ps']    = j['blocks/s'] if j.get('blocks/s') is not None else 'NULL'
 				query = "insert into data (" + ', '.join(values.keys()) + ") values ({" + '}, {'.join(values.keys()) + "})"
 				DB.query(query.format(**values))
 		DB.commit()
@@ -179,7 +179,7 @@ class File:
 		ax.legend(loc='best', ncol=1, frameon=True)
 
 		if Options.save:
-			save_name = '{}_graph_db.{}'.format(self._filename, Options.format)
+			save_name = '{}_graph_db.{}'.format(self._filename.replace('.out', ''), Options.format)
 			fig.savefig(save_name)
 		plt.show()
 
@@ -209,7 +209,7 @@ class File:
 		ax.legend(loc='best', ncol=1, frameon=True)
 
 		if Options.save:
-			save_name = '{}_graph_ycsb.{}'.format(self._filename, Options.format)
+			save_name = '{}_graph_ycsb.{}'.format(self._filename.replace('.out', ''), Options.format)
 			fig.savefig(save_name)
 		plt.show()
 
@@ -252,7 +252,7 @@ class File:
 		fig.tight_layout()
 
 		if Options.save:
-			save_name = '{}_graph_io.{}'.format(self._filename, Options.format)
+			save_name = '{}_graph_io.{}'.format(self._filename.replace('.out', ''), Options.format)
 			fig.savefig(save_name)
 		plt.show()
 
@@ -290,7 +290,7 @@ class File:
 		axs[0].legend(loc='upper right', ncol=2, frameon=True)
 
 		if Options.save:
-			save_name = '{}_graph_cpu.{}'.format(self._filename, Options.format)
+			save_name = '{}_graph_cpu.{}'.format(self._filename.replace('.out', ''), Options.format)
 			fig.savefig(save_name)
 		plt.show()
 
@@ -299,7 +299,7 @@ class File:
 			return
 
 		fig, axs = plt.subplots(self._num_at, 1)
-		a = 0.99
+		a = 0.97
 		fig.set_figheight(a * self._num_at + (6 - 6*a))
 		fig.set_figwidth(8)
 
@@ -328,19 +328,23 @@ class File:
 				ax.xaxis.set_ticklabels([])
 
 			ax.set(**ax_set)
+			#ax.set_yscale('log')
 
 			#chartBox = ax.get_position()
 			#ax.set_position([chartBox.x0, chartBox.y0, chartBox.width*0.75, chartBox.height])
 			#ax.legend(loc='upper center', bbox_to_anchor=(1.25, 1.0), ncol=2, frameon=True)
 
 		if Options.save:
-			save_name = '{}_graph_at3.{}'.format(self._filename, Options.format)
+			save_name = '{}_graph_at3.{}'.format(self._filename.replace('.out', ''), Options.format)
 			fig.savefig(save_name)
 		plt.show()
 
 	def graph_at3_write_ratio(self):
 		if self._num_at == 0 or self._num_at is None:
 			return
+		if self._file_id is None:
+			self.load_at3()
+
 		colors = plt.get_cmap('tab10').colors
 
 		block_sizes = DB.query("select distinct block_size from data where file_id = {} order by block_size".format(self._file_id)).fetchall()
@@ -370,7 +374,7 @@ class File:
 				B = numpy.array(q2.fetchall()).T
 
 				ax.plot(A[0], A[1], '-', color=colors[ci], lw=1, label='rand {}%, total'.format(int(rr*100)))
-				ax.plot(B[0], B[1], '.-', color=colors[ci], lw=1, label='rand {}%, thread0'.format(int(rr*100)))
+				ax.plot(B[0], B[1], '.-', color=colors[ci], lw=1, label='rand {}%, job0'.format(int(rr*100)))
 				ci += 1
 
 			ax.set(title='jobs={}, bs={}'.format(self._num_at, bs),
@@ -378,11 +382,11 @@ class File:
 
 			chartBox = ax.get_position()
 			ax.set_position([chartBox.x0, chartBox.y0, chartBox.width*0.65, chartBox.height])
-			ax.legend(loc='upper center', bbox_to_anchor=(1.25, 0.9), title='threads', ncol=1, frameon=True)
+			ax.legend(loc='upper center', bbox_to_anchor=(1.25, 0.9), ncol=1, frameon=True)
 			#ax.legend(loc='best', ncol=1, frameon=True)
 
 			if Options.save:
-				save_name = '{}-bs{}.{}'.format(self._filename.replace('.out', ''), bs, Options.format)
+				save_name = '{}-at3_bs{}.{}'.format(self._filename.replace('.out', ''), bs, Options.format)
 				fig.savefig(save_name)
 			plt.show()
 
@@ -421,14 +425,26 @@ def decimalSuffix(value):
 	else:
 		raise Exception("invalid number")
 
+
+##############################################################################
 Options.save = True
 
-files = ['at_files-6.out']
+def getFiles(dirname):
+	files = []
+	os.chdir(dirname)
+	for fn in os.listdir():
+		if re.search(r'\.out$', fn) is not None:
+			files.append(fn)
+	return files
+
+files = getFiles('exp_at3.direct_io')
+
 for i in files:
-	f = File('data_at/{}'.format(i))
+	f = File('{}'.format(i))
 	Options.format = 'png'
 	f.graph_all()
-	f.graph_at3_write_ratio()
-	#Options.format = 'pdf'
-	#f.graph_all()
-	#del f
+	#f.graph_at3_write_ratio()
+	Options.format = 'pdf'
+	f.graph_all()
+	#f.graph_at3_write_ratio()
+	del f
