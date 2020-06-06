@@ -110,7 +110,7 @@ function run_ycsb() {
 	num_at=6
 	at_files="$(for ((i=0; i<$num_at; i++)); do echo "$DIR_AT3/$i"; done |paste -sd';')"
 	at_script="$(for ((i=0; i<$num_at; i++)); do t=$((20 + i)); echo -n ${t}m:wait=false; for j in 0.1 0.2 0.3 0.5 0.7 1; do t=$((t + 6)); echo -n ,${t}m:write_ratio=$j; done; echo; done |paste -s -d';')"
-	at_block_size=512
+	at_block_size=4
 	
 	rocksdb_test \
 		--log_level="info" \
@@ -122,7 +122,7 @@ function run_ycsb() {
 		--rocksdb_config_file="$DIR_BASE/files/rocksdb.db_bench.options" \
 		--ydb_create="false" \
 		--ydb_path="$DIR_DB_YCSB" \
-		--ydb_workload="$DIR_YCSB/workloads/workloadb" \
+		--ydb_workload="$DIR_YCSB/workloads/workloada" \
 		--ydb_num_keys="50000000" \
 		--ydb_threads="$ydb_threads" \
 		--num_at="$num_at" \

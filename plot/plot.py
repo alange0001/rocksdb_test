@@ -441,10 +441,8 @@ files = getFiles('exp_at3.direct_io')
 
 for i in files:
 	f = File('{}'.format(i))
-	Options.format = 'png'
-	f.graph_all()
-	#f.graph_at3_write_ratio()
-	Options.format = 'pdf'
-	f.graph_all()
-	#f.graph_at3_write_ratio()
+	for imgf in ['png', 'pdf']:
+		Options.format = imgf
+		f.graph_all()
+		#f.graph_at3_write_ratio()
 	del f
