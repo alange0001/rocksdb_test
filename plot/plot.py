@@ -225,15 +225,15 @@ class File:
 
 		X = [i['time']/60.0 for i in self._data['iostat']]
 		Y = [i['rMB/s']     for i in self._data['iostat']]
-		axs[0].plot(X, Y, '-', lw=1, label='read')
+		axs[0].plot(X, Y, '-', lw=1, label='read', color='green')
 		Y = [i['wMB/s']     for i in self._data['iostat']]
-		axs[0].plot(X, Y, '-', lw=1, label='write')
+		axs[0].plot(X, Y, '-', lw=1, label='write', color='orange')
 		axs[0].set(title="iostat", ylabel="MB/s")
 
 		Y = [i['r/s']     for i in self._data['iostat']]
-		axs[1].plot(X, Y, '-', lw=1, label='read')
+		axs[1].plot(X, Y, '-', lw=1, label='read', color='green')
 		Y = [i['w/s']     for i in self._data['iostat']]
-		axs[1].plot(X, Y, '-', lw=1, label='write')
+		axs[1].plot(X, Y, '-', lw=1, label='write', color='orange')
 		axs[1].set(ylabel="IO/s")
 
 		Y = [i['%util']     for i in self._data['iostat']]
@@ -308,12 +308,12 @@ class File:
 			ax.grid()
 			cur_at = self._data['access_time3[{}]'.format(i)]
 			X = [j['time']/60.0 for j in cur_at]
-			Y = [j['total_MiB/s'] for j in cur_at]
-			ax.plot(X, Y, '-', lw=1, label='total')
-			Y = [j['read_MiB/s'] for j in cur_at]
-			ax.plot(X, Y, '-.', lw=1, label='read')
-			Y = [j['write_MiB/s'] for j in cur_at]
-			ax.plot(X, Y, '-.', lw=1, label='write')
+			Y = [j['total_MiB/s'] if j['wait'] == 'false' else None for j in cur_at]
+			ax.plot(X, Y, '-', lw=1, label='total', color='blue')
+			Y = [j['read_MiB/s'] if j['wait'] == 'false' else None for j in cur_at]
+			ax.plot(X, Y, '-', lw=1, label='read', color='green')
+			Y = [j['write_MiB/s'] if j['wait'] == 'false' else None for j in cur_at]
+			ax.plot(X, Y, '-', lw=1, label='write', color='orange')
 
 			ax_set = dict()
 			ax_set['ylabel'] ="MiB/s"
@@ -327,6 +327,8 @@ class File:
 			if i>=0 and i < self._num_at -1:
 				ax.xaxis.set_ticklabels([])
 
+			ax.set_xlim([X[0],X[-1]])
+
 			ax.set(**ax_set)
 			#ax.set_yscale('log')
 
@@ -336,6 +338,52 @@ class File:
 
 		if Options.save:
 			save_name = '{}_graph_at3.{}'.format(self._filename.replace('.out', ''), Options.format)
+			fig.savefig(save_name)
+		plt.show()
+
+	def graph_at3_script(self):
+		if self._num_at == 0 or self._num_at is None:
+			return
+
+		fig, axs = plt.subplots(self._num_at, 1)
+		a = 0.97
+		fig.set_figheight(a * self._num_at + (6 - 6*a))
+		fig.set_figwidth(8)
+
+		for i in range(0,self._num_at):
+			ax = axs[i] if self._num_at > 1 else axs
+			ax.grid()
+			cur_at = self._data['access_time3[{}]'.format(i)]
+			X = [j['time']/60.0 for j in cur_at]
+			Y = [j['write_ratio']*100 if j['wait'] == 'false' else None for j in cur_at]
+			ax.plot(X, Y, '-', lw=1.5, label='% write', color='orange')
+			Y = [j['random_ratio']*100 if j['wait'] == 'false' else None for j in cur_at]
+			ax.plot(X, Y, '-.', lw=1.5, label='% random', color='blue')
+
+			ax_set = dict()
+			ax_set['ylabel'] ="%"
+
+			if i == 0:
+				ax_set['title'] = "access_time3: write and random percent"
+			if i == self._num_at -1:
+				ax_set['xlabel'] = "time (min)"
+				ax.legend(bbox_to_anchor=(0., -1.2, 1., .102), loc='lower left',
+					ncol=2, mode="expand", borderaxespad=0.)
+			if i>=0 and i < self._num_at -1:
+				ax.xaxis.set_ticklabels([])
+
+			ax.set_xlim([X[0],X[-1]])
+			ax.set_ylim([-5,105])
+
+			ax.set(**ax_set)
+			#ax.set_yscale('log')
+
+			#chartBox = ax.get_position()
+			#ax.set_position([chartBox.x0, chartBox.y0, chartBox.width*0.75, chartBox.height])
+			#ax.legend(loc='upper center', bbox_to_anchor=(1.25, 1.0), ncol=2, frameon=True)
+
+		if Options.save:
+			save_name = '{}_graph_at3_script.{}'.format(self._filename.replace('.out', ''), Options.format)
 			fig.savefig(save_name)
 		plt.show()
 
@@ -359,12 +407,12 @@ class File:
 			ax.grid()
 			for i_rr in random_ratios:
 				rr = i_rr[0]
-				sql1 = '''SELECT write_ratio, AVG(mbps) * {}
+				sql1 = '''SELECT write_ratio*100, AVG(mbps) * {}
 					FROM data
 					WHERE file_id = {} AND block_size = {} AND random_ratio = {}
 					GROUP BY write_ratio ORDER BY write_ratio'''
 				q1 = DB.query(sql1.format(self._num_at, self._file_id, bs, rr))
-				sql2 = '''SELECT write_ratio, AVG(mbps)
+				sql2 = '''SELECT write_ratio*100, AVG(mbps)
 					FROM data
 					WHERE file_id = {} AND block_size = {} AND random_ratio = {} AND number = 0
 					GROUP BY write_ratio ORDER BY write_ratio'''
@@ -378,7 +426,7 @@ class File:
 				ci += 1
 
 			ax.set(title='jobs={}, bs={}'.format(self._num_at, bs),
-				xlabel='writes/reads', ylabel='MiB/s')
+				xlabel='(writes/reads)*100', ylabel='MiB/s')
 
 			chartBox = ax.get_position()
 			ax.set_position([chartBox.x0, chartBox.y0, chartBox.width*0.65, chartBox.height])
@@ -396,6 +444,7 @@ class File:
 		self.graph_io()
 		self.graph_cpu()
 		self.graph_at3()
+		self.graph_at3_script()
 
 def coalesce(*values):
 	for v in values:
@@ -437,12 +486,13 @@ def getFiles(dirname):
 			files.append(fn)
 	return files
 
-files = getFiles('exp_at3.direct_io')
+files = getFiles('exp_at3')
+#files = ['exp_db/ycsb_wb,at3_bs4_cache.out']
 
 for i in files:
 	f = File('{}'.format(i))
 	for imgf in ['png', 'pdf']:
 		Options.format = imgf
-		f.graph_all()
-		#f.graph_at3_write_ratio()
+		#f.graph_all()
+		f.graph_at3_write_ratio()
 	del f
