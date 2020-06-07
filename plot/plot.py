@@ -171,6 +171,7 @@ class File:
 				Y = [ sine_a * math.sin(sine_b * x + sine_c) + sine_d for x in X]
 				ax.plot(X, Y, '-', lw=1, label='db {}, expect'.format(i))
 
+		ax.set_xlim([-0.25,X[-1]])
 		ax.set(title="db_bench throughput", xlabel="time (min)", ylabel="tx/s")
 
 		#chartBox = ax.get_position()
@@ -180,7 +181,7 @@ class File:
 
 		if Options.save:
 			save_name = '{}_graph_db.{}'.format(self._filename.replace('.out', ''), Options.format)
-			fig.savefig(save_name)
+			fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
 
 	def graph_ycsb(self):
@@ -201,6 +202,7 @@ class File:
 			Y = [i['ops_per_s'] for i in self._data['ycsb[{}]'.format(i)]]
 			ax.plot(X, Y, '-', lw=1, label='db {}'.format(i))
 
+		ax.set_xlim([-0.25,X[-1]])
 		ax.set(title="YCSB throughput", xlabel="time (min)", ylabel="tx/s")
 
 		#chartBox = ax.get_position()
@@ -210,7 +212,7 @@ class File:
 
 		if Options.save:
 			save_name = '{}_graph_ycsb.{}'.format(self._filename.replace('.out', ''), Options.format)
-			fig.savefig(save_name)
+			fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
 
 	def graph_io(self):
@@ -245,6 +247,9 @@ class File:
 		#ax.set_position([chartBox.x0, chartBox.y0, chartBox.width*0.65, chartBox.height])
 		#ax.legend(loc='upper center', bbox_to_anchor=(1.35, 0.9), title='threads', ncol=1, frameon=True)
 
+		axs[0].set_xlim([-0.25,X[-1]])
+		axs[1].set_xlim([-0.25,X[-1]])
+		axs[2].set_xlim([-0.25,X[-1]])
 		axs[0].legend(loc='upper right', ncol=2, frameon=True)
 		axs[1].legend(loc='upper right', ncol=2, frameon=True)
 		axs[2].legend(loc='upper right', ncol=1, frameon=True)
@@ -253,7 +258,7 @@ class File:
 
 		if Options.save:
 			save_name = '{}_graph_io.{}'.format(self._filename.replace('.out', ''), Options.format)
-			fig.savefig(save_name)
+			fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
 
 	def graph_cpu(self):
@@ -278,6 +283,8 @@ class File:
 			Y = [j['cpu[{}].active'.format(i)] for j in self._data['systemstats']]
 			axs[1].plot(X, Y, '-', lw=1, label='cpu{}'.format(i))
 
+		axs[0].set_xlim([-0.25,X[-1]])
+		axs[1].set_xlim([-0.25,X[-1]])
 		axs[0].set_ylim([-5, None])
 		axs[1].set_ylim([-5, 105])
 		axs[0].set(title="cpu", ylabel="all CPUs (%)")
@@ -291,7 +298,7 @@ class File:
 
 		if Options.save:
 			save_name = '{}_graph_cpu.{}'.format(self._filename.replace('.out', ''), Options.format)
-			fig.savefig(save_name)
+			fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
 
 	def graph_at3(self):
@@ -299,8 +306,7 @@ class File:
 			return
 
 		fig, axs = plt.subplots(self._num_at, 1)
-		a = 0.97
-		fig.set_figheight(a * self._num_at + (6 - 6*a))
+		fig.set_figheight(5)
 		fig.set_figwidth(8)
 
 		for i in range(0,self._num_at):
@@ -319,15 +325,15 @@ class File:
 			ax_set['ylabel'] ="MiB/s"
 
 			if i == 0:
-				ax_set['title'] = "access_time3"
+				ax_set['title'] = "access_time3: performance"
 			if i == self._num_at -1:
 				ax_set['xlabel'] = "time (min)"
-				ax.legend(bbox_to_anchor=(0., -1.2, 1., .102), loc='lower left',
+				ax.legend(bbox_to_anchor=(0., -.8, 1., .102), loc='lower left',
 					ncol=3, mode="expand", borderaxespad=0.)
 			if i>=0 and i < self._num_at -1:
 				ax.xaxis.set_ticklabels([])
 
-			ax.set_xlim([X[0],X[-1]])
+			ax.set_xlim([-0.25,X[-1]])
 
 			ax.set(**ax_set)
 			#ax.set_yscale('log')
@@ -336,9 +342,11 @@ class File:
 			#ax.set_position([chartBox.x0, chartBox.y0, chartBox.width*0.75, chartBox.height])
 			#ax.legend(loc='upper center', bbox_to_anchor=(1.25, 1.0), ncol=2, frameon=True)
 
+		plt.subplots_adjust(hspace=0.1)
+
 		if Options.save:
 			save_name = '{}_graph_at3.{}'.format(self._filename.replace('.out', ''), Options.format)
-			fig.savefig(save_name)
+			fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
 
 	def graph_at3_script(self):
@@ -346,8 +354,7 @@ class File:
 			return
 
 		fig, axs = plt.subplots(self._num_at, 1)
-		a = 0.97
-		fig.set_figheight(a * self._num_at + (6 - 6*a))
+		fig.set_figheight(5)
 		fig.set_figwidth(8)
 
 		for i in range(0,self._num_at):
@@ -364,16 +371,16 @@ class File:
 			ax_set['ylabel'] ="%"
 
 			if i == 0:
-				ax_set['title'] = "access_time3: write and random percent"
+				ax_set['title'] = "access_time3: access pattern"
 			if i == self._num_at -1:
 				ax_set['xlabel'] = "time (min)"
-				ax.legend(bbox_to_anchor=(0., -1.2, 1., .102), loc='lower left',
+				ax.legend(bbox_to_anchor=(0., -.8, 1., .102), loc='lower left',
 					ncol=2, mode="expand", borderaxespad=0.)
 			if i>=0 and i < self._num_at -1:
 				ax.xaxis.set_ticklabels([])
 
-			ax.set_xlim([X[0],X[-1]])
-			ax.set_ylim([-5,105])
+			ax.set_xlim([-0.25,X[-1]])
+			ax.set_ylim([-5,108])
 
 			ax.set(**ax_set)
 			#ax.set_yscale('log')
@@ -382,9 +389,11 @@ class File:
 			#ax.set_position([chartBox.x0, chartBox.y0, chartBox.width*0.75, chartBox.height])
 			#ax.legend(loc='upper center', bbox_to_anchor=(1.25, 1.0), ncol=2, frameon=True)
 
+		plt.subplots_adjust(hspace=0.1)
+
 		if Options.save:
 			save_name = '{}_graph_at3_script.{}'.format(self._filename.replace('.out', ''), Options.format)
-			fig.savefig(save_name)
+			fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
 
 	def graph_at3_write_ratio(self):
@@ -435,7 +444,7 @@ class File:
 
 			if Options.save:
 				save_name = '{}-at3_bs{}.{}'.format(self._filename.replace('.out', ''), bs, Options.format)
-				fig.savefig(save_name)
+				fig.savefig(save_name, bbox_inches="tight")
 			plt.show()
 
 	def graph_all(self):
@@ -486,13 +495,13 @@ def getFiles(dirname):
 			files.append(fn)
 	return files
 
-files = getFiles('exp_at3')
+files = getFiles('exp_at3_rww')
 #files = ['exp_db/ycsb_wb,at3_bs4_cache.out']
 
 for i in files:
 	f = File('{}'.format(i))
 	for imgf in ['png', 'pdf']:
 		Options.format = imgf
-		#f.graph_all()
-		f.graph_at3_write_ratio()
+		f.graph_all()
+		#f.graph_at3_write_ratio()
 	del f

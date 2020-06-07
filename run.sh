@@ -76,21 +76,25 @@ function run_at3_rww() {
 	n=4
 	t=1
 	
-	at_script="${t}:wait=false"
-	t=$((t + 30))
+	ats[0]="1:wait=false"
 	for ((i=1; i<$n; i++)); do
-		at_script="$at_script;${t}:wait=false"
-		for wr in 0 0.05 0.1 0.2 0.3 0.5 0.6 0.7 0.8 0.9 1; do
-			at_script="$at_script,${t}:write_ratio=${wr}"
-			t=$((t + 20))
+		t=$((t + 30))
+		ats[$i]="${t}:wait=false"
+	done
+	for ((i=1; i<$n; i++)); do
+		for wr in 0 0.1 0.2 0.3 0.5 0.6 0.7 0.8 0.9 1; do
+			t=$((t + 30))
+			ats[$i]="${ats[$i]},${t}:write_ratio=${wr}"
 		done
 	done
-	at_script="$at_script,$((t + 20)):stop"
+	ats[0]="${ats[0]},$((t + 30)):stop"
+	at_script="$(echo ${ats[*]} |tr " " ";")"
 	
 	at_files="$(for ((i=0; i<$n; i++)); do echo "$DIR_AT3/$i"; done |paste -sd';')"
 	echo $at_files
 	echo $at_script
-	for bs in 4 8 128 256 512; do
+	#return
+	for bs in 4 512 8 128 256; do
 		rocksdb_test \
 			--log_level="info" \
 			--duration="$((t / 60 + 10))" \
@@ -99,7 +103,7 @@ function run_at3_rww() {
 			--io_device="nvme0n1" \
 			--num_at="$n" \
 			--at_file="$at_files" \
-			--at_params="--wait --direct_io --block_size=${bs}" \
+			--at_params="--wait --flush_blocks=0 --block_size=${bs}" \
 			--at_script="$at_script" >"$output_dir/at3_rww_files${n}_bs${bs}.out"
 	done
 }
@@ -128,7 +132,7 @@ function run_ycsb() {
 		--num_at="$num_at" \
 		--at_file="$at_files" \
 		--at_block_size="$at_block_size" \
-		--at_params="--direct_io --random_ratio=0.5 --wait" \
+		--at_params="--flush_blocks=0 --random_ratio=0.5 --wait" \
 		--at_script="$at_script"
 }
 
@@ -138,7 +142,7 @@ function run_db_bench() {
 	num_at=6
 	at_files="$(for ((i=0; i<$num_at; i++)); do echo "$DIR_AT3/$i"; done |paste -sd';')"
 	at_script="$(for ((i=0; i<$num_at; i++)); do t=$((20 + i)); echo -n ${t}m:wait=false; for j in 0.1 0.2 0.3 0.5 0.7 1; do t=$((t + 6)); echo -n ,${t}m:write_ratio=$j; done; echo; done |paste -s -d';')"
-	at_block_size=512
+	at_block_size=4
 	
 	rocksdb_test \
 		--log_level="info" \
@@ -156,7 +160,7 @@ function run_db_bench() {
 		--num_at="$num_at" \
 		--at_file="$at_files" \
 		--at_block_size="$at_block_size" \
-		--at_params="--direct_io --random_ratio=0.5 --wait" \
+		--at_params="--flush_blocks=0 --random_ratio=0.5 --wait" \
 		--at_script="$at_script"
 }
 
