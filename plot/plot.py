@@ -18,6 +18,7 @@ import numpy
 class Options:
 	format = 'png'
 	save = False
+	savePlotData = False
 
 class DBClass:
 	conn = sqlite3.connect(':memory:')
@@ -59,6 +60,8 @@ class File:
 	_data = None
 	_dbbench = None
 
+	_plotdata = None #get data from generated graphs
+
 	_file_id = None
 	_num_at = None
 
@@ -66,6 +69,7 @@ class File:
 		self._filename = filename
 		self._data = dict()
 		self._dbbench = list()
+		self._plotdata = collections.OrderedDict()
 		self.getDBBenchParams()
 		self.loadData()
 
@@ -150,6 +154,10 @@ class File:
 				DB.query(query.format(**values))
 		DB.commit()
 
+	def savePlotData(self, name, data):
+		if Options.savePlotData:
+			self._plotdata[name] = data
+
 	def graph_db(self):
 		if len(self._dbbench) == 0:
 			return
@@ -226,10 +234,12 @@ class File:
 		axs[2].grid()
 
 		X = [i['time']/60.0 for i in self._data['iostat']]
-		Y = [i['rMB/s']     for i in self._data['iostat']]
-		axs[0].plot(X, Y, '-', lw=1, label='read', color='green')
-		Y = [i['wMB/s']     for i in self._data['iostat']]
-		axs[0].plot(X, Y, '-', lw=1, label='write', color='orange')
+		Yr = numpy.array([i['rMB/s']     for i in self._data['iostat']])
+		Yw = numpy.array([i['wMB/s']     for i in self._data['iostat']])
+		Yt = Yr + Yw
+		axs[0].plot(X, Yr, '-', lw=1, label='read', color='green')
+		axs[0].plot(X, Yw, '-', lw=1, label='write', color='orange')
+		axs[0].plot(X, Yt, '-', lw=1, label='total', color='blue')
 		axs[0].set(title="iostat", ylabel="MB/s")
 
 		Y = [i['r/s']     for i in self._data['iostat']]
@@ -250,7 +260,7 @@ class File:
 		axs[0].set_xlim([-0.25,X[-1]])
 		axs[1].set_xlim([-0.25,X[-1]])
 		axs[2].set_xlim([-0.25,X[-1]])
-		axs[0].legend(loc='upper right', ncol=2, frameon=True)
+		axs[0].legend(loc='upper right', ncol=3, frameon=True)
 		axs[1].legend(loc='upper right', ncol=2, frameon=True)
 		axs[2].legend(loc='upper right', ncol=1, frameon=True)
 
@@ -258,6 +268,58 @@ class File:
 
 		if Options.save:
 			save_name = '{}_graph_io.{}'.format(self._filename.replace('.out', ''), Options.format)
+			fig.savefig(save_name, bbox_inches="tight")
+		plt.show()
+
+	def graph_io_norm(self):
+		if self._data.get('iostat') is None:
+			return
+		if self._num_at == 0 or self._num_at is None:
+			return
+
+		fig, ax = plt.subplots()
+		fig.set_figheight(5)
+		fig.set_figwidth(8)
+
+		ax.grid()
+		ax.set(ylabel="normalized performance")
+
+		X = [i['time']/60.0 for i in self._data['iostat']]
+		self.savePlotData('io_norm_total_X', X)
+		Yr = numpy.array([i['rMB/s']     for i in self._data['iostat']])
+		Yw = numpy.array([i['wMB/s']     for i in self._data['iostat']])
+		Yt = Yr + Yw
+		self.savePlotData('io_norm_total_Y_raw', Yt)
+		Yt = Yt / Yt[0]
+		self.savePlotData('io_norm_total_Y', Yt)
+		ax.plot(X, Yt, '-', lw=1, label='device', color='blue')
+
+		cur_at = self._data['access_time3[0]']
+		X = [j['time']/60.0 for j in cur_at]
+		Y = numpy.array([j['total_MiB/s'] if j['wait'] == 'false' else None for j in cur_at])
+		Yfirst = None
+		for i in Y:
+			if i is not None:
+				Yfirst = i
+				break
+		if Yfirst is not None and Yfirst != 0:
+			Y = Y/Yfirst
+			ax.plot(X, Y, '-', lw=1, label='job0', color='green')
+
+		self.savePlotData('io_norm_job0_X', X)
+		self.savePlotData('io_norm_job0_Y', Y)
+
+		ax.set_xlim([-0.25,X[-1]])
+		ax.legend(loc='upper right', ncol=3, frameon=True)
+
+		#chartBox = ax.get_position()
+		#ax.set_position([chartBox.x0, chartBox.y0, chartBox.width*0.65, chartBox.height])
+		#ax.legend(loc='upper center', bbox_to_anchor=(1.35, 0.9), title='threads', ncol=1, frameon=True)
+
+		fig.tight_layout()
+
+		if Options.save:
+			save_name = '{}_graph_io_norm.{}'.format(self._filename.replace('.out', ''), Options.format)
 			fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
 
@@ -448,12 +510,13 @@ class File:
 			plt.show()
 
 	def graph_all(self):
-		self.graph_db()
-		self.graph_ycsb()
-		self.graph_io()
-		self.graph_cpu()
-		self.graph_at3()
-		self.graph_at3_script()
+		#self.graph_db()
+		#self.graph_ycsb()
+		#self.graph_io()
+		self.graph_io_norm()
+		#self.graph_cpu()
+		#self.graph_at3()
+		#self.graph_at3_script()
 
 def coalesce(*values):
 	for v in values:
@@ -486,6 +549,7 @@ def decimalSuffix(value):
 
 ##############################################################################
 Options.save = True
+Options.savePlotData = False
 
 def getFiles(dirname):
 	files = []
@@ -495,8 +559,8 @@ def getFiles(dirname):
 			files.append(fn)
 	return files
 
-files = getFiles('exp_at3_rww')
-#files = ['exp_db/ycsb_wb,at3_bs4_cache.out']
+#files = getFiles('exp_at3_rww')
+files = ['exp_at3_rww/jobs4_rww_bs512_directio.out']
 
 for i in files:
 	f = File('{}'.format(i))
@@ -504,4 +568,4 @@ for i in files:
 		Options.format = imgf
 		f.graph_all()
 		#f.graph_at3_write_ratio()
-	del f
+	#del f
