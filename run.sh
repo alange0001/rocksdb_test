@@ -82,7 +82,7 @@ function run_at3_rww() {
 		ats[$i]="${t}:wait=false"
 	done
 	for ((i=1; i<$n; i++)); do
-		for wr in 0 0.1 0.2 0.3 0.5 0.6 0.7 0.8 0.9 1; do
+		for wr in 0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1; do
 			t=$((t + 30))
 			ats[$i]="${ats[$i]},${t}:write_ratio=${wr}"
 		done
@@ -94,7 +94,7 @@ function run_at3_rww() {
 	echo $at_files
 	echo $at_script
 	#return
-	for bs in 4 512 8 128 256; do
+	for bs in 512 4 8 128 256; do
 		rocksdb_test \
 			--log_level="info" \
 			--duration="$((t / 60 + 10))" \
@@ -104,7 +104,7 @@ function run_at3_rww() {
 			--num_at="$n" \
 			--at_file="$at_files" \
 			--at_params="--wait --flush_blocks=0 --block_size=${bs}" \
-			--at_script="$at_script" >"$output_dir/at3_rww_files${n}_bs${bs}.out"
+			--at_script="$at_script" >"$output_dir/jobs${n}_rww_bs${bs}_cache.out"
 	done
 }
 

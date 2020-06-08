@@ -510,13 +510,13 @@ class File:
 			plt.show()
 
 	def graph_all(self):
-		#self.graph_db()
-		#self.graph_ycsb()
-		#self.graph_io()
-		self.graph_io_norm()
-		#self.graph_cpu()
-		#self.graph_at3()
-		#self.graph_at3_script()
+		self.graph_db()
+		self.graph_ycsb()
+		self.graph_io()
+		#self.graph_io_norm()
+		self.graph_cpu()
+		self.graph_at3()
+		self.graph_at3_script()
 
 def coalesce(*values):
 	for v in values:
@@ -559,8 +559,8 @@ def getFiles(dirname):
 			files.append(fn)
 	return files
 
-#files = getFiles('exp_at3_rww')
-files = ['exp_at3_rww/jobs4_rww_bs512_directio.out']
+files = getFiles('exp_db')
+#files = ['exp_at3_rww/jobs4_rww_bs512_directio.out']
 
 for i in files:
 	f = File('{}'.format(i))
@@ -568,4 +568,4 @@ for i in files:
 		Options.format = imgf
 		f.graph_all()
 		#f.graph_at3_write_ratio()
-	#del f
+	del f
