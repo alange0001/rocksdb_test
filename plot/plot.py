@@ -11,14 +11,10 @@ import math
 import collections
 import re
 import json
-import matplotlib.pyplot as plt
 import sqlite3
 import numpy
-
-class Options:
-	format = 'png'
-	save = False
-	savePlotData = False
+import matplotlib.pyplot as plt
+from matplotlib.ticker import (AutoMinorLocator, MultipleLocator)
 
 class DBClass:
 	conn = sqlite3.connect(':memory:')
@@ -164,12 +160,14 @@ class File:
 		fig, ax = plt.subplots()
 		fig.set_figheight(5)
 		fig.set_figwidth(8)
-		ax.grid()
 
 		for i in range(0, len(self._dbbench)):
 			X = [i['time']/60.0 for i in self._data['db_bench[{}]'.format(i)]]
 			Y = [i['ops_per_s'] for i in self._data['db_bench[{}]'.format(i)]]
 			ax.plot(X, Y, '-', lw=1, label='db {}, real'.format(i))
+
+			self.savePlotData('db_X', X)
+			self.savePlotData('db_Y', Y)
 
 			if self._dbbench[i].get("sine_d") is not None:
 				sine_a = coalesce(self._dbbench[i]['sine_a'], 0)
@@ -179,7 +177,11 @@ class File:
 				Y = [ sine_a * math.sin(sine_b * x + sine_c) + sine_d for x in X]
 				ax.plot(X, Y, '-', lw=1, label='db {}, expect'.format(i))
 
-		ax.set_xlim([-0.25,X[-1]])
+		aux = (X[-1] - X[0]) * 0.01
+		ax.set_xlim([X[0]-aux,X[-1]+aux])
+
+		self.setXticks(ax)
+
 		ax.set(title="db_bench throughput", xlabel="time (min)", ylabel="tx/s")
 
 		#chartBox = ax.get_position()
@@ -188,8 +190,9 @@ class File:
 		ax.legend(loc='best', ncol=1, frameon=True)
 
 		if Options.save:
-			save_name = '{}_graph_db.{}'.format(self._filename.replace('.out', ''), Options.format)
-			fig.savefig(save_name, bbox_inches="tight")
+			for f in Options.formats:
+				save_name = '{}_graph_db.{}'.format(self._filename.replace('.out', ''), f)
+				fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
 
 	def graph_ycsb(self):
@@ -203,14 +206,17 @@ class File:
 		fig, ax = plt.subplots()
 		fig.set_figheight(5)
 		fig.set_figwidth(8)
-		ax.grid()
 
 		for i in range(0, num_ycsb):
 			X = [i['time']/60.0 for i in self._data['ycsb[{}]'.format(i)]]
 			Y = [i['ops_per_s'] for i in self._data['ycsb[{}]'.format(i)]]
 			ax.plot(X, Y, '-', lw=1, label='db {}'.format(i))
 
-		ax.set_xlim([-0.25,X[-1]])
+		aux = (X[-1] - X[0]) * 0.01
+		ax.set_xlim([X[0]-aux,X[-1]+aux])
+
+		self.setXticks(ax)
+
 		ax.set(title="YCSB throughput", xlabel="time (min)", ylabel="tx/s")
 
 		#chartBox = ax.get_position()
@@ -219,8 +225,9 @@ class File:
 		ax.legend(loc='best', ncol=1, frameon=True)
 
 		if Options.save:
-			save_name = '{}_graph_ycsb.{}'.format(self._filename.replace('.out', ''), Options.format)
-			fig.savefig(save_name, bbox_inches="tight")
+			for f in Options.formats:
+				save_name = '{}_graph_ycsb.{}'.format(self._filename.replace('.out', ''), f)
+				fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
 
 	def graph_io(self):
@@ -229,46 +236,48 @@ class File:
 		fig, axs = plt.subplots(3, 1)
 		fig.set_figheight(5)
 		fig.set_figwidth(8)
-		axs[0].grid()
-		axs[1].grid()
-		axs[2].grid()
 
-		X = [i['time']/60.0 for i in self._data['iostat']]
-		Yr = numpy.array([i['rMB/s']     for i in self._data['iostat']])
-		Yw = numpy.array([i['wMB/s']     for i in self._data['iostat']])
-		Yt = Yr + Yw
-		axs[0].plot(X, Yr, '-', lw=1, label='read', color='green')
-		axs[0].plot(X, Yw, '-', lw=1, label='write', color='orange')
-		axs[0].plot(X, Yt, '-', lw=1, label='total', color='blue')
-		axs[0].set(title="iostat", ylabel="MB/s")
+		for ax_i in range(0,3):
+			ax = axs[ax_i]
+			if ax_i == 0:
+				X = [i['time']/60.0 for i in self._data['iostat']]
+				Yr = numpy.array([i['rMB/s']     for i in self._data['iostat']])
+				Yw = numpy.array([i['wMB/s']     for i in self._data['iostat']])
+				Yt = Yr + Yw
+				ax.plot(X, Yr, '-', lw=1, label='read', color='green')
+				ax.plot(X, Yw, '-', lw=1, label='write', color='orange')
+				ax.plot(X, Yt, '-', lw=1, label='total', color='blue')
+				ax.set(title="iostat", ylabel="MB/s")
+				ax.legend(loc='upper right', ncol=3, frameon=True)
+			elif ax_i == 1:
+				Y = [i['r/s']     for i in self._data['iostat']]
+				ax.plot(X, Y, '-', lw=1, label='read', color='green')
+				Y = [i['w/s']     for i in self._data['iostat']]
+				ax.plot(X, Y, '-', lw=1, label='write', color='orange')
+				ax.set(ylabel="IO/s")
+				ax.legend(loc='upper right', ncol=2, frameon=True)
+			elif ax_i == 2:
+				Y = [i['%util']     for i in self._data['iostat']]
+				ax.plot(X, Y, '-', lw=1, label='%util')
+				ax.set(xlabel="time (min)", ylabel="percent")
+				ax.set_ylim([-5, 105])
+				ax.legend(loc='upper right', ncol=1, frameon=True)
 
-		Y = [i['r/s']     for i in self._data['iostat']]
-		axs[1].plot(X, Y, '-', lw=1, label='read', color='green')
-		Y = [i['w/s']     for i in self._data['iostat']]
-		axs[1].plot(X, Y, '-', lw=1, label='write', color='orange')
-		axs[1].set(ylabel="IO/s")
+			#chartBox = ax.get_position()
+			#ax.set_position([chartBox.x0, chartBox.y0, chartBox.width*0.65, chartBox.height])
+			#ax.legend(loc='upper center', bbox_to_anchor=(1.35, 0.9), title='threads', ncol=1, frameon=True)
 
-		Y = [i['%util']     for i in self._data['iostat']]
-		axs[2].plot(X, Y, '-', lw=1, label='%util')
-		axs[2].set(xlabel="time (min)", ylabel="percent")
-		axs[2].set_ylim([-5, 105])
+			aux = (X[-1] - X[0]) * 0.01
+			ax.set_xlim([X[0]-aux,X[-1]+aux])
 
-		#chartBox = ax.get_position()
-		#ax.set_position([chartBox.x0, chartBox.y0, chartBox.width*0.65, chartBox.height])
-		#ax.legend(loc='upper center', bbox_to_anchor=(1.35, 0.9), title='threads', ncol=1, frameon=True)
-
-		axs[0].set_xlim([-0.25,X[-1]])
-		axs[1].set_xlim([-0.25,X[-1]])
-		axs[2].set_xlim([-0.25,X[-1]])
-		axs[0].legend(loc='upper right', ncol=3, frameon=True)
-		axs[1].legend(loc='upper right', ncol=2, frameon=True)
-		axs[2].legend(loc='upper right', ncol=1, frameon=True)
+			self.setXticks(ax)
 
 		fig.tight_layout()
 
 		if Options.save:
-			save_name = '{}_graph_io.{}'.format(self._filename.replace('.out', ''), Options.format)
-			fig.savefig(save_name, bbox_inches="tight")
+			for f in Options.formats:
+				save_name = '{}_graph_io.{}'.format(self._filename.replace('.out', ''), f)
+				fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
 
 	def graph_io_norm(self):
@@ -309,7 +318,11 @@ class File:
 		self.savePlotData('io_norm_job0_X', X)
 		self.savePlotData('io_norm_job0_Y', Y)
 
-		ax.set_xlim([-0.25,X[-1]])
+		aux = (X[-1] - X[0]) * 0.01
+		ax.set_xlim([X[0]-aux,X[-1]+aux])
+
+		self.setXticks(ax)
+
 		ax.legend(loc='upper right', ncol=3, frameon=True)
 
 		#chartBox = ax.get_position()
@@ -319,8 +332,9 @@ class File:
 		fig.tight_layout()
 
 		if Options.save:
-			save_name = '{}_graph_io_norm.{}'.format(self._filename.replace('.out', ''), Options.format)
-			fig.savefig(save_name, bbox_inches="tight")
+			for f in Options.formats:
+				save_name = '{}_graph_io_norm.{}'.format(self._filename.replace('.out', ''), f)
+				fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
 
 	def graph_cpu(self):
@@ -345,8 +359,11 @@ class File:
 			Y = [j['cpu[{}].active'.format(i)] for j in self._data['systemstats']]
 			axs[1].plot(X, Y, '-', lw=1, label='cpu{}'.format(i))
 
-		axs[0].set_xlim([-0.25,X[-1]])
-		axs[1].set_xlim([-0.25,X[-1]])
+		aux = (X[-1] - X[0]) * 0.01
+		for ax in axs:
+			ax.set_xlim([X[0]-aux,X[-1]+aux])
+			self.setXticks(ax)
+
 		axs[0].set_ylim([-5, None])
 		axs[1].set_ylim([-5, 105])
 		axs[0].set(title="cpu", ylabel="all CPUs (%)")
@@ -359,8 +376,9 @@ class File:
 		axs[0].legend(loc='upper right', ncol=2, frameon=True)
 
 		if Options.save:
-			save_name = '{}_graph_cpu.{}'.format(self._filename.replace('.out', ''), Options.format)
-			fig.savefig(save_name, bbox_inches="tight")
+			for f in Options.formats:
+				save_name = '{}_graph_cpu.{}'.format(self._filename.replace('.out', ''), f)
+				fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
 
 	def graph_at3(self):
@@ -395,7 +413,10 @@ class File:
 			if i>=0 and i < self._num_at -1:
 				ax.xaxis.set_ticklabels([])
 
-			ax.set_xlim([-0.25,X[-1]])
+			aux = (X[-1] - X[0]) * 0.01
+			ax.set_xlim([X[0]-aux,X[-1]+aux])
+
+			self.setXticks(ax)
 
 			ax.set(**ax_set)
 			#ax.set_yscale('log')
@@ -407,8 +428,9 @@ class File:
 		plt.subplots_adjust(hspace=0.1)
 
 		if Options.save:
-			save_name = '{}_graph_at3.{}'.format(self._filename.replace('.out', ''), Options.format)
-			fig.savefig(save_name, bbox_inches="tight")
+			for f in Options.formats:
+				save_name = '{}_graph_at3.{}'.format(self._filename.replace('.out', ''), f)
+				fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
 
 	def graph_at3_script(self):
@@ -441,8 +463,11 @@ class File:
 			if i>=0 and i < self._num_at -1:
 				ax.xaxis.set_ticklabels([])
 
-			ax.set_xlim([-0.25,X[-1]])
+			aux = (X[-1] - X[0]) * 0.01
+			ax.set_xlim([X[0]-aux,X[-1]+aux])
 			ax.set_ylim([-5,108])
+
+			self.setXticks(ax)
 
 			ax.set(**ax_set)
 			#ax.set_yscale('log')
@@ -454,8 +479,9 @@ class File:
 		plt.subplots_adjust(hspace=0.1)
 
 		if Options.save:
-			save_name = '{}_graph_at3_script.{}'.format(self._filename.replace('.out', ''), Options.format)
-			fig.savefig(save_name, bbox_inches="tight")
+			for f in Options.formats:
+				save_name = '{}_graph_at3_script.{}'.format(self._filename.replace('.out', ''), f)
+				fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
 
 	def graph_at3_write_ratio(self):
@@ -505,18 +531,30 @@ class File:
 			#ax.legend(loc='best', ncol=1, frameon=True)
 
 			if Options.save:
-				save_name = '{}-at3_bs{}.{}'.format(self._filename.replace('.out', ''), bs, Options.format)
-				fig.savefig(save_name, bbox_inches="tight")
+				for f in Options.formats:
+					save_name = '{}-at3_bs{}.{}'.format(self._filename.replace('.out', ''), bs, f)
+					fig.savefig(save_name, bbox_inches="tight")
 			plt.show()
 
+	def setXticks(self, ax):
+		if Options.graphTickMajor is not None:
+			ax.xaxis.set_major_locator(MultipleLocator(Options.graphTickMajor))
+			ax.xaxis.set_minor_locator(AutoMinorLocator(Options.graphTickMinor))
+			ax.grid(which='major', color='#CCCCCC', linestyle='--')
+			ax.grid(which='minor', color='#CCCCCC', linestyle=':')
+
 	def graph_all(self):
+		## Generic Graphs:
 		self.graph_db()
 		self.graph_ycsb()
 		self.graph_io()
-		#self.graph_io_norm()
 		self.graph_cpu()
 		self.graph_at3()
 		self.graph_at3_script()
+
+		## Special case graphs:
+		#self.graph_io_norm()
+		#self.graph_at3_write_ratio()
 
 def coalesce(*values):
 	for v in values:
@@ -546,11 +584,6 @@ def decimalSuffix(value):
 	else:
 		raise Exception("invalid number")
 
-
-##############################################################################
-Options.save = True
-Options.savePlotData = False
-
 def getFiles(dirname):
 	files = []
 	os.chdir(dirname)
@@ -559,13 +592,20 @@ def getFiles(dirname):
 			files.append(fn)
 	return files
 
-files = getFiles('exp_db')
-#files = ['exp_at3_rww/jobs4_rww_bs512_directio.out']
+##############################################################################
+class Options:
+	formats = ['png', 'pdf']
+	save = True
+	savePlotData = False
+	graphTickMajor = 5
+	graphTickMinor = 5
 
-for i in files:
-	f = File('{}'.format(i))
-	for imgf in ['png', 'pdf']:
-		Options.format = imgf
-		f.graph_all()
-		#f.graph_at3_write_ratio()
+filenames = getFiles('.')
+#filenames = ['exp_db/dbbench_wwr.out']
+files = collections.OrderedDict()
+
+for name in filenames:
+	f = File(name)
+	f.graph_all()
+	files[name] = f
 	del f
