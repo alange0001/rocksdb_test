@@ -247,7 +247,7 @@ class File:
 				ax.plot(X, Yr, '-', lw=1, label='read', color='green')
 				ax.plot(X, Yw, '-', lw=1, label='write', color='orange')
 				ax.plot(X, Yt, '-', lw=1, label='total', color='blue')
-				ax.set(title="iostat", ylabel="MB/s")
+				ax.set(title="iostat", ylabel="MiB/s")
 				ax.legend(loc='upper right', ncol=3, frameon=True)
 			elif ax_i == 1:
 				Y = [i['r/s']     for i in self._data['iostat']]
@@ -601,7 +601,7 @@ class Options:
 	graphTickMinor = 5
 
 filenames = getFiles('.')
-#filenames = ['exp_db/dbbench_wwr.out']
+#filenames = ['exp_db/ycsb_wb,at3_bs512_directio.out']
 files = collections.OrderedDict()
 
 for name in filenames:
