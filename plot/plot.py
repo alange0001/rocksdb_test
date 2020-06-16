@@ -16,6 +16,30 @@ import numpy
 import matplotlib.pyplot as plt
 from matplotlib.ticker import (AutoMinorLocator, MultipleLocator)
 
+class Options:
+	formats = ['png', 'pdf']
+	save = True
+	savePlotData = False
+	graphTickMajor = 5
+	graphTickMinor = 5
+	plot_io_norm = False
+	plot_at3_write_ratio = False
+	def __init__(self, **kargs):
+		if kargs.get('formats') is not None:
+			self.formats = kargs['formats']
+		if kargs.get('save') is not None:
+			self.save = kargs['save']
+		if kargs.get('savePlotData') is not None:
+			self.savePlotData = kargs['savePlotData']
+		if kargs.get('graphTickMajor') is not None:
+			self.graphTickMajor = kargs['graphTickMajor']
+		if kargs.get('graphTickMinor') is not None:
+			self.graphTickMinor = kargs['graphTickMinor']
+		if kargs.get('plot_io_norm') is not None:
+			self.plot_io_norm = kargs['plot_io_norm']
+		if kargs.get('plot_at3_write_ratio') is not None:
+			self.plot_at3_write_ratio = kargs['plot_at3_write_ratio']
+
 class DBClass:
 	conn = sqlite3.connect(':memory:')
 	file_id = 0
@@ -52,6 +76,7 @@ DB = DBClass()
 
 class File:
 	_filename = None
+	_options = None
 	_stats_interval = None
 	_data = None
 	_dbbench = None
@@ -61,8 +86,9 @@ class File:
 	_file_id = None
 	_num_at = None
 
-	def __init__(self, filename):
+	def __init__(self, filename, options):
 		self._filename = filename
+		self._options = options
 		self._data = dict()
 		self._dbbench = list()
 		self._plotdata = collections.OrderedDict()
@@ -151,7 +177,7 @@ class File:
 		DB.commit()
 
 	def savePlotData(self, name, data):
-		if Options.savePlotData:
+		if self._options.savePlotData:
 			self._plotdata[name] = data
 
 	def graph_db(self):
@@ -189,8 +215,8 @@ class File:
 		#ax.legend(loc='upper center', bbox_to_anchor=(1.35, 0.9), title='threads', ncol=1, frameon=True)
 		ax.legend(loc='best', ncol=1, frameon=True)
 
-		if Options.save:
-			for f in Options.formats:
+		if self._options.save:
+			for f in self._options.formats:
 				save_name = '{}_graph_db.{}'.format(self._filename.replace('.out', ''), f)
 				fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
@@ -224,8 +250,8 @@ class File:
 		#ax.legend(loc='upper center', bbox_to_anchor=(1.35, 0.9), title='threads', ncol=1, frameon=True)
 		ax.legend(loc='best', ncol=1, frameon=True)
 
-		if Options.save:
-			for f in Options.formats:
+		if self._options.save:
+			for f in self._options.formats:
 				save_name = '{}_graph_ycsb.{}'.format(self._filename.replace('.out', ''), f)
 				fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
@@ -247,7 +273,7 @@ class File:
 				ax.plot(X, Yr, '-', lw=1, label='read', color='green')
 				ax.plot(X, Yw, '-', lw=1, label='write', color='orange')
 				ax.plot(X, Yt, '-', lw=1, label='total', color='blue')
-				ax.set(title="iostat", ylabel="MiB/s")
+				ax.set(title="iostat", ylabel="MB/s")
 				ax.legend(loc='upper right', ncol=3, frameon=True)
 			elif ax_i == 1:
 				Y = [i['r/s']     for i in self._data['iostat']]
@@ -274,8 +300,8 @@ class File:
 
 		fig.tight_layout()
 
-		if Options.save:
-			for f in Options.formats:
+		if self._options.save:
+			for f in self._options.formats:
 				save_name = '{}_graph_io.{}'.format(self._filename.replace('.out', ''), f)
 				fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
@@ -331,8 +357,8 @@ class File:
 
 		fig.tight_layout()
 
-		if Options.save:
-			for f in Options.formats:
+		if self._options.save:
+			for f in self._options.formats:
 				save_name = '{}_graph_io_norm.{}'.format(self._filename.replace('.out', ''), f)
 				fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
@@ -375,8 +401,8 @@ class File:
 
 		axs[0].legend(loc='upper right', ncol=2, frameon=True)
 
-		if Options.save:
-			for f in Options.formats:
+		if self._options.save:
+			for f in self._options.formats:
 				save_name = '{}_graph_cpu.{}'.format(self._filename.replace('.out', ''), f)
 				fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
@@ -402,7 +428,7 @@ class File:
 			ax.plot(X, Y, '-', lw=1, label='write', color='orange')
 
 			ax_set = dict()
-			ax_set['ylabel'] ="MiB/s"
+			ax_set['ylabel'] ="MB/s"
 
 			if i == 0:
 				ax_set['title'] = "access_time3: performance"
@@ -427,8 +453,8 @@ class File:
 
 		plt.subplots_adjust(hspace=0.1)
 
-		if Options.save:
-			for f in Options.formats:
+		if self._options.save:
+			for f in self._options.formats:
 				save_name = '{}_graph_at3.{}'.format(self._filename.replace('.out', ''), f)
 				fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
@@ -478,8 +504,8 @@ class File:
 
 		plt.subplots_adjust(hspace=0.1)
 
-		if Options.save:
-			for f in Options.formats:
+		if self._options.save:
+			for f in self._options.formats:
 				save_name = '{}_graph_at3_script.{}'.format(self._filename.replace('.out', ''), f)
 				fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
@@ -523,23 +549,23 @@ class File:
 				ci += 1
 
 			ax.set(title='jobs={}, bs={}'.format(self._num_at, bs),
-				xlabel='(writes/reads)*100', ylabel='MiB/s')
+				xlabel='(writes/reads)*100', ylabel='MB/s')
 
 			chartBox = ax.get_position()
 			ax.set_position([chartBox.x0, chartBox.y0, chartBox.width*0.65, chartBox.height])
 			ax.legend(loc='upper center', bbox_to_anchor=(1.25, 0.9), ncol=1, frameon=True)
 			#ax.legend(loc='best', ncol=1, frameon=True)
 
-			if Options.save:
-				for f in Options.formats:
+			if self._options.save:
+				for f in self._options.formats:
 					save_name = '{}-at3_bs{}.{}'.format(self._filename.replace('.out', ''), bs, f)
 					fig.savefig(save_name, bbox_inches="tight")
 			plt.show()
 
 	def setXticks(self, ax):
-		if Options.graphTickMajor is not None:
-			ax.xaxis.set_major_locator(MultipleLocator(Options.graphTickMajor))
-			ax.xaxis.set_minor_locator(AutoMinorLocator(Options.graphTickMinor))
+		if self._options.graphTickMajor is not None:
+			ax.xaxis.set_major_locator(MultipleLocator(self._options.graphTickMajor))
+			ax.xaxis.set_minor_locator(AutoMinorLocator(self._options.graphTickMinor))
 			ax.grid(which='major', color='#CCCCCC', linestyle='--')
 			ax.grid(which='minor', color='#CCCCCC', linestyle=':')
 
@@ -553,8 +579,12 @@ class File:
 		self.graph_at3_script()
 
 		## Special case graphs:
-		#self.graph_io_norm()
-		#self.graph_at3_write_ratio()
+		# exp_at3_rww:
+		if self._options.plot_io_norm:
+			self.graph_io_norm()
+		# exp_at3:
+		if self._options.plot_at3_write_ratio:
+			self.graph_at3_write_ratio()
 
 def coalesce(*values):
 	for v in values:
@@ -592,20 +622,17 @@ def getFiles(dirname):
 			files.append(fn)
 	return files
 
-##############################################################################
-class Options:
-	formats = ['png', 'pdf']
-	save = True
-	savePlotData = False
-	graphTickMajor = 5
-	graphTickMinor = 5
-
-filenames = getFiles('.')
-#filenames = ['exp_db/ycsb_wb,at3_bs512_directio.out']
 files = collections.OrderedDict()
+def plotFiles(filenames, options):
+	for name in filenames:
+		f = File(name, options)
+		f.graph_all()
+		files[name] = f
+		del f
 
-for name in filenames:
-	f = File(name)
-	f.graph_all()
-	files[name] = f
-	del f
+##############################################################################
+Options.save = True
+
+#plotFiles(getFiles('exp_db'), Options())
+#plotFiles(getFiles('exp_at3'), Options(plot_at3_write_ratio=True))
+#plotFiles(getFiles('exp_at3_rww'), Options(graphTickMajor=2, graphTickMinor=4, plot_io_norm=True))
