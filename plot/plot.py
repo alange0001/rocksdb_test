@@ -18,27 +18,25 @@ from matplotlib.ticker import (AutoMinorLocator, MultipleLocator)
 
 class Options:
 	formats = ['png', 'pdf']
-	save = True
+	print_params = False
+	save = False
 	savePlotData = False
 	graphTickMajor = 5
 	graphTickMinor = 5
+	plot_db = True
+	plot_ycsb = True
+	plot_io = True
+	plot_cpu = True
+	plot_at3 = True
+	plot_at3_script = True
 	plot_io_norm = False
 	plot_at3_write_ratio = False
 	def __init__(self, **kargs):
-		if kargs.get('formats') is not None:
-			self.formats = kargs['formats']
-		if kargs.get('save') is not None:
-			self.save = kargs['save']
-		if kargs.get('savePlotData') is not None:
-			self.savePlotData = kargs['savePlotData']
-		if kargs.get('graphTickMajor') is not None:
-			self.graphTickMajor = kargs['graphTickMajor']
-		if kargs.get('graphTickMinor') is not None:
-			self.graphTickMinor = kargs['graphTickMinor']
-		if kargs.get('plot_io_norm') is not None:
-			self.plot_io_norm = kargs['plot_io_norm']
-		if kargs.get('plot_at3_write_ratio') is not None:
-			self.plot_at3_write_ratio = kargs['plot_at3_write_ratio']
+		for k,v in kargs.items():
+			if k in dir(self):
+				self.__setattr__(k, v)
+			else:
+				raise Exception('Invalid option name: {}'.format(k))
 
 class DBClass:
 	conn = sqlite3.connect(':memory:')
@@ -77,6 +75,8 @@ DB = DBClass()
 class File:
 	_filename = None
 	_options = None
+	_params = None
+
 	_stats_interval = None
 	_data = None
 	_dbbench = None
@@ -85,10 +85,12 @@ class File:
 
 	_file_id = None
 	_num_at = None
+	_at_direct_io = None
 
 	def __init__(self, filename, options):
 		self._filename = filename
 		self._options = options
+		self._params = collections.OrderedDict()
 		self._data = dict()
 		self._dbbench = list()
 		self._plotdata = collections.OrderedDict()
@@ -98,14 +100,10 @@ class File:
 	def loadData(self):
 		with open(self._filename) as file:
 			for line in file.readlines():
-				if self._stats_interval is None:
-					parsed_line = re.findall(r'Args\.stats_interval: *([0-9]+)', line)
-					if len(parsed_line) > 0:
-						self._stats_interval = tryConvert(parsed_line[0][0], int, float)
-				if self._num_at is None:
-					parsed_line = re.findall(r'Args\.num_at: *([0-9]+)', line)
-					if len(parsed_line) > 0:
-						self._num_at = tryConvert(parsed_line[0][0], int, float)
+				parsed_line = re.findall(r'Args\.([^:]+): *(.+)', line)
+				if len(parsed_line) > 0:
+					self._params[parsed_line[0][0]] = tryConvert(parsed_line[0][1], int, float)
+
 				parsed_line = re.findall(r'Task ([^,]+), STATS: (.+)', line)
 				if len(parsed_line) > 0:
 					task = parsed_line[0][0]
@@ -122,6 +120,11 @@ class File:
 						data_dict[k] = tryConvert(v, int, float, decimalSuffix)
 			for e in self._data.keys(): # delete the 1st data of each task
 				del self._data[e][0]
+
+		self._num_at = self._params['num_at']
+		self._stats_interval = self._params['stats_interval']
+		if self._num_at > 0:
+			self._at_direct_io = (self._params['at_params[0]'].find('--direct_io') >= 0)
 
 	def getDBBenchParams(self):
 		num_dbs = 0
@@ -152,6 +155,13 @@ class File:
 					if len(parsed_line) > 0:
 						self._dbbench[cur_db][parsed_line[0][0]] = tryConvert(parsed_line[0][1], int, float)
 						continue
+
+	def printParams(self):
+		print('Params:')
+		for k, v in self._params.items():
+			if k.find('at_script') >= 0 : continue
+			print('{:<20s}: {}'.format(k, v))
+		print()
 
 	def load_at3(self):
 		file_id = DB.getFileId()
@@ -548,7 +558,7 @@ class File:
 				ax.plot(B[0], B[1], '.-', color=colors[ci], lw=1, label='rand {}%, job0'.format(int(rr*100)))
 				ci += 1
 
-			ax.set(title='jobs={}, bs={}'.format(self._num_at, bs),
+			ax.set(title='jobs={}, bs={}, {}'.format(self._num_at, bs, 'O_DIRECT+O_DSYNC' if self._at_direct_io else 'cache'),
 				xlabel='(writes/reads)*100', ylabel='MB/s')
 
 			chartBox = ax.get_position()
@@ -570,21 +580,21 @@ class File:
 			ax.grid(which='minor', color='#CCCCCC', linestyle=':')
 
 	def graph_all(self):
+		if self._options.print_params:
+			self.printParams()
 		## Generic Graphs:
-		self.graph_db()
-		self.graph_ycsb()
-		self.graph_io()
-		self.graph_cpu()
-		self.graph_at3()
-		self.graph_at3_script()
+		if self._options.plot_db:         self.graph_db()
+		if self._options.plot_ycsb:       self.graph_ycsb()
+		if self._options.plot_io:         self.graph_io()
+		if self._options.plot_cpu:        self.graph_cpu()
+		if self._options.plot_at3:        self.graph_at3()
+		if self._options.plot_at3_script: self.graph_at3_script()
 
 		## Special case graphs:
 		# exp_at3_rww:
-		if self._options.plot_io_norm:
-			self.graph_io_norm()
+		if self._options.plot_io_norm: self.graph_io_norm()
 		# exp_at3:
-		if self._options.plot_at3_write_ratio:
-			self.graph_at3_write_ratio()
+		if self._options.plot_at3_write_ratio: self.graph_at3_write_ratio()
 
 def coalesce(*values):
 	for v in values:
@@ -616,22 +626,25 @@ def decimalSuffix(value):
 
 def getFiles(dirname):
 	files = []
-	os.chdir(dirname)
-	for fn in os.listdir():
+	for fn in os.listdir(dirname):
 		if re.search(r'\.out$', fn) is not None:
-			files.append(fn)
+			files.append('{}/{}'.format(dirname, fn))
 	return files
 
 files = collections.OrderedDict()
 def plotFiles(filenames, options):
 	for name in filenames:
+		print(
+			'######################################################\n' +
+			'Graphs from file "{}":\n'.format(name) +
+			'\n')
 		f = File(name, options)
 		f.graph_all()
 		files[name] = f
 		del f
 
 ##############################################################################
-Options.save = True
+#Options.save = True
 
 #plotFiles(getFiles('exp_db'), Options())
 #plotFiles(getFiles('exp_at3'), Options(plot_at3_write_ratio=True))
