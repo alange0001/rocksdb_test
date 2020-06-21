@@ -625,11 +625,17 @@ def decimalSuffix(value):
 		raise Exception("invalid number")
 
 def getFiles(dirname):
+	try:
+		from natsort import natsorted
+		sort_method = natsorted
+	except:
+		print('WARNING: natsort not installed, using sorted')
+		sort_method = sorted
 	files = []
 	for fn in os.listdir(dirname):
 		if re.search(r'\.out$', fn) is not None:
 			files.append('{}/{}'.format(dirname, fn))
-	return files
+	return sort_method(files)
 
 files = collections.OrderedDict()
 def plotFiles(filenames, options):
