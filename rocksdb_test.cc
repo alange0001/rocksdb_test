@@ -108,7 +108,7 @@ class DBBench : public ExperimentTask {
 			format("    --wal_dir=\"{}\"                              \\\n", args->db_path[number]) +
 			config +
 			format("    --num={}                                      \\\n", args->db_num_keys[number]) +
-			format("    --num_levels=6                                \\\n") +
+			format("    --num_levels=6                                \\\n", args->db_num_levels[number]) +
 			format("    --key_size={}                                 \\\n", 20 /* mixgraph: 48 */) +
 			format("    --value_size={}                               \\\n", 400 /* mixgraph 43 */) +
 			format("    --block_size={}                               \\\n", 8 * 1024) +
@@ -172,6 +172,7 @@ class DBBench : public ExperimentTask {
 				return get_cmd_##name();
 
 		returnCommand(readwhilewriting)
+		returnCommand(readrandomwriterandom)
 		returnCommand(mixgraph)
 #		undef returnCommand
 
@@ -186,6 +187,27 @@ class DBBench : public ExperimentTask {
 			get_params_w() +
 			format("    --use_existing_db=true                        \\\n") +
 			format("    --threads={}                                  \\\n", args->db_threads[number]) +
+			format("                                                  \\\n") +
+			format("    --perf_level=2                                \\\n") +
+			format("    --stats_interval_seconds={}                   \\\n", args->stats_interval) +
+			format("    --stats_per_interval=1                        \\\n") +
+			format("                                                  \\\n") +
+			format("    --sync={}                                     \\\n", 1 /*syncval*/) +
+			format("    --merge_operator=\"put\"                      \\\n") +
+			format("    --seed=$( date +%s )                          \\\n") +
+			format("    {}  2>&1 ", args->db_bench_params[number]);
+		return ret;
+	}
+	string get_cmd_readrandomwriterandom() {
+		uint32_t duration_s = args->duration * 60; /*minutes to seconds*/
+
+		string ret =
+			format("db_bench --benchmarks=readrandomwriterandom       \\\n") +
+			format("    --duration={}                                 \\\n", duration_s) +
+			get_params_w() +
+			format("    --use_existing_db=true                        \\\n") +
+			format("    --threads={}                                  \\\n", args->db_threads[number]) +
+			format("    --readwritepercent={}                         \\\n", args->db_readwritepercent[number]) +
 			format("                                                  \\\n") +
 			format("    --perf_level=2                                \\\n") +
 			format("    --stats_interval_seconds={}                   \\\n", args->stats_interval) +
@@ -429,9 +451,9 @@ class AccessTime3 : public ExperimentTask {
 		string ret =
 			format("                                                  \\\n") +
 			format("access_time3                                      \\\n") +
-			format("    -duration={}                                  \\\n", args->duration * 60) +
-			format("    -stats_interval={}                            \\\n", args->stats_interval) +
-			format("    -log_time_prefix=false                        \\\n") +
+			format("    --duration={}                                 \\\n", args->duration * 60) +
+			format("    --stats_interval={}                           \\\n", args->stats_interval) +
+			format("    --log_time_prefix=false                       \\\n") +
 			format("    --filename=\"{}\"                             \\\n", args->at_file[number]) +
 			format("    --create_file=false                           \\\n") +
 			format("    --block_size={}                               \\\n", args->at_block_size[number]) +

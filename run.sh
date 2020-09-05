@@ -167,6 +167,7 @@ function run_db_bench() {
 	at_files="$(for ((i=0; i<$NUM_AT; i++)); do echo "$DIR_AT/$i"; done |paste -sd';')"
 	at_script="$(for ((i=0; i<$NUM_AT; i++)); do t=$((20 + i*2)); echo -n ${t}m:wait=false; for j in 0.1 0.2 0.3 0.5 0.7 1; do t=$((t + 8)); echo -n ,${t}m:write_ratio=$j; done; echo; done |paste -s -d';')"
 	AT_BLOCK_SIZE=${AT_BLOCK_SIZE:-512}
+	WORKLOAD=${WORKLOAD:-readrandomwriterandom}
 	
 	echo "DURATION      = $DURATION" >&2
 	echo "WARM_PERIOD   = $WARM_PERIOD" >&2
@@ -174,7 +175,6 @@ function run_db_bench() {
 	echo "THREADS       = $THREADS" >&2
 	echo "NUM_AT        = $NUM_AT" >&2
 	echo "AT_BLOCK_SIZE = $AT_BLOCK_SIZE" >&2
-	test_dir "$DIR_DB_BENCH"
 	if [ "$AT_DIRECT_IO" == 1 ]; then
 		at_params="--direct_io"
 	fi
@@ -183,8 +183,9 @@ function run_db_bench() {
 		echo "Restore db_bench database ..." >&2
 		rm -fr "$DIR_DB_BENCH"
 		rm -fr "$DIR_DB_YCSB"
-		tar -zxf "$DIR_WORK"/../work2/rocksdb_db_bench.tgz -C "$DIR_WORK" || exit 1
+		tar -xf "$DIR_WORK"/../work2/rocksdb.tar -C "$DIR_WORK" || exit 1
 	fi
+	test_dir "$DIR_DB_BENCH"
 	
 	echo "Run rocksdb_test ..." >&2
 	rocksdb_test \
@@ -195,12 +196,12 @@ function run_db_bench() {
 		--io_device="nvme0n1" \
 		--num_dbs="1" \
 		--db_create="false" \
-		--db_benchmark="readwhilewriting" \
+		--db_benchmark="$WORKLOAD" \
 		--db_path="$DIR_DB_BENCH" \
 		--db_num_keys="500000000" \
-		--db_cache_size="268435456" \
+		--db_cache_size="$((512 * 1024 * 1024))" \
 		--db_threads="$THREADS" \
-		--num_at="$num_at" \
+		--num_at="$NUM_AT" \
 		--at_file="$NUM_AT" \
 		--at_block_size="$AT_BLOCK_SIZE" \
 		--at_params="--flush_blocks=0 --random_ratio=0.5 --wait $at_params" \

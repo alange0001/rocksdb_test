@@ -5,22 +5,31 @@ project (rocksdb_test)
 #################################################################
 
 set(WORKSPACE "${CMAKE_CURRENT_SOURCE_DIR}/..")
-set(ROCKSDB_DIR "${WORKSPACE}/rocksdb")
-set(FMT_DIR "${WORKSPACE}/fmt")
-set(SPDLOG_DIR "${WORKSPACE}/spdlog")
 
+# https://github.com/gflags/gflags.git
 set(gflags_DIR "${WORKSPACE}/gflags/build")
 find_package(gflags REQUIRED)
 add_definitions(-DGFLAGS=1)
 include_directories(${gflags_INCLUDE_DIR})
 list(APPEND THIRDPARTY_LIBS gflags)
 
+# https://github.com/fmtlib/fmt.git
+set(FMT_DIR "${WORKSPACE}/fmt")
 include_directories("${FMT_DIR}/include")
 list(APPEND THIRDPARTY_LIBS "${FMT_DIR}/build/libfmt.a")
 
+# https://github.com/gabime/spdlog.git
+set(SPDLOG_DIR "${WORKSPACE}/spdlog")
 include_directories ("${SPDLOG_DIR}/include")
 list(APPEND THIRDPARTY_LIBS "${SPDLOG_DIR}/build/libspdlog.a")
 
+# https://github.com/alange0001/alutils.git
+set(ALUTILS_DIR "${WORKSPACE}/alutils")
+include_directories ("${ALUTILS_DIR}/include")
+#list(APPEND THIRDPARTY_LIBS "${ALUTILS_DIR}/build/libalutils.a")
+
+# https://github.com/facebook/rocksdb.git
+#set(ROCKSDB_DIR "${WORKSPACE}/rocksdb")
 #include_directories ("${ROCKSDB_DIR}/include")
 #list(APPEND THIRDPARTY_LIBS "${ROCKSDB_DIR}/librocksdb.a")
 #list(APPEND THIRDPARTY_LIBS "${ROCKSDB_DIR}/libbz2.a")

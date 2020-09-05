@@ -1,5 +1,10 @@
 #!/bin/bash
 
+
+DURATION=10 WARM_PERIOD=1 RESTORE_DB=0 WORKLOAD=readrandomwriterandom NUM_AT=0 ./run.sh db_bench >plot/dbbench_rrrw.out
+DURATION=10 WARM_PERIOD=1 RESTORE_DB=0 WORKLOAD=readwhilewriting NUM_AT=0 ./run.sh db_bench >plot/dbbench_rww.out
+
+
 ## Done:
 #RESTORE_DB=1 AT_BLOCK_SIZE=512 AT_DIRECT_IO=0 ./run.sh db_bench >plot/dbbench_wwr,at3_bs512_cache.out
 #RESTORE_DB=1 AT_BLOCK_SIZE=4   AT_DIRECT_IO=0 ./run.sh db_bench >plot/dbbench_wwr,at3_bs4_cache.out
@@ -16,12 +21,6 @@
 #RESTORE_DB=1 AT_BLOCK_SIZE=4   AT_DIRECT_IO=1 WORKLOAD=workloadb ./run.sh ycsb >plot/ycsb_wb,at3_bs4_directio.out
 #RESTORE_DB=1 AT_BLOCK_SIZE=512 AT_DIRECT_IO=1 WORKLOAD=workloada ./run.sh ycsb >plot/ycsb_wa,at3_bs512_directio.out
 #RESTORE_DB=1 AT_BLOCK_SIZE=512 AT_DIRECT_IO=1 WORKLOAD=workloadb ./run.sh ycsb >plot/ycsb_wb,at3_bs512_directio.out
-
-
-## Rebuild:
-# 
-
-
 
 
 ## exp_db_nthreads:

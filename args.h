@@ -94,7 +94,7 @@ using std::function;
 		true,                                                     \
 		nullptr,                                                  \
 		string,                                                   \
-		value == "readwhilewriting" || value == "mixgraph",       \
+		value == "readwhilewriting" || value == "readrandomwriterandom" || value == "mixgraph",       \
 		num_dbs)                                                  \
 	_f(db_path, VectorParser<string>, DEFINE_string,              \
 		"/media/auto/work/rocksdb",                               \
@@ -112,6 +112,14 @@ using std::function;
 		uint64_t,                                                 \
 		value > 1000,                                             \
 		num_dbs)                                                  \
+	_f(db_num_levels, VectorParser<uint32_t>, DEFINE_string,      \
+		"6",                                                      \
+		"Number of LSM-tree levels in the database (list)",       \
+		true,                                                     \
+		nullptr,                                                  \
+		uint32_t,                                                 \
+		value > 2,                                                \
+		num_dbs)                                                  \
 	_f(db_cache_size, VectorParser<uint64_t>, DEFINE_string,      \
 		"268435456",                                              \
 		"Database cache size (list)",                             \
@@ -127,6 +135,14 @@ using std::function;
 		nullptr,                                                  \
 		uint32_t,                                                 \
 		value >= 1,                                               \
+		num_dbs)                                                  \
+	_f(db_readwritepercent, VectorParser<uint32_t>, DEFINE_string,\
+		"90",                                                     \
+		"percent of reads over writes",                           \
+		value != "",                                              \
+		nullptr,                                                  \
+		uint32_t,                                                 \
+		(value >= 0)&&(value <= 100),                             \
 		num_dbs)                                                  \
 	_f(db_sine_cycles, VectorParser<uint32_t>, DEFINE_string,     \
 		"1",                                                      \
