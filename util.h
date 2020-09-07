@@ -13,6 +13,7 @@
 
 #include <spdlog/spdlog.h>
 #include <fmt/format.h>
+#include <alutils/print.h>
 #include <alutils/string.h>
 
 using std::string;
@@ -32,20 +33,29 @@ using fmt::format;
 
 #define DEBUG_MSG(format, ...) spdlog::debug("[{}] " __CLASS__ "{}(): " format, __LINE__, __func__ , ##__VA_ARGS__)
 #define DEBUG_OUT(format, ...) \
-	if (Log::level <= Log::LOG_DEBUG_OUT) \
+	if (loglevel.level <= Log::LOG_DEBUG_OUT) \
 		spdlog::debug("[{}] " __CLASS__ "{}(): " format, __LINE__, __func__ , ##__VA_ARGS__)
 
 ////////////////////////////////////////////////////////////////////////////////////
 
-namespace Log {
+struct LogLevel {
 	typedef enum {
 		LOG_DEBUG_OUT,
 		LOG_DEBUG,
 		LOG_INFO,
-		LOG_count
+		N_levels
 	} levels;
-	extern levels level;
-}
+	const char* map_names[N_levels+1] = {"output", "debug", "info", NULL};
+	const alutils::log_level_t map_alutils[N_levels] = {alutils::LOG_DEBUG_OUT, alutils::LOG_DEBUG, alutils::LOG_INFO};
+	const spdlog::level::level_enum map_spdlog[N_levels] = {spdlog::level::debug, spdlog::level::debug, spdlog::level::info};
+
+	levels level;
+
+	LogLevel();
+	void set(const string& name);
+};
+
+extern LogLevel loglevel;
 
 ////////////////////////////////////////////////////////////////////////////////////
 

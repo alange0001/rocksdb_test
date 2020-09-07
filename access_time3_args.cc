@@ -44,14 +44,10 @@ using fmt::format;
 ////////////////////////////////////////////////////////////////////////////////////
 
 static void setLogLevel(const string& value) {
-	DEBUG_MSG("set log_level to {}", value);
-	if      (value == "debug"   ) spdlog::set_level(spdlog::level::debug);
-	else if (value == "info"    ) spdlog::set_level(spdlog::level::info);
-	else throw invalid_argument(format("invalid log_level: {}", value));
+	loglevel.set(value);
 }
 
 ALL_ARGS_F( declareFlag );
-
 
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
@@ -92,7 +88,6 @@ CommandScript& CommandScript::operator=(const string& script) {
 Args::Args(int argc, char** argv) {
 	gflags::SetUsageMessage(string("\nUSAGE:\n\t") + string(argv[0]) +
 				" [OPTIONS]...");
-	spdlog::set_level(spdlog::level::info);
 	gflags::ParseCommandLineFlags(&argc, &argv, true);
 
 	string params_str;

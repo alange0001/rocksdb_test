@@ -19,8 +19,8 @@ using std::deque;
 #define ALL_ARGS_Direct_F( _f )                                   \
 	_f(log_level, string, DEFINE_string,                          \
 		"info",                                                   \
-		"Log level (debug,info)",                                 \
-		value == "info" || value == "debug",                      \
+		"Log level (output,debug,info)",                          \
+		true,                                                     \
 		setLogLevel(value))                                       \
 	_f(log_time_prefix, bool, DEFINE_bool,                        \
 		true,                                                     \

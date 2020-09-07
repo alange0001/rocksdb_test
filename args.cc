@@ -27,6 +27,7 @@ using fmt::format;
 #undef __CLASS__
 #define __CLASS__ ""
 
+
 ////////////////////////////////////////////////////////////////////////////////////
 #define DEFINE_uint32_t uint32_t
 #define DEFINE_uint64_t uint64_t
@@ -48,36 +49,11 @@ using fmt::format;
 	DEFINE_validator(ARG_name, &validate_##ARG_name);
 ////////////////////////////////////////////////////////////////////////////////////
 
-namespace Log {
-	const char* names[] = {"output", "debug", "info", NULL};
-	const alutils::log_level_t alutils[] = {alutils::LOG_DEBUG_OUT, alutils::LOG_DEBUG, alutils::LOG_INFO};
-	const spdlog::level::level_enum spdlog[] = {spdlog::level::debug, spdlog::level::debug, spdlog::level::info};
-}
-
 static void setLogLevel(const string& value) {
-	DEBUG_MSG("set log_level to {}", value);
-
-	for (int i=0; Log::names[i] != NULL; i++) {
-		if (value == Log::names[i]) {
-			Log::level = (Log::levels)i;
-			alutils::log_level = Log::alutils[i];
-			spdlog::set_level(Log::spdlog[i]);
-			return;
-		}
-	}
-
-	throw invalid_argument(format("invalid log_level: {}", value));
+	loglevel.set(value);
 }
 
 ALL_ARGS_F( declareFlag );
-
-////////////////////////////////////////////////////////////////////////////////////
-using alutils::vsprintf;
-ALUTILS_PRINT_WRAPPER(alu_print_debug,    spdlog::debug("{}", msg));
-ALUTILS_PRINT_WRAPPER(alu_print_info,     spdlog::info("{}", msg));
-ALUTILS_PRINT_WRAPPER(alu_print_warn,     spdlog::warn("{}", msg));
-ALUTILS_PRINT_WRAPPER(alu_print_error,    spdlog::error("{}", msg));
-ALUTILS_PRINT_WRAPPER(alu_print_critical, spdlog::critical("{}", msg));
 
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
@@ -87,19 +63,8 @@ ALUTILS_PRINT_WRAPPER(alu_print_critical, spdlog::critical("{}", msg));
 		ARG_name(#ARG_name, param_delimiter, [](const ARG_item_type value)->bool{return (ARG_item_condition);}, &ARG_items),
 
 Args::Args(int argc, char** argv) : ALL_ARGS_List_F(initializeList) log_level("info") {
-
-	alutils::log_level       = alutils::LOG_INFO;
-	alutils::print_debug_out = alu_print_debug;
-	alutils::print_debug     = alu_print_debug;
-	alutils::print_info      = alu_print_info;
-	alutils::print_notice    = alu_print_info;
-	alutils::print_warn      = alu_print_warn;
-	alutils::print_error     = alu_print_error;
-	alutils::print_critical  = alu_print_critical;
-
 	gflags::SetUsageMessage(string("\nUSAGE:\n\t") + string(argv[0]) +
 				" [OPTIONS]...");
-	spdlog::set_level(spdlog::level::info);
 	gflags::ParseCommandLineFlags(&argc, &argv, true);
 
 	string params_str;
