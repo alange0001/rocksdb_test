@@ -1,3 +1,7 @@
+// Copyright (c) 2020-present, Adriano Lange.  All rights reserved.
+// This source code is licensed under both the GPLv2 (found in the
+// LICENSE.GPLv2 file in the root directory) and Apache 2.0 License
+// (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
 
@@ -9,6 +13,7 @@
 
 #include <spdlog/spdlog.h>
 #include <fmt/format.h>
+#include <alutils/string.h>
 
 using std::string;
 using std::vector;
@@ -26,51 +31,23 @@ using fmt::format;
 #define __CLASS__ ""
 
 #define DEBUG_MSG(format, ...) spdlog::debug("[{}] " __CLASS__ "{}(): " format, __LINE__, __func__ , ##__VA_ARGS__)
-#define DEBUG_OUT(condition, format, ...) \
-	if (condition) \
+#define DEBUG_OUT(format, ...) \
+	if (Log::level <= Log::LOG_DEBUG_OUT) \
 		spdlog::debug("[{}] " __CLASS__ "{}(): " format, __LINE__, __func__ , ##__VA_ARGS__)
 
 ////////////////////////////////////////////////////////////////////////////////////
 
-inline string& inplace_strip(string& src) {
-	const char* to_strip = " \t\n\r\f\v";
-
-	src.erase(src.find_last_not_of(to_strip) +1);
-	src.erase(0, src.find_first_not_of(to_strip));
-
-	return src;
+namespace Log {
+	typedef enum {
+		LOG_DEBUG_OUT,
+		LOG_DEBUG,
+		LOG_INFO,
+		LOG_count
+	} levels;
+	extern levels level;
 }
 
-string strip(const string& src);
-
-int split_columns(vector<string>& ret, const char* str, const char* prefix=nullptr);
-
-vector<string> split_str(const string& str, const string& delimiter);
-
-inline string str_replace(const string& src, const char find, const char replace) {
-	string dest = src;
-	std::replace(dest.begin(), dest.end(), find, replace);
-	return dest;
-}
-
-inline string& str_replace(string& dest, const string& src, const char find, const char replace) {
-	dest = src;
-	std::replace(dest.begin(), dest.end(), find, replace);
-	return dest;
-}
-
-bool parseBool(const string &value, const bool required=true, const bool default_=true,
-               const char* error_msg="invalid value (boolean)",
-			   function<bool(bool)> check_method=nullptr );
-uint32_t parseUint32(const string &value, const bool required=true, const uint32_t default_=0,
-               const char* error_msg="invalid value (uint64)",
-			   function<bool(uint32_t)> check_method=nullptr );
-uint64_t parseUint64(const string &value, const bool required=true, const uint64_t default_=0,
-               const char* error_msg="invalid value (uint64)",
-			   function<bool(uint64_t)> check_method=nullptr );
-double parseDouble(const string &value, const bool required=true, const double default_=0.0,
-               const char* error_msg="invalid value (double)",
-			   function<bool(double)> check_method=nullptr );
+////////////////////////////////////////////////////////////////////////////////////
 
 template <typename T>
 T sum(const vector<T>& src) {
@@ -244,18 +221,18 @@ public:
 		this->clear();
 		if (num != nullptr && *num == 0) return *this;
 
-		auto aux = split_str(src, delimiter);
+		auto aux = alutils::split_str(src, delimiter);
 		for (auto i: aux) {
 			if constexpr (std::is_same<T, string>::value) {
 				if (check != nullptr && !check(i))
 					throw invalid_argument(format(error_msg, name, i));
 				this->push_back( i );
 			} else if constexpr (std::is_same<T, uint32_t>::value) {
-				this->push_back( parseUint32(i, true, 0, format(error_msg, name, i).c_str(), check) );
+				this->push_back( alutils::parseUint32(i, true, 0, format(error_msg, name, i).c_str(), check) );
 			} else if constexpr (std::is_same<T, uint64_t>::value) {
-				this->push_back( parseUint64(i, true, 0, format(error_msg, name, i).c_str(), check) );
+				this->push_back( alutils::parseUint64(i, true, 0, format(error_msg, name, i).c_str(), check) );
 			} else if constexpr (std::is_same<T, double>::value) {
-				this->push_back( parseDouble(i, true, 0, format(error_msg, name, i).c_str(), check) );
+				this->push_back( alutils::parseDouble(i, true, 0, format(error_msg, name, i).c_str(), check) );
 			} else {
 				throw invalid_argument(format("type not implemented for list {}", name));
 			}

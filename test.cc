@@ -1,3 +1,7 @@
+// Copyright (c) 2020-present, Adriano Lange.  All rights reserved.
+// This source code is licensed under both the GPLv2 (found in the
+// LICENSE.GPLv2 file in the root directory) and Apache 2.0 License
+// (found in the LICENSE.Apache file in the root directory).
 
 #include <deque>
 #include <map>
@@ -10,11 +14,10 @@
 
 #include <spdlog/spdlog.h>
 #include <fmt/format.h>
-
 #include <gflags/gflags.h>
+#include <alutils/process.h>
 
 #include "util.h"
-#include "process.h"
 
 using namespace std;
 using std::chrono::system_clock;
@@ -80,7 +83,7 @@ int main(int argc, char** argv) {
 
 #		else
 
-		auto p = get_children(0);
+		auto p = alutils::get_children(0);
 		for (auto i: p) {
 			spdlog::info("child pid: {}", i);
 		}

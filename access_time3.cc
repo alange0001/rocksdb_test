@@ -1,3 +1,7 @@
+// Copyright (c) 2020-present, Adriano Lange.  All rights reserved.
+// This source code is licensed under both the GPLv2 (found in the
+// LICENSE.GPLv2 file in the root directory) and Apache 2.0 License
+// (found in the LICENSE.Apache file in the root directory).
 
 #include <string>
 #include <thread>
@@ -19,10 +23,10 @@
 
 #include <spdlog/spdlog.h>
 #include <fmt/format.h>
+#include <alutils/process.h>
 
 #include "access_time3_args.h"
 #include "util.h"
-#include "process.h"
 
 const uint32_t buffer_align = 512;
 
@@ -286,12 +290,12 @@ class Reader {
 
 			std::string command;
 
-			while (monitor_fgets(buffer, buffer_size -1, stdin, &stop_)) {
+			while (alutils::monitor_fgets(buffer, buffer_size -1, stdin, &stop_)) {
 				for (char* c=buffer; *c != '\0'; c++)
 					if (*c == '\n') *c = '\0';
 
 				command = buffer;
-				inplace_strip(command);
+				alutils::inplace_strip(command);
 
 				if (command == "stop") {
 					spdlog::info("stop command received");

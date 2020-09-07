@@ -1,3 +1,7 @@
+// Copyright (c) 2020-present, Adriano Lange.  All rights reserved.
+// This source code is licensed under both the GPLv2 (found in the
+// LICENSE.GPLv2 file in the root directory) and Apache 2.0 License
+// (found in the LICENSE.Apache file in the root directory).
 
 #include <string>
 #include <vector>
@@ -14,6 +18,8 @@
 
 #include <spdlog/spdlog.h>
 #include <fmt/format.h>
+#include <alutils/string.h>
+#include <alutils/process.h>
 
 #include "args.h"
 #include "util.h"
@@ -49,12 +55,11 @@ class DBBench : public ExperimentTask {
 	void start() {
 		string cmd(get_cmd_run());
 		spdlog::info("Executing {}. Command:\n{}", name, cmd);
-		process.reset(new ProcessController(
+		process.reset(new alutils::ProcessController(
 			name.c_str(),
 			cmd.c_str(),
 			[this](const char* v){this->stdoutHandler(v);},
-			[this](const char* v){this->default_stderr_handler(v);},
-			false
+			[this](const char* v){this->default_stderr_handler(v);}
 			));
 	}
 
@@ -262,17 +267,17 @@ class DBBench : public ExperimentTask {
 		auto flags = std::regex_constants::match_any;
 		std::cmatch cm;
 
-		spdlog::info("Task {}, stdout: {}", name, str_replace(buffer, '\n', ' '));
+		spdlog::info("Task {}, stdout: {}", name, alutils::str_replace(buffer, '\n', ' '));
 
 		regex_search(buffer, cm, regex("thread ([0-9]+): \\(([0-9.]+),([0-9.]+)\\) ops and \\(([0-9.]+),([0-9.]+)\\) ops/second in \\(([0-9.]+),([0-9.]+)\\) seconds.*"), flags);
 		if( cm.size() >= 8 ){
-			ops += parseUint64(cm.str(2), true, 0, "invalid ops");
-			ops_per_s += parseDouble(cm.str(4), true, 0, "invalid ops_per_s");
+			ops += alutils::parseUint64(cm.str(2), true, 0, "invalid ops");
+			ops_per_s += alutils::parseDouble(cm.str(4), true, 0, "invalid ops_per_s");
 			data["ops"] = format("{}", ops);
 			data["ops_per_s"] = format("{:.1f}", ops_per_s);
 			data[format("ops[{}]", cm.str(1))] = cm.str(2);
 			data[format("ops_per_s[{}]", cm.str(1))] = cm.str(4);
-			//DEBUG_OUT(args->debug_output_db_bench, "line parsed    : {}", buffer);
+			//DEBUG_OUT("line parsed    : {}", buffer);
 		}
 		regex_search(buffer, cm, regex("Interval writes: ([0-9.]+[KMGT]*) writes, ([0-9.]+[KMGT]*) keys, ([0-9.]+[KMGT]*) commit groups, ([0-9.]+[KMGT]*) writes per commit group, ingest: ([0-9.]+) [KMGT]*B, ([0-9.]+) [KMGT]*B/s.*"), flags);
 		if( cm.size() >= 7 ){
@@ -281,7 +286,7 @@ class DBBench : public ExperimentTask {
 			data["written_commit_groups"] = cm.str(3);
 			data["ingest_MBps"] = cm.str(5);
 			data["ingest_MBps"] = cm.str(6);
-			//DEBUG_OUT(args->debug_output_db_bench, "line parsed    : {}", buffer);
+			//DEBUG_OUT("line parsed    : {}", buffer);
 		}
 		regex_search(buffer, cm, regex("Interval WAL: ([0-9.]+[KMGT]*) writes, ([0-9.]+[KMGT]*) syncs, ([0-9.]+[KMGT]*) writes per sync, written: ([0-9.]+) [KMGT]*B, ([0-9.]+) [KMGT]*B/s.*"), flags);
 		if( cm.size() >= 5 ){
@@ -289,13 +294,13 @@ class DBBench : public ExperimentTask {
 			data["WAL_syncs"] = cm.str(2);
 			data["WAL_written_MB"] = cm.str(4);
 			data["WAL_written_MBps"] = cm.str(5);
-			//DEBUG_OUT(args->debug_output_db_bench, "line parsed    : {}", buffer);
+			//DEBUG_OUT("line parsed    : {}", buffer);
 		}
 		regex_search(buffer, cm, regex("Interval stall: ([0-9:.]+) H:M:S, ([0-9.]+) percent.*"), flags);
 		if( cm.size() >= 3 ){
 			data["stall"] = cm.str(1);
 			data["stall_percent"] = cm.str(2);
-			//DEBUG_OUT(args->debug_output_db_bench, "line parsed    : {}", buffer);
+			//DEBUG_OUT("line parsed    : {}", buffer);
 
 			print();
 			data.clear();
@@ -325,12 +330,11 @@ class YCSB : public ExperimentTask {
 	void start() {
 		string cmd(get_cmd_run());
 		spdlog::info("Executing {}. Command:\n{}", name, cmd);
-		process.reset(new ProcessController(
+		process.reset(new alutils::ProcessController(
 			name.c_str(),
 			cmd.c_str(),
 			[this](const char* v){this->stdoutHandler(v);},
-			[this](const char* v){this->default_stderr_handler(v);},
-			false
+			[this](const char* v){this->default_stderr_handler(v);}
 			));
 	}
 
@@ -377,7 +381,7 @@ class YCSB : public ExperimentTask {
 		auto flags = std::regex_constants::match_any;
 		std::cmatch cm;
 
-		spdlog::info("Task {}, stdout: {}", name, str_replace(buffer, '\n', ' '));
+		spdlog::info("Task {}, stdout: {}", name, alutils::str_replace(buffer, '\n', ' '));
 
 		/* 2020-05-31 12:37:56:062 40 sec: 8898270 operations; 181027 current ops/sec; est completion in 5 second [READ: Count=452553, Max=2329, Min=1, Avg=19,59, 90=45, 99=69, 99.9=108, 99.99=602] [UPDATE: Count=452135, Max=404479, Min=5, Avg=87,65, 90=74, 99=1152, 99.9=1233, 99.99=2257] */
 
@@ -388,7 +392,7 @@ class YCSB : public ExperimentTask {
 		if (cm.size() >= 4) {
 			string aux_replace;
 			data["ops"] = cm.str(1);
-			data["ops_per_s"] = str_replace(aux_replace, cm.str(2), ',', '.');
+			data["ops_per_s"] = alutils::str_replace(aux_replace, cm.str(2), ',', '.');
 
 			string aux1 = cm.str(3);
 			while (aux1.length() > 0) {
@@ -399,11 +403,11 @@ class YCSB : public ExperimentTask {
 					}
 
 					string prefix = cm.str(1);
-					auto aux2 = split_str(cm.str(2), ", ");
+					auto aux2 = alutils::split_str(cm.str(2), ", ");
 					for (auto i: aux2) {
-						auto aux3 = split_str(i, "=");
+						auto aux3 = alutils::split_str(i, "=");
 						if (aux3.size() >= 2){
-							data[format("{}_{}", prefix, aux3[0])] = str_replace(aux_replace, aux3[1], ',', '.');
+							data[format("{}_{}", prefix, aux3[0])] = alutils::str_replace(aux_replace, aux3[1], ',', '.');
 						}
 					}
 
@@ -437,12 +441,11 @@ class AccessTime3 : public ExperimentTask {
 	void start() {
 		string cmd( getCmd() );
 		spdlog::info("Executing {}. Command:\n{}", name, cmd);
-		process.reset(new ProcessController(
+		process.reset(new alutils::ProcessController(
 			name.c_str(),
 			cmd.c_str(),
 			[this](const char* v){this->stdoutHandler(v);},
-			[this](const char* v){this->default_stderr_handler(v);},
-			false
+			[this](const char* v){this->default_stderr_handler(v);}
 			));
 	}
 
@@ -466,7 +469,7 @@ class AccessTime3 : public ExperimentTask {
 	void stdoutHandler(const char* buffer) {
 		std::cmatch cm;
 
-		spdlog::info("Task {}, stdout: {}", name, str_replace(buffer, '\n', ' '));
+		spdlog::info("Task {}, stdout: {}", name, alutils::str_replace(buffer, '\n', ' '));
 
 		regex_search(buffer, cm, regex("STATS: \\{[^,]+, ([^\\}]+)\\}"));
 		if (cm.size() > 1) {
@@ -495,12 +498,11 @@ class IOStat : public ExperimentTask {
 		io_device = args->io_device;
 		devCheck();
 		string cmd(format("iostat -xm {} {}", args->stats_interval, io_device));
-		process.reset(new ProcessController(
+		process.reset(new alutils::ProcessController(
 			name.c_str(),
 			cmd.c_str(),
 			[this](const char* v){this->stdoutHandler(v);},
-			[this](const char* v){this->default_stderr_handler(v);},
-			args->debug_output_iostat
+			[this](const char* v){this->default_stderr_handler(v);}
 			));
 	}
 	~IOStat() {}
@@ -516,7 +518,7 @@ class IOStat : public ExperimentTask {
 			} else {
 				vector<string> values;
 				auto columns_s = columns.size();
-				auto values_s = split_columns(values, buffer, io_device.c_str());
+				auto values_s = alutils::split_columns(values, buffer, io_device.c_str());
 
 				if (values_s == 0 || values_s != columns_s) {
 					throw runtime_error(format("invalid iostat data: {}", buffer));
@@ -525,7 +527,7 @@ class IOStat : public ExperimentTask {
 				data.clear();
 				string aux;
 				for (int i=0; i < columns_s; i++) {
-					data[columns[i]] = str_replace(aux, values[i], ',', '.');
+					data[columns[i]] = alutils::str_replace(aux, values[i], ',', '.');
 				}
 
 				print();
@@ -534,7 +536,7 @@ class IOStat : public ExperimentTask {
 		} else if (first && regex_search(buffer, regex("^(Device)\\s+"))) {
 			if (columns.size() > 0)
 				throw runtime_error("iostat header read twice");
-			if (split_columns(columns, buffer, "Device") == 0)
+			if (alutils::split_columns(columns, buffer, "Device") == 0)
 				throw runtime_error(format("invalid iostat header: {}", buffer));
 		}
 	}
@@ -704,7 +706,7 @@ class Program {
 		iostat.reset(nullptr);
 
 		std::this_thread::sleep_for(milliseconds(300));
-		auto children = get_children(getpid());
+		auto children = alutils::get_children(getpid());
 		for (auto i: children) {
 			spdlog::warn("child (pid {}) still active. kill it", i);
 			kill(i, SIGTERM);

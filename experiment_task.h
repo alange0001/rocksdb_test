@@ -1,3 +1,7 @@
+// Copyright (c) 2020-present, Adriano Lange.  All rights reserved.
+// This source code is licensed under both the GPLv2 (found in the
+// LICENSE.GPLv2 file in the root directory) and Apache 2.0 License
+// (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
 
@@ -5,9 +9,9 @@
 
 #include <spdlog/spdlog.h>
 #include <fmt/format.h>
+#include <alutils/process.h>
 
 #include "util.h"
-#include "process.h"
 
 using std::string;
 using std::runtime_error;
@@ -24,7 +28,7 @@ class ExperimentTask {
 	string name = "";
 	Clock* clock = nullptr;
 	OrderedDict data;
-	std::unique_ptr<ProcessController> process;
+	std::unique_ptr<alutils::ProcessController> process;
 	uint64_t warm_period_s;
 
 	ExperimentTask() {}

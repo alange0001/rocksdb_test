@@ -1,3 +1,7 @@
+// Copyright (c) 2020-present, Adriano Lange.  All rights reserved.
+// This source code is licensed under both the GPLv2 (found in the
+// LICENSE.GPLv2 file in the root directory) and Apache 2.0 License
+// (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
 
@@ -17,8 +21,8 @@ using std::function;
 #define ALL_ARGS_Direct_F( _f )                                   \
 	_f(log_level, string, DEFINE_string,                          \
 		"info",                                                   \
-		"Log level (debug,info)",                                 \
-		value == "info" || value == "debug",                      \
+		"Log level (output,debug,info)",                          \
+		true,                                                     \
 		setLogLevel(value))                                       \
 	_f(duration, uint32_t, DEFINE_uint32,                         \
 		60,                                                       \
@@ -74,16 +78,6 @@ using std::function;
 		"",                                                       \
 		"I/O device monitored by iostat",                         \
 		value.length() > 0,                                       \
-		nullptr)                                                  \
-	_f(debug_output, bool, DEFINE_bool,                           \
-		false,                                                    \
-		"Debug the output of all subprocesses",                   \
-		true,                                                     \
-		nullptr)                                                  \
-	_f(debug_output_iostat, bool, DEFINE_bool,                    \
-		false,                                                    \
-		"Debug iostat output",                                    \
-		true,                                                     \
 		nullptr)
 
 /*_f(ARG_name, ARG_type, ARG_flag_type, ARG_flag_default, ARG_help, ARG_condition, ARG_set_event, ARG_item_type, ARG_item_condition, ARG_items)*/

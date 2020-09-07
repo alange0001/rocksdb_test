@@ -26,7 +26,7 @@ list(APPEND THIRDPARTY_LIBS "${SPDLOG_DIR}/build/libspdlog.a")
 # https://github.com/alange0001/alutils.git
 set(ALUTILS_DIR "${WORKSPACE}/alutils")
 include_directories ("${ALUTILS_DIR}/include")
-#list(APPEND THIRDPARTY_LIBS "${ALUTILS_DIR}/build/libalutils.a")
+list(APPEND THIRDPARTY_LIBS "${ALUTILS_DIR}/build/libalutils.a")
 
 # https://github.com/facebook/rocksdb.git
 #set(ROCKSDB_DIR "${WORKSPACE}/rocksdb")
@@ -43,14 +43,14 @@ list(APPEND THIRDPARTY_LIBS dl)
 
 #################################################################
 
-add_executable(rocksdb_test rocksdb_test.cc util.cc args.cc process.cc)
+add_executable(rocksdb_test rocksdb_test.cc util.cc args.cc)
 target_link_libraries(rocksdb_test ${THIRDPARTY_LIBS})
 set_property(TARGET rocksdb_test PROPERTY CXX_STANDARD 17)
 
-add_executable(access_time3 access_time3.cc access_time3_args.cc util.cc process.cc)
+add_executable(access_time3 access_time3.cc access_time3_args.cc util.cc)
 target_link_libraries(access_time3 ${THIRDPARTY_LIBS})
 set_property(TARGET access_time3 PROPERTY CXX_STANDARD 17)
 
-add_executable(test test.cc util.cc process.cc)
+add_executable(test test.cc util.cc)
 target_link_libraries(test ${THIRDPARTY_LIBS})
 set_property(TARGET test PROPERTY CXX_STANDARD 17)

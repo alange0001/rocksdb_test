@@ -1,3 +1,7 @@
+// Copyright (c) 2020-present, Adriano Lange.  All rights reserved.
+// This source code is licensed under both the GPLv2 (found in the
+// LICENSE.GPLv2 file in the root directory) and Apache 2.0 License
+// (found in the LICENSE.Apache file in the root directory).
 
 #include "access_time3_args.h"
 
@@ -7,6 +11,7 @@
 #include <spdlog/spdlog.h>
 #include <fmt/format.h>
 #include <gflags/gflags.h>
+#include <alutils/string.h>
 
 #include "util.h"
 
@@ -59,9 +64,9 @@ CommandScript& CommandScript::operator=(const string& script) {
 
 	std::cmatch cm;
 
-	auto list = split_str(script, ",");
+	auto list = alutils::split_str(script, ",");
 	for (auto i: list) {
-		auto aux = split_str(i, ":");
+		auto aux = alutils::split_str(i, ":");
 		if (aux.size() != 2)
 			throw invalid_argument(fmt::format("Invalid command in command_script: {}", i));
 
@@ -70,7 +75,7 @@ CommandScript& CommandScript::operator=(const string& script) {
 		if (cm.size() < 3)
 			throw invalid_argument(fmt::format("Invalid time: {}", aux[0]));
 
-		time = parseUint64(cm.str(1), true, 0, "invalid time");
+		time = alutils::parseUint64(cm.str(1), true, 0, "invalid time");
 		DEBUG_MSG("time_number={}, time_suffix={}, command:{}", cm.str(1), cm.str(2), aux[1]);
 		if (cm.str(2) == "m")
 			time *= 60;
@@ -114,7 +119,7 @@ Args::Args(int argc, char** argv) {
 void Args::executeCommand(const string& command_line) {
 	DEBUG_MSG("command_line: \"{}\"", command_line);
 
-	auto aux = split_str(command_line, "=");
+	auto aux = alutils::split_str(command_line, "=");
 	string command(aux[0]);
 	string value( (aux.size() < 2) ? "" : aux[1].c_str() );
 
@@ -148,13 +153,13 @@ void Args::executeCommand(const string& command_line) {
 				changed = true; \
 				return; \
 		}
-	parseLineCommand(wait, parseBool, false, true);
-	parseLineCommand(sleep_interval, parseUint64, true, 0);
-	parseLineCommandValidate(block_size, parseUint64);
-	parseLineCommandValidate(sleep_count, parseUint64);
-	parseLineCommandValidate(write_ratio, parseDouble);
-	parseLineCommandValidate(random_ratio, parseDouble);
-	parseLineCommand(flush_blocks, parseUint64, true, 0);
+	parseLineCommand(wait, alutils::parseBool, false, true);
+	parseLineCommand(sleep_interval, alutils::parseUint64, true, 0);
+	parseLineCommandValidate(block_size, alutils::parseUint64);
+	parseLineCommandValidate(sleep_count, alutils::parseUint64);
+	parseLineCommandValidate(write_ratio, alutils::parseDouble);
+	parseLineCommandValidate(random_ratio, alutils::parseDouble);
+	parseLineCommand(flush_blocks, alutils::parseUint64, true, 0);
 #	undef parseLineCommand
 #	undef parseLineCommandValidate
 
