@@ -48,7 +48,7 @@ LogLevel::LogLevel() {
 	alutils::print_error     = alutils_print_error;
 	alutils::print_critical  = alutils_print_critical;
 
-	set("info");
+	set(map_names[LOG_INFO]);
 }
 
 void LogLevel::set(const string& name) {

@@ -45,9 +45,18 @@ struct LogLevel {
 		LOG_INFO,
 		N_levels
 	} levels;
-	const char* map_names[N_levels+1] = {"output", "debug", "info", NULL};
-	const alutils::log_level_t map_alutils[N_levels] = {alutils::LOG_DEBUG_OUT, alutils::LOG_DEBUG, alutils::LOG_INFO};
-	const spdlog::level::level_enum map_spdlog[N_levels] = {spdlog::level::debug, spdlog::level::debug, spdlog::level::info};
+	const char* map_names[N_levels+1] = {
+			"output",
+			"debug",
+			"info", NULL};
+	const alutils::log_level_t map_alutils[N_levels] = {
+			alutils::LOG_DEBUG_OUT,
+			alutils::LOG_DEBUG,
+			alutils::LOG_INFO};
+	const spdlog::level::level_enum map_spdlog[N_levels] = {
+			spdlog::level::debug,
+			spdlog::level::debug,
+			spdlog::level::info};
 
 	levels level;
 
