@@ -26,6 +26,9 @@ using std::chrono::system_clock;
 using fmt::format;
 
 ////////////////////////////////////////////////////////////////////////////////////
+#undef __CLASS__
+#define __CLASS__ ""
+
 using alutils::vsprintf;
 ALUTILS_PRINT_WRAPPER(alutils_print_debug,    spdlog::debug("{}", msg));
 ALUTILS_PRINT_WRAPPER(alutils_print_info,     spdlog::info("{}", msg));
