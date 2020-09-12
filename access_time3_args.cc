@@ -60,7 +60,7 @@ CommandScript& CommandScript::operator=(const string& script) {
 
 	std::cmatch cm;
 
-	auto list = alutils::split_str(script, ",");
+	auto list = alutils::split_str(script, ";");
 	for (auto i: list) {
 		auto aux = alutils::split_str(i, ":");
 		if (aux.size() != 2)

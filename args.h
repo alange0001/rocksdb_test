@@ -27,7 +27,7 @@ using std::function;
 	_f(duration, uint32_t, DEFINE_uint32,                         \
 		60,                                                       \
 		"Duration of the experiment (minutes) including warm_period", \
-		value >= 10,                                              \
+		value >= 1,                                               \
 		nullptr)                                                  \
 	_f(warm_period, uint32_t, DEFINE_uint32,                      \
 		0,                                                        \
@@ -88,7 +88,7 @@ using std::function;
 		true,                                                     \
 		nullptr,                                                  \
 		string,                                                   \
-		value == "readwhilewriting" || value == "readrandomwriterandom" || value == "mixgraph",       \
+		value == "readwhilewriting" || value == "readrandomwriterandom" || value == "mixedworkload" || value == "mixgraph", \
 		num_dbs)                                                  \
 	_f(db_path, VectorParser<string>, DEFINE_string,              \
 		"/media/auto/work/rocksdb",                               \
@@ -137,6 +137,14 @@ using std::function;
 		nullptr,                                                  \
 		uint32_t,                                                 \
 		(value >= 0)&&(value <= 100),                             \
+		num_dbs)                                                  \
+	_f(db_workloadscript, VectorParser<string>, DEFINE_string,    \
+		"",                                                       \
+		"workload script for the db_bench",                       \
+		true,                                                     \
+		nullptr,                                                  \
+		string,                                                   \
+		true,                                                     \
 		num_dbs)                                                  \
 	_f(db_sine_cycles, VectorParser<uint32_t>, DEFINE_string,     \
 		"1",                                                      \
@@ -245,7 +253,7 @@ using std::function;
 #define __CLASS__ "Args::"
 
 struct Args {
-	const char*   param_delimiter = ";";
+	const char*   param_delimiter = "#";
 
 	Args(int argc, char** argv);
 

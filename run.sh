@@ -57,7 +57,7 @@ function run_at3() {
 	done
 	at_script="$at_script,$((t + 5)):stop"
 	for n in 1 6 2 3 4 5; do
-		at_files="$(for ((i=0; i<$n; i++)); do echo "$DIR_AT/$i"; done |paste -sd';')"
+		at_files="$(for ((i=0; i<$n; i++)); do echo "$DIR_AT/$i"; done |paste -sd'#')"
 		echo $at_files
 		echo $at_script
 		rocksdb_test \
@@ -97,7 +97,7 @@ function run_at3_rww() {
 	ats[0]="${ats[0]},$((t + 30)):stop"
 	at_script="$(echo ${ats[*]} |tr " " ";")"
 	
-	at_files="$(for ((i=0; i<$n; i++)); do echo "$DIR_AT/$i"; done |paste -sd';')"
+	at_files="$(for ((i=0; i<$n; i++)); do echo "$DIR_AT/$i"; done |paste -sd'#')"
 	echo $at_files
 	echo $at_script
 	#return
@@ -121,7 +121,7 @@ function run_ycsb() {
 	THREADS=${THREADS:-5}
 	NUM_AT=${NUM_AT:-4}
 	at_files="$(for ((i=0; i<$NUM_AT; i++)); do echo "$DIR_AT/$i"; done |paste -sd';')"
-	at_script="$(for ((i=0; i<$NUM_AT; i++)); do t=$((20 + i*2)); echo -n ${t}m:wait=false; for j in 0.1 0.2 0.3 0.5 0.7 1; do t=$((t + 8)); echo -n ,${t}m:write_ratio=$j; done; echo; done |paste -s -d';')"
+	at_script="$(for ((i=0; i<$NUM_AT; i++)); do t=$((20 + i*2)); echo -n ${t}m:wait=false; for j in 0.1 0.2 0.3 0.5 0.7 1; do t=$((t + 8)); echo -n ,${t}m:write_ratio=$j; done; echo; done |paste -s -d'#')"
 	AT_BLOCK_SIZE=${AT_BLOCK_SIZE:-512}
 	WORKLOAD=${WORKLOAD:-workloadb}
 	
@@ -172,7 +172,7 @@ function run_db_bench() {
 	THREADS=${THREADS:-9}
 	NUM_AT=${NUM_AT:-4}
 	at_files="$(for ((i=0; i<$NUM_AT; i++)); do echo "$DIR_AT/$i"; done |paste -sd';')"
-	at_script="$(for ((i=0; i<$NUM_AT; i++)); do t=$((20 + i*2)); echo -n ${t}m:wait=false; for j in 0.1 0.2 0.3 0.5 0.7 1; do t=$((t + 8)); echo -n ,${t}m:write_ratio=$j; done; echo; done |paste -s -d';')"
+	at_script="$(for ((i=0; i<$NUM_AT; i++)); do t=$((20 + i*2)); echo -n ${t}m:wait=false; for j in 0.1 0.2 0.3 0.5 0.7 1; do t=$((t + 8)); echo -n ,${t}m:write_ratio=$j; done; echo; done |paste -s -d'#')"
 	AT_BLOCK_SIZE=${AT_BLOCK_SIZE:-512}
 	WORKLOAD=${WORKLOAD:-readrandomwriterandom}
 	
@@ -208,6 +208,7 @@ function run_db_bench() {
 		--db_num_keys="500000000" \
 		--db_cache_size="$((512 * 1024 * 1024))" \
 		--db_threads="$THREADS" \
+		--db_workloadscript="$WORKLOADSCRIPT"
 		--num_at="$NUM_AT" \
 		--at_file="$NUM_AT" \
 		--at_block_size="$AT_BLOCK_SIZE" \

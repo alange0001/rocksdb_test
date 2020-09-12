@@ -174,15 +174,17 @@ class DBBench : public ExperimentTask {
 	string get_cmd_run() {
 #		define returnCommand(name) \
 			if (args->db_benchmark[number] == #name) \
-				return get_cmd_##name();
+				return get_cmd_##name()
 
-		returnCommand(readwhilewriting)
-		returnCommand(readrandomwriterandom)
-		returnCommand(mixgraph)
+		returnCommand(readwhilewriting);
+		returnCommand(readrandomwriterandom);
+		returnCommand(mixedworkload);
+		returnCommand(mixgraph);
 #		undef returnCommand
 
 		throw runtime_error(format("invalid benchmark name: \"{}\"", args->db_benchmark[number]));
 	}
+
 	string get_cmd_readwhilewriting() {
 		uint32_t duration_s = args->duration * 60; /*minutes to seconds*/
 
@@ -203,6 +205,7 @@ class DBBench : public ExperimentTask {
 			format("    {}  2>&1 ", args->db_bench_params[number]);
 		return ret;
 	}
+
 	string get_cmd_readrandomwriterandom() {
 		uint32_t duration_s = args->duration * 60; /*minutes to seconds*/
 
@@ -224,6 +227,29 @@ class DBBench : public ExperimentTask {
 			format("    {}  2>&1 ", args->db_bench_params[number]);
 		return ret;
 	}
+
+	string get_cmd_mixedworkload() {
+		uint32_t duration_s = args->duration * 60; /*minutes to seconds*/
+
+		string ret =
+			format("db_bench --benchmarks=mixedworkload               \\\n") +
+			format("    --duration={}                                 \\\n", duration_s) +
+			get_params_w() +
+			format("    --use_existing_db=true                        \\\n") +
+			format("    --threads={}                                  \\\n", args->db_threads[number]) +
+			format("                                                  \\\n") +
+			format("    --perf_level=2                                \\\n") +
+			format("    --stats_interval_seconds={}                   \\\n", args->stats_interval) +
+			format("    --stats_per_interval=1                        \\\n") +
+			format("                                                  \\\n") +
+			format("    --sync={}                                     \\\n", 1 /*syncval*/) +
+			format("    --merge_operator=\"put\"                      \\\n") +
+			format("    --seed=$( date +%s )                          \\\n") +
+			format("    --workloadscript=\"{}\"                       \\\n", args->db_workloadscript[number]) +
+			format("    {}  2>&1 ", args->db_bench_params[number]);
+		return ret;
+	}
+
 	string get_cmd_mixgraph() {
 		uint32_t duration_s = args->duration * 60; /*minutes to seconds*/
 		double   sine_b   = 0.000073 * 24.0 * 60.0 * ((double)args->db_sine_cycles[number] / (double)args->duration); /*adjust the sine cycle*/
