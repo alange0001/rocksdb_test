@@ -3,7 +3,9 @@
 # Tests
 #DURATION=10 WARM_PERIOD=1 RESTORE_DB=0 WORKLOAD=readrandomwriterandom NUM_AT=0 ./run.sh db_bench >plot/dbbench_rrrw.out
 #DURATION=10 WARM_PERIOD=1 RESTORE_DB=0 WORKLOAD=readrandomwriterandom NUM_AT=0 ./run.sh db_bench >plot/dbbench_rrrw.out
-DURATION=17 WARM_PERIOD=0 RESTORE_DB=0 WORKLOAD=mixedworkload WORKLOADSCRIPT="wait; writeratio=0; 15s:wait=false; 2m:writeratio=0.02; 4m:writeratio=0.05; 8m:writeratio=0.1; 10m:writeratio=0.2; 12m:writeratio=0.25; 14m:writeratio=0.5" NUM_AT=0 ./run.sh db_bench >plot/dbbench_mw.out
+
+#THREADS=6 RESTORE_DB=0 WORKLOAD=mixedworkload ./run.sh db_bench_multi >plot/dbbench_mw_dbs4_threads6.out
+THREADS=8 RESTORE_DB=0 WORKLOAD=mixedworkload ./run.sh db_bench_multi >plot/dbbench_mw_dbs6_threads8.out
 
 
 ## Done:

@@ -33,7 +33,17 @@ DIR_DB_YCSB="$DIR_WORK/rocksdb_ycsb"
 DIR_AT="$DIR_WORK/tmp"
 test_dir "$DIR_AT"
 
+BACKUP_DB_BENCH="$DIR_WORK"/../work2/rocksdb.tar
+BACKUP_DB_YCSB="$DIR_WORK"/../work2/ycsb.tar
+
 RESTORE_DB=${RESTORE_DB:-0}
+
+function remove_dbs {
+	for i in "$DIR_DB_BENCH" "$DIR_DB_BENCH"_* rm -fr "$DIR_DB_YCSB" "$DIR_DB_YCSB"_*; do
+		echo "removing database dir: $i" >&2
+		rm -fr "$i"
+	done
+}
 
 function run_at3() {
 	output_dir="$1"
@@ -138,10 +148,9 @@ function run_ycsb() {
 	echo "at_params = $at_params" >&2
 	
 	if [ "$RESTORE_DB" == 1 ]; then
+		remove_dbs
 		echo "Restore YCSB database ..." >&2
-		rm -fr "$DIR_DB_BENCH"
-		rm -fr "$DIR_DB_YCSB"
-		tar -xf "$DIR_WORK"/../work2/rocksdb_ycsb.tar -C "$DIR_WORK" || exit 1
+		tar -xf "$BACKUP_DB_YCSB" -C "$DIR_DB_YCSB" || exit 1
 	fi
 	test_dir "$DIR_DB_YCSB"
 	
@@ -187,10 +196,9 @@ function run_db_bench() {
 	fi
 	echo "at_params = $at_params" >&2
 	if [ "$RESTORE_DB" == 1 ]; then
+		remove_dbs
 		echo "Restore db_bench database ..." >&2
-		rm -fr "$DIR_DB_BENCH"
-		rm -fr "$DIR_DB_YCSB"
-		tar -xf "$DIR_WORK"/../work2/rocksdb.tar -C "$DIR_WORK" || exit 1
+		tar -xf "$BACKUP_DB_BENCH" -C "$DIR_DB_BENCH" || exit 1
 	fi
 	test_dir "$DIR_DB_BENCH"
 	
@@ -208,7 +216,7 @@ function run_db_bench() {
 		--db_num_keys="500000000" \
 		--db_cache_size="$((512 * 1024 * 1024))" \
 		--db_threads="$THREADS" \
-		--db_workloadscript="$WORKLOADSCRIPT"
+		--db_workloadscript="$WORKLOADSCRIPT" \
 		--num_at="$NUM_AT" \
 		--at_file="$NUM_AT" \
 		--at_block_size="$AT_BLOCK_SIZE" \
@@ -216,9 +224,61 @@ function run_db_bench() {
 		--at_script="$at_script"
 }
 
+function run_db_bench_multi() {
+	OLD_IFS=${IFS}
+	DURATION=${DURATION:-130}                      ; echo "DURATION       = $DURATION" >&2
+	WARM_PERIOD=${WARM_PERIOD:-0}                ; echo "WARM_PERIOD    = $WARM_PERIOD" >&2
+	THREADS=${THREADS:-6}                         ; echo "THREADS        = $THREADS" >&2
+	WORKLOAD=${WORKLOAD:-mixedworkload}           ; echo "WORKLOAD       = $WORKLOAD" >&2
+	NUM_DBS=${NUM_DBS:-4}                         ; echo "NUM_DBS        = $NUM_DBS" >&2
+	
+	DB_PATH=`for ((i=1;i<=$NUM_DBS;i++)); do echo "$DIR_WORK/rocksdb_$i"; done |paste -sd'#'`
+	echo "DB_PATH        = $DB_PATH" >&2
+	
+	echo "RESTORE_DB     = $RESTORE_DB" >&2
+	if [ "$RESTORE_DB" == 1 ]; then
+		remove_dbs
+		IFS="#"
+		for i in $DB_PATH; do
+			echo "Restore db_bench databases: $i" >&2
+			tar -xf "$BACKUP_DB_BENCH" -C "$i" || exit 1
+			test_dir "$i"
+		done
+		IFS="$OLD_IFS"
+	fi
+	
+	iv=20
+	warm=20
+	WORKLOADSCRIPT=`for ((i=2;i<=$NUM_DBS;i++)); do
+		s=$((warm + 5 * (i-2)))
+		echo "wait;writeratio=0.05;$((s + iv*0))m:wait=false;$((s + iv*1))m:writeratio=0.1;$((s + iv*2))m:writeratio=0.2;$((s + iv*3))m:writeratio=0.3;$((s + iv*4))m:writeratio=0.4;$((s + iv*5))m:writeratio=0.5"
+	done |paste -sd'#'`
+	WORKLOADSCRIPT="writeratio=0.05#$WORKLOADSCRIPT"
+	echo "WORKLOADSCRIPT = $WORKLOADSCRIPT" >&2
+	
+	echo "Run rocksdb_test ..." >&2
+	rocksdb_test \
+		--log_level="info" \
+		--duration="$DURATION" \
+		--warm_period="$WARM_PERIOD" \
+		--stats_interval="5" \
+		--io_device="nvme0n1" \
+		--num_dbs="$NUM_DBS" \
+		--db_create="false" \
+		--db_benchmark="$WORKLOAD" \
+		--db_path="$DB_PATH" \
+		--db_num_keys="500000000" \
+		--db_cache_size="$((512 * 1024 * 1024))" \
+		--db_threads="$THREADS" \
+		--db_workloadscript="$WORKLOADSCRIPT"
+}
+
 case "$1" in
 	"db_bench")
 		run_db_bench
+		;;
+	"db_bench_multi")
+		run_db_bench_multi
 		;;
 	"ycsb")
 		run_ycsb

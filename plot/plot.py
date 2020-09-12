@@ -202,10 +202,16 @@ class File:
 		fig.set_figheight(5)
 		fig.set_figwidth(8)
 
+		Xmin, Xmax = None, None
 		for i in range(0, len(self._dbbench)):
+			if 'db_bench[{}]'.format(i) not in self._data.keys(): continue
+
 			X = [i['time']/60.0 for i in self._data['db_bench[{}]'.format(i)]]
 			Y = [i['ops_per_s'] for i in self._data['db_bench[{}]'.format(i)]]
 			ax.plot(X, Y, '-', lw=1, label='db {}, real'.format(i))
+
+			if (Xmin is None) or (X[ 0] < Xmin): Xmin = X[ 0]
+			if (Xmax is None) or (X[-1] > Xmax): Xmax = X[-1]
 
 			self.savePlotData('db_X', X)
 			self.savePlotData('db_Y', Y)
@@ -218,8 +224,8 @@ class File:
 				Y = [ sine_a * math.sin(sine_b * x + sine_c) + sine_d for x in X]
 				ax.plot(X, Y, '-', lw=1, label='db {}, expect'.format(i))
 
-		aux = (X[-1] - X[0]) * 0.01
-		ax.set_xlim([X[0]-aux,X[-1]+aux])
+		aux = (Xmax - Xmin) * 0.01
+		ax.set_xlim([Xmin - aux, Xmax + aux])
 
 		self.setXticks(ax)
 
@@ -647,7 +653,7 @@ def plotFiles(filenames, options):
 	for name in filenames:
 		print(
 			'######################################################\n' +
-			'Graphs from file "{}":\n'.format(name) +
+			'Graphs from file "{}":'.format(name) +
 			'\n')
 		f = File(name, options)
 		f.graph_all()
@@ -656,6 +662,9 @@ def plotFiles(filenames, options):
 
 ##############################################################################
 #Options.save = True
+
+#options = Options(graphTickMajor=10, graphTickMinor=4)
+#plotFiles(["dbbench_mw2.out"], options)
 
 #plotFiles(getFiles('exp_db'), Options())
 #plotFiles(getFiles('exp_at3'), Options(plot_at3_write_ratio=True))
