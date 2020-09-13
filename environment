@@ -1,0 +1,17 @@
+#!/bin/bash
+
+DIR_BASE=$(cd `dirname $0` && echo $PWD)
+[ -z "$DIR_BASE" ] && exit 1
+DIR_YCSB="$DIR_BASE/../YCSB"
+DIR_ROCKS="$DIR_BASE/../rocksdb.bak"
+
+export PATH="$PATH:$DIR_BASE/build"
+export PATH="$PATH:$DIR_YCSB/bin"
+export PATH="$PATH:$DIR_ROCKS"
+
+DIR_WORK="/media/auto/work"
+DIR_DB_BENCH="$DIR_WORK/rocksdb"
+DIR_DB_YCSB="$DIR_WORK/rocksdb_ycsb"
+DIR_AT="$DIR_WORK/tmp"
+
+DIR_BACKUP="/media/auto/work2"

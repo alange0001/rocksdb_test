@@ -15,26 +15,18 @@ function test_dir() {
 	fi
 }
 
-DIR_BASE=$(cd `dirname $0` && echo $PWD)
-[ -z "$DIR_BASE" ] && exit 1
-DIR_YCSB="$DIR_BASE/../YCSB"
-DIR_ROCKS="$DIR_BASE/../rocksdb"
+. environment
 
 test_dir "$DIR_BASE/build"
-export PATH="$PATH:$DIR_BASE/build"
 test_dir "$DIR_YCSB/bin"
-export PATH="$PATH:$DIR_YCSB/bin"
 test_dir "$DIR_ROCKS"
-export PATH="$PATH:$DIR_ROCKS"
 
-DIR_WORK="/media/auto/work"
-DIR_DB_BENCH="$DIR_WORK/rocksdb"
-DIR_DB_YCSB="$DIR_WORK/rocksdb_ycsb"
-DIR_AT="$DIR_WORK/tmp"
+test_dir "$DIR_WORK"
+test_dir "$DIR_BACKUP"
 test_dir "$DIR_AT"
 
-BACKUP_DB_BENCH="$DIR_WORK"/../work2/rocksdb.tar
-BACKUP_DB_YCSB="$DIR_WORK"/../work2/ycsb.tar
+BACKUP_DB_BENCH="$DIR_BACKUP"/rocksdb.tar
+BACKUP_DB_YCSB="$DIR_BACKUP"/ycsb.tar
 
 RESTORE_DB=${RESTORE_DB:-0}
 
@@ -226,8 +218,8 @@ function run_db_bench() {
 
 function run_db_bench_multi() {
 	OLD_IFS=${IFS}
-	DURATION=${DURATION:-130}                      ; echo "DURATION       = $DURATION" >&2
-	WARM_PERIOD=${WARM_PERIOD:-0}                ; echo "WARM_PERIOD    = $WARM_PERIOD" >&2
+	DURATION=${DURATION:-135}                     ; echo "DURATION       = $DURATION" >&2
+	WARM_PERIOD=${WARM_PERIOD:-1}                 ; echo "WARM_PERIOD    = $WARM_PERIOD" >&2
 	THREADS=${THREADS:-6}                         ; echo "THREADS        = $THREADS" >&2
 	WORKLOAD=${WORKLOAD:-mixedworkload}           ; echo "WORKLOAD       = $WORKLOAD" >&2
 	NUM_DBS=${NUM_DBS:-4}                         ; echo "NUM_DBS        = $NUM_DBS" >&2
@@ -247,13 +239,15 @@ function run_db_bench_multi() {
 		IFS="$OLD_IFS"
 	fi
 	
-	iv=20
-	warm=20
-	WORKLOADSCRIPT=`for ((i=2;i<=$NUM_DBS;i++)); do
-		s=$((warm + 5 * (i-2)))
-		echo "wait;writeratio=0.05;$((s + iv*0))m:wait=false;$((s + iv*1))m:writeratio=0.1;$((s + iv*2))m:writeratio=0.2;$((s + iv*3))m:writeratio=0.3;$((s + iv*4))m:writeratio=0.4;$((s + iv*5))m:writeratio=0.5"
-	done |paste -sd'#'`
-	WORKLOADSCRIPT="writeratio=0.05#$WORKLOADSCRIPT"
+	WRITERATIO=${WRITERATIO:-0.05}
+	WORKLOADSCRIPT="writeratio=$WRITERATIO #wait;20m:writeratio=$WRITERATIO;wait=false #wait;30m:writeratio=$WRITERATIO;wait=false #wait;40m:writeratio=$WRITERATIO;wait=false"
+	#iv=20
+	#warm=20
+	#WORKLOADSCRIPT=`for ((i=2;i<=$NUM_DBS;i++)); do
+	#	s=$((warm + 5 * (i-2)))
+	#	echo "wait;writeratio=0.05;$((s + iv*0))m:wait=false;$((s + iv*1))m:writeratio=0.1;$((s + iv*2))m:writeratio=0.2;$((s + iv*3))m:writeratio=0.3;$((s + iv*4))m:writeratio=0.4;$((s + iv*5))m:writeratio=0.5"
+	#done |paste -sd'#'`
+	#WORKLOADSCRIPT="writeratio=0.05#$WORKLOADSCRIPT"
 	echo "WORKLOADSCRIPT = $WORKLOADSCRIPT" >&2
 	
 	echo "Run rocksdb_test ..." >&2
