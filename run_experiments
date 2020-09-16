@@ -1,0 +1,25 @@
+#!/bin/bash
+#
+# Copyright (c) 2020-present, Adriano Lange.  All rights reserved.
+# This source code is licensed under both the GPLv2 (found in the
+# LICENSE.GPLv2 file in the root directory) and Apache 2.0 License
+# (found in the LICENSE.Apache file in the root directory).
+#
+
+source run_functions
+
+if [ "$1" == 'mw_per_threads_writeratio' ]; then
+	DURATION=61
+	WARM_PERIOD=1
+	RESTORE_DBS=0
+	NUM_DBS=1
+	DB_WORKLOAD=mixedworkload
+	
+	loop_threads="25 30 10 15 20"
+	for DB_THREADS in $loop_threads; do
+		DB_WORKLOADSCRIPT="writeratio=0.05;16m:writeratio=0.1;31m:writeratio=0.2;46m:writeratio=0.5"
+	done
+	run_generic >plot/exp_mw/${1}-dbs${NUM_DBS}_threads${DB_THREADS}.out
+	
+	exit 0
+fi

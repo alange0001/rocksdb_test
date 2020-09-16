@@ -1,4 +1,8 @@
 #!/bin/bash
+#
+# Environment variables used in the experiments.
+# File run_base
+#
 
 DIR_BASE=$(cd `dirname $0` && echo $PWD)
 [ -z "$DIR_BASE" ] && exit 1
@@ -15,3 +19,5 @@ DIR_DB_YCSB="$DIR_WORK/rocksdb_ycsb"
 DIR_AT="$DIR_WORK/tmp"
 
 DIR_BACKUP="/media/auto/work2"
+
+IO_DEVICE="nvme0n1"
