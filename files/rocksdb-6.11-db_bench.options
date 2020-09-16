@@ -75,7 +75,6 @@
   use_direct_reads=false
   use_fsync=false
   wal_bytes_per_sync=0
-  wal_dir=/media/auto/work/rocksdb_1
   wal_recovery_mode=kPointInTimeRecovery
   WAL_size_limit_MB=0
   WAL_ttl_seconds=0
