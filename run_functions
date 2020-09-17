@@ -276,30 +276,30 @@ function run_generic() {
 	
 	echo "Run rocksdb_test ..." >&2
 	CMD="rocksdb_test \
-		--log_level=\"info\" \
-		--stats_interval=\"5\" \
-		--duration=\"$DURATION\" \
-		--warm_period=\"$WARM_PERIOD\" \
-		--io_device=\"$IO_DEVICE\" \
-		--rocksdb_config_file=\"$ROCKSDB_CONFIG\" \
-		--num_dbs=\"$NUM_DBS\" \
-		--db_create=\"false\" \
-		--db_num_keys=\"$DB_KEYS\" \
-		--db_path=\"$DB_PATH\" \
-		--db_benchmark=\"$DB_WORKLOAD\" \
-		--db_threads=\"$DB_THREADS\" \
-		--db_cache_size=\"$DB_CACHE_SIZE\" \
-		--db_workloadscript=\"$DB_WORKLOADSCRIPT\" \
-		--num_ydbs=\"$NUM_YDBS\" \
-		--ydb_num_keys=\"$YDB_KEYS\" \
-		--ydb_path=\"$YDB_PATH\" \
-		--ydb_workload=\"$DIR_YCSB/workloads/$YDB_WORKLOAD\" \
-		--ydb_threads=\"$YDB_THREADS\" \
-		--num_at=\"$NUM_AT\" \
-		--at_file=\"$AT_FILES\" \
-		--at_block_size=\"$AT_BLOCK_SIZE\" \
-		--at_params=\"$AT_PARAMS\" \
-		--at_script=\"$AT_SCRIPT\" \
+		--log_level=""info"" \
+		--stats_interval=5 \
+		--duration=""$DURATION"" \
+		--warm_period=""$WARM_PERIOD"" \
+		--io_device=""$IO_DEVICE"" \
+		--rocksdb_config_file=""$ROCKSDB_CONFIG"" \
+		--num_dbs=""$NUM_DBS"" \
+		--db_create=""false"" \
+		--db_num_keys=""$DB_KEYS"" \
+		--db_path=""$DB_PATH"" \
+		--db_benchmark=""$DB_WORKLOAD"" \
+		--db_threads=""$DB_THREADS"" \
+		--db_cache_size=""$DB_CACHE_SIZE"" \
+		--db_workloadscript=""$DB_WORKLOADSCRIPT"" \
+		--num_ydbs=""$NUM_YDBS"" \
+		--ydb_num_keys=""$YDB_KEYS"" \
+		--ydb_path=""$YDB_PATH"" \
+		--ydb_workload=""$DIR_YCSB/workloads/$YDB_WORKLOAD"" \
+		--ydb_threads=""$YDB_THREADS"" \
+		--num_at=""$NUM_AT"" \
+		--at_file=""$AT_FILES"" \
+		--at_block_size=""$AT_BLOCK_SIZE"" \
+		--at_params=""$AT_PARAMS"" \
+		--at_script=""$AT_SCRIPT"" \
 		$PARAMS"
 	
 	if [ "$TEST_COMMANDS" == 1 ]; then

@@ -15,7 +15,7 @@ if [ "$1" == 'mw_per_threads_writeratio' ]; then
 	NUM_DBS=1
 	DB_WORKLOAD=mixedworkload
 	
-	loop_threads="25 30 10 15" # 20
+	loop_threads="20 25 30 10 15"
 	for DB_THREADS in $loop_threads; do
 		DB_WORKLOADSCRIPT="writeratio=0.05;16m:writeratio=0.1;31m:writeratio=0.2;46m:writeratio=0.5"
 		OUTPUT="plot/exp_mw/${1}-dbs${NUM_DBS}_threads${DB_THREADS}.out"
@@ -25,24 +25,21 @@ if [ "$1" == 'mw_per_threads_writeratio' ]; then
 	exit 0
 fi
 
-if [ "$1" == 'mw_dbs' ]; then
-	TEST_COMMANDS=1
-	DURATION=61
+if [ "$1" == 'rrwr_dbs1' ]; then
+	TEST_COMMANDS=0
+	DURATION=16
 	WARM_PERIOD=1
 	RESTORE_DBS=0
-	NUM_DBS=4
-	DB_WORKLOAD=mixedworkload
-	DB_THREADS=20
-	writeratio=05
+	NUM_DBS=1
+	DB_WORKLOAD=readrandomwriterandom
 	
-	DB_WORKLOADSCRIPT=`
-	echo -n "writeratio=0.${writeratio}#"
-	for ((i=1; i < NUM_DBS; i++)); do
-		echo "wait;writeratio=0.${writeratio};$((15*i +1))m:wait=false"
-	done |paste -sd'#'`
-	
-	OUTPUT="plot/exp_mw/${1}-dbs${NUM_DBS}_threads${DB_THREADS}_writeratio${writeratio}.out"
-	run_generic
+	for DB_THREADS in 20; do
+		for readwritepercent in 5 10 20 50; do
+			PARAMS="--db_readwritepercent=$readwritepercent"
+			OUTPUT="plot/exp_rrwr/${1}-threads${DB_THREADS}_writeratio${readwritepercent}.out"
+			run_generic
+		done
+	done
 	
 	exit 0
 fi
