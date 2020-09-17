@@ -8,6 +8,40 @@
 
 source run_functions
 
+DB_KEYS=500000000  # db_bench
+YDB_KEYS=50000000  # YCSB
+
+if [ "$1" == 'create_ycsb' ]; then
+	TEST_COMMANDS=0
+	DURATION=10
+	WARM_PERIOD=0
+	ROCKSDB_CONFIG="files/rocksdb-6.11-db_bench.options"
+	NUM_YDBS=1
+	YDB_WORKLOAD="workloada"
+	YDB_THREADS=4
+	PARAMS="--ydb_create=true"
+	
+	run_generic
+	
+	exit 0
+fi
+
+if [ "$1" == 'ycsb_db1' ]; then
+	DURATION=31
+	WARM_PERIOD=1
+	RESTORE_DBS=0
+	NUM_YDBS=1
+	
+	for YDB_THREADS in 8 10; do
+		for YDB_WORKLOAD in workloada workloadb; do
+			OUTPUT="plot/exp_ycsb/${1}-threads${YDB_THREADS}_${YDB_WORKLOAD}.out"
+			run_generic
+		done
+	done
+	
+	exit 0
+fi
+
 if [ "$1" == 'mw_per_threads_writeratio' ]; then
 	DURATION=61
 	WARM_PERIOD=1
