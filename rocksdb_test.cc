@@ -391,7 +391,7 @@ class YCSB : public ExperimentTask {
 
 	string get_cmd_run() {
 		string cmd =
-			format("ycsb.sh run rocksdb -s                            \\\n") +
+			format("sleep {}m && ycsb.sh run rocksdb -s               \\\n", args->ydb_sleep[number]) +
 			get_const_params() +
 			format("    -p operationcount={}                          \\\n", 260000 * 60 * args->duration) +
 			format("    -p status.interval={}                         \\\n", args->stats_interval) +

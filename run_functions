@@ -242,6 +242,7 @@ function run_generic() {
 	                                                   echo "YDB_PATH          = $YDB_PATH" >&2
 	YDB_WORKLOAD=${YDB_WORKLOAD:-workloadb}          ; echo "YDB_WORKLOAD      = $YDB_WORKLOAD" >&2
 	YDB_THREADS=${YDB_THREADS:-1}                    ; echo "YDB_THREADS       = $YDB_THREADS" >&2
+	YDB_SLEEP=${YDB_SLEEP:-0}                        ; echo "YDB_SLEEP         = $YDB_SLEEP" >&2
 	# access_time3 params
 	NUM_AT=${NUM_AT:-0}                              ; echo "NUM_AT            = $NUM_AT" >&2
 	AT_FILES="$(for ((i=0; i<$NUM_AT; i++)); do echo "$DIR_AT/$i"; done |paste -sd'#')"
@@ -295,6 +296,7 @@ function run_generic() {
 		--ydb_path="$YDB_PATH" \
 		--ydb_workload="$DIR_YCSB/workloads/$YDB_WORKLOAD" \
 		--ydb_threads="$YDB_THREADS" \
+		--ydb_sleep="$YDB_SLEEP" \
 		--num_at="$NUM_AT" \
 		--at_file="$AT_FILES" \
 		--at_block_size="$AT_BLOCK_SIZE" \

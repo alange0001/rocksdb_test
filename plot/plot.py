@@ -196,25 +196,29 @@ class File:
 			self._plotdata[name] = data
 
 	def graph_db(self):
-		if len(self._dbbench) == 0:
+		num_dbbench, num_ycsb = 0, 0
+		for i in range(0,1024):
+			if self._data.get('db_bench[{}]'.format(i)) is None:
+				break
+			num_dbbench += 1
+		for i in range(0,1024):
+			if self._data.get('ycsb[{}]'.format(i)) is None:
+				break
+			num_ycsb += 1
+		if num_dbbench == 0 and num_ycsb == 0:
 			return
+			
 		fig, ax = plt.subplots()
 		fig.set_figheight(5)
 		fig.set_figwidth(8)
 
 		Xmin, Xmax = None, None
-		for i in range(0, len(self._dbbench)):
-			if 'db_bench[{}]'.format(i) not in self._data.keys(): continue
-
+		for i in range(0, num_dbbench):
 			X = [i['time']/60.0 for i in self._data['db_bench[{}]'.format(i)]]
 			Y = [i['ops_per_s'] for i in self._data['db_bench[{}]'.format(i)]]
-			ax.plot(X, Y, '-', lw=1, label='db {}, real'.format(i))
-
 			if (Xmin is None) or (X[ 0] < Xmin): Xmin = X[ 0]
 			if (Xmax is None) or (X[-1] > Xmax): Xmax = X[-1]
-
-			self.savePlotData('db_X', X)
-			self.savePlotData('db_Y', Y)
+			ax.plot(X, Y, '-', lw=1, label='db_bench {}'.format(i))
 
 			if self._dbbench[i].get("sine_d") is not None:
 				sine_a = coalesce(self._dbbench[i]['sine_a'], 0)
@@ -222,14 +226,21 @@ class File:
 				sine_c = coalesce(self._dbbench[i]['sine_c'], 0)
 				sine_d = coalesce(self._dbbench[i]['sine_d'], 0)
 				Y = [ sine_a * math.sin(sine_b * x + sine_c) + sine_d for x in X]
-				ax.plot(X, Y, '-', lw=1, label='db {}, expect'.format(i))
+				ax.plot(X, Y, '-', lw=1, label='db_bench {} (expect)'.format(i))
+
+		for i in range(0, num_ycsb):
+			X = [i['time']/60.0 for i in self._data['ycsb[{}]'.format(i)]]
+			Y = [i['ops_per_s'] for i in self._data['ycsb[{}]'.format(i)]]
+			if (Xmin is None) or (X[ 0] < Xmin): Xmin = X[ 0]
+			if (Xmax is None) or (X[-1] > Xmax): Xmax = X[-1]
+			ax.plot(X, Y, '-', lw=1, label='ycsb {}'.format(i))
 
 		aux = (Xmax - Xmin) * 0.01
-		ax.set_xlim([Xmin - aux, Xmax + aux])
+		ax.set_xlim( [Xmin - aux, Xmax + aux] )
 
 		self.setXticks(ax)
 
-		ax.set(title="db_bench throughput", xlabel="time (min)", ylabel="tx/s")
+		ax.set(title="database throughput", xlabel="time (min)", ylabel="tx/s")
 
 		#chartBox = ax.get_position()
 		#ax.set_position([chartBox.x0, chartBox.y0, chartBox.width*0.65, chartBox.height])
@@ -239,41 +250,6 @@ class File:
 		if self._options.save:
 			for f in self._options.formats:
 				save_name = '{}_graph_db.{}'.format(self._filename.replace('.out', ''), f)
-				fig.savefig(save_name, bbox_inches="tight")
-		plt.show()
-
-	def graph_ycsb(self):
-		num_ycsb = 0
-		for i in range(0,1024):
-			if self._data.get('ycsb[{}]'.format(i)) is None:
-				break
-			num_ycsb += 1
-		if num_ycsb == 0: return
-
-		fig, ax = plt.subplots()
-		fig.set_figheight(5)
-		fig.set_figwidth(8)
-
-		for i in range(0, num_ycsb):
-			X = [i['time']/60.0 for i in self._data['ycsb[{}]'.format(i)]]
-			Y = [i['ops_per_s'] for i in self._data['ycsb[{}]'.format(i)]]
-			ax.plot(X, Y, '-', lw=1, label='db {}'.format(i))
-
-		aux = (X[-1] - X[0]) * 0.01
-		ax.set_xlim([X[0]-aux,X[-1]+aux])
-
-		self.setXticks(ax)
-
-		ax.set(title="YCSB throughput", xlabel="time (min)", ylabel="tx/s")
-
-		#chartBox = ax.get_position()
-		#ax.set_position([chartBox.x0, chartBox.y0, chartBox.width*0.65, chartBox.height])
-		#ax.legend(loc='upper center', bbox_to_anchor=(1.35, 0.9), title='threads', ncol=1, frameon=True)
-		ax.legend(loc='best', ncol=1, frameon=True)
-
-		if self._options.save:
-			for f in self._options.formats:
-				save_name = '{}_graph_ycsb.{}'.format(self._filename.replace('.out', ''), f)
 				fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
 
@@ -595,7 +571,6 @@ class File:
 			self.printParams()
 		## Generic Graphs:
 		if self._options.plot_db:         self.graph_db()
-		if self._options.plot_ycsb:       self.graph_ycsb()
 		if self._options.plot_io:         self.graph_io()
 		if self._options.plot_cpu:        self.graph_cpu()
 		if self._options.plot_at3:        self.graph_at3()

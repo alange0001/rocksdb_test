@@ -32,8 +32,25 @@ if [ "$1" == 'ycsb_db1' ]; then
 	RESTORE_DBS=0
 	NUM_YDBS=1
 	
-	for YDB_THREADS in 8 10; do
+	for YDB_THREADS in 4 6 8 10; do
 		for YDB_WORKLOAD in workloada workloadb; do
+			OUTPUT="plot/exp_ycsb/${1}-threads${YDB_THREADS}_${YDB_WORKLOAD}.out"
+			run_generic
+		done
+	done
+	
+	exit 0
+fi
+
+if [ "$1" == 'ycsb_db3' ]; then
+	DURATION=46
+	WARM_PERIOD=1
+	RESTORE_DBS=0
+	NUM_YDBS=3
+	YDB_SLEEP="0#16#31"
+	
+	for YDB_THREADS in 4; do
+		for YDB_WORKLOAD in workloadb workloada; do
 			OUTPUT="plot/exp_ycsb/${1}-threads${YDB_THREADS}_${YDB_WORKLOAD}.out"
 			run_generic
 		done

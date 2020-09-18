@@ -202,6 +202,14 @@ using std::function;
 		uint32_t,                                                 \
 		value >= 1,                                               \
 		num_ydbs)                                                 \
+	_f(ydb_sleep, VectorParser<uint32_t>, DEFINE_string,          \
+		"0",                                                      \
+		"Sleep before start (minutes)",                           \
+		true,                                                     \
+		nullptr,                                                  \
+		uint32_t,                                                 \
+		value >= 0,                                               \
+		num_ydbs)                                                 \
 	_f(ydb_params, VectorParser<string>, DEFINE_string,           \
 		"",                                                       \
 		"Other parameters used in YCSB (list)",                   \
