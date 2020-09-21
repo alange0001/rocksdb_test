@@ -20,6 +20,7 @@ import sqlite3
 import numpy
 import matplotlib.pyplot as plt
 from matplotlib.ticker import (AutoMinorLocator, MultipleLocator)
+import pandas as pd
 
 class Options:
 	formats = ['png', 'pdf']
@@ -207,7 +208,7 @@ class File:
 			num_ycsb += 1
 		if num_dbbench == 0 and num_ycsb == 0:
 			return
-			
+
 		fig, ax = plt.subplots()
 		fig.set_figheight(5)
 		fig.set_figwidth(8)
@@ -610,6 +611,20 @@ def decimalSuffix(value):
 	else:
 		raise Exception("invalid number")
 
+def binarySuffix(value):
+	r = re.findall(r' *([0-9.]+) *([PTGMKptgmk])i{0,1}[Bb]{0,1} *', value)
+	if len(r) > 0:
+		number = tryConvert(r[0][0], int, float)
+		suffix = r[0][1]
+		if   suffix.upper() == "K": number = number * 1024
+		elif suffix.upper() == "M": number = number * (1024**2)
+		elif suffix.upper() == "G": number = number * (1024**3)
+		elif suffix.upper() == "T": number = number * (1024**4)
+		elif suffix.upper() == "P": number = number * (1024**5)
+		return number
+	else:
+		raise Exception("invalid number")
+
 def getFiles(dirname):
 	try:
 		from natsort import natsorted
@@ -635,6 +650,85 @@ def plotFiles(filenames, options):
 		files[name] = f
 		del f
 
+class FioFiles:
+	_options = None
+	_files = None
+	_data = None
+	_pd = None
+
+	def __init__(self, files, options):
+		self._options = options
+		self._files = []
+		self._data = []
+
+		for f in files:
+			self.parseFile(f)
+
+		self._pd = pd.DataFrame({
+			"rw":           [i['jobs'][0]['job options']['rw']                         for i in self._data],
+			"iodepth":      [tryConvert( i['jobs'][0]['job options']['iodepth'], int)  for i in self._data],
+			"bs":           [binarySuffix( i['jobs'][0]['job options']['bs'])          for i in self._data],
+			"error":        [tryConvert(i['jobs'][0]['error'], bool)                   for i in self._data],
+			"bw_min":       [i['jobs'][0]['mixed']['bw_min']                           for i in self._data],
+			"bw_max":       [i['jobs'][0]['mixed']['bw_max']                           for i in self._data],
+			"bw_agg":       [i['jobs'][0]['mixed']['bw_agg']                           for i in self._data],
+			"bw_mean":      [i['jobs'][0]['mixed']['bw_mean']                          for i in self._data],
+			"bw_dev":       [i['jobs'][0]['mixed']['bw_dev']                           for i in self._data],
+			"iops_min":     [i['jobs'][0]['mixed']['iops_min']                         for i in self._data],
+			"iops_max":     [i['jobs'][0]['mixed']['iops_max']                         for i in self._data],
+			"iops_mean":    [i['jobs'][0]['mixed']['iops_mean']                        for i in self._data],
+			"iops_stddev":  [i['jobs'][0]['mixed']['iops_stddev']                      for i in self._data],
+			"iops_samples": [i['jobs'][0]['mixed']['iops_samples']                     for i in self._data],
+			})
+
+	def parseFile(self, filename):
+		try:
+			with open(filename, "r") as f:
+				j = json.load(f)
+				self._files.append(filename)
+				self._data.append(j)
+		except Exception as e:
+			print("filed to read file {}: {}".format(filename, str(e)))
+
+	def graph_depth(self):
+		for pattern in self._pd['rw'].value_counts().index:
+			pattern_pd = self._pd[self._pd['rw'] == pattern]
+			iodepth_list = list(pattern_pd['iodepth'].value_counts().index)
+			iodepth_list.sort()
+			X_values = list(pattern_pd['bs'].value_counts().index)
+			X_values.sort()
+			#print(X_values)
+
+			fig, ax = plt.subplots()
+			fig.set_figheight(5)
+			fig.set_figwidth(8)
+
+			X_labels = [ str(int(x/1024)) for x in X_values]
+			#print(X_labels)
+
+			width=0.1
+			s_width=0.0-((width * len(X_labels))/2)
+			for iodepth in iodepth_list:
+				X = [ x+s_width for x in range(0,len(X_values)) ]
+				#print(X)
+				Y = [ float(pattern_pd[(pattern_pd['iodepth']==iodepth)&(pattern_pd['bs']==x)]['bw_mean']) for x in X_values ]
+				Y_dev = [ float(pattern_pd[(pattern_pd['iodepth']==iodepth)&(pattern_pd['bs']==x)]['bw_dev']) for x in X_values ]
+				#print(Y)
+				ax.bar(X, Y, yerr=Y_dev, label='iodepth {}'.format(iodepth), width=width)
+				s_width += width
+
+			ax.set_xticks([ x for x in range(0, len(X_labels))])
+			ax.set_xticklabels(X_labels)
+
+			ax.set(title="fio {}".format(pattern), xlabel="block size (KiB)", ylabel="KiB/s")
+			ax.legend(loc='best', ncol=1, frameon=True)
+
+			if self._options.save:
+				for f in self._options.formats:
+					save_name = 'fio_{}.{}'.format(pattern, f)
+					fig.savefig(save_name, bbox_inches="tight")
+			plt.show()
+
 ##############################################################################
 #Options.save = True
 
@@ -644,3 +738,6 @@ def plotFiles(filenames, options):
 #plotFiles(getFiles('exp_db'), Options())
 #plotFiles(getFiles('exp_at3'), Options(plot_at3_write_ratio=True))
 #plotFiles(getFiles('exp_at3_rww'), Options(graphTickMajor=2, graphTickMinor=4, plot_io_norm=True))
+
+#fiofiles = FioFiles(getFiles('exp_fio'), Options())
+#fiofiles.graph_depth()

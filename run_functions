@@ -304,3 +304,37 @@ function run_generic() {
 		--at_script="$AT_SCRIPT" \
 		$PARAMS > $OUTPUT
 }
+
+function run_fio() {
+	                                                   echo "" >&2
+	                                                   echo "===================================" >&2
+	OUTPUT=${OUTPUT:-/dev/stdout}                    ; echo "OUTPUT            = $OUTPUT" >&2
+	RUNTIME=${RUNTIME:-90}                           ; echo "RUNTIME           = $RUNTIME" >&2
+	DIRECTORY=${DIRECTORY:-$DIR_AT}                  ; echo "DIRECTORY         = $DIRECTORY" >&2
+	FILENAME=${FILENAME:-testfile.dat}               ; echo "FILENAME          = $FILENAME" >&2
+	FILESIZE=${FILESIZE:-20GiB}                      ; echo "FILESIZE          = $FILESIZE" >&2
+	IODEPTH=${IODEPTH:-1}                            ; echo "IODEPTH           = $IODEPTH" >&2
+	BS=${BS:-4k}                                     ; echo "BS                = $BS" >&2
+	RW=${RW:-read}                                   ; echo "RW                = $RW" >&2
+	
+	test_cmd=
+	if [ "$TEST_COMMANDS" == 1 ]; then
+		test_cmd="echo COMMAND: "
+		OUTPUT=/dev/stdout
+	fi
+	
+	$test_cmd fio \
+		--output-format=json \
+		--unified_rw_reporting=1 \
+		--time_based=1 \
+		--runtime="$RUNTIME" \
+		--directory="$DIRECTORY" \
+		--filename="$FILENAME" \
+		--filesize="$FILESIZE" \
+		--direct=1 \
+		--ioengine=libaio \
+		--name=jobname \
+		--iodepth="$IODEPTH" \
+		--bs="$BS" \
+		--rw="$RW" > $OUTPUT
+}

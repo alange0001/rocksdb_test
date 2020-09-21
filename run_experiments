@@ -94,3 +94,23 @@ if [ "$1" == 'rrwr_dbs1' ]; then
 	
 	exit 0
 fi
+
+if [ "$1" == 'fio' ]; then
+	TEST_COMMANDS=0
+	
+	s=20
+	#for RW in read randread write randwrite; do
+	for RW in randread; do
+		[ "$RW" == "write" ] || [ "$RW" == "randwrite" ] && s=40
+		for BS in 4k 8k 16k 32k 256k 512k; do
+			for IODEPTH in 1 2 4 8 16 32; do
+				#OUTPUT="plot/exp_fio/${1}-${RW}_bs${BS}_depth${IODEPTH}.out"
+				OUTPUT="plot/exp_fio/${1}-${RW}_bs${BS}_depth${IODEPTH}.out.new"
+				run_fio
+				sleep $s
+			done
+		done
+	done
+	
+	exit 0
+fi
