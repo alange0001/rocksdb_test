@@ -690,8 +690,18 @@ class FioFiles:
 		except Exception as e:
 			print("filed to read file {}: {}".format(filename, str(e)))
 
-	def graph_depth(self):
-		for pattern in self._pd['rw'].value_counts().index:
+	def sortPatterns(self, patterns):
+		ret = []
+		desired_order = ['read', 'randread', 'write', 'randwrite']
+		for p in desired_order:
+			if p in patterns: ret.append(p)
+		for p in patterns:
+			if p not in desired_order: ret.append(p)
+		return ret
+
+	def graph_bw(self):
+		pattern_list = self.sortPatterns(self._pd['rw'].value_counts().index)
+		for pattern in pattern_list:
 			pattern_pd = self._pd[self._pd['rw'] == pattern]
 			iodepth_list = list(pattern_pd['iodepth'].value_counts().index)
 			iodepth_list.sort()
@@ -729,6 +739,46 @@ class FioFiles:
 					fig.savefig(save_name, bbox_inches="tight")
 			plt.show()
 
+	def graph_iops(self):
+		pattern_list = self.sortPatterns(self._pd['rw'].value_counts().index)
+		for pattern in pattern_list:
+			pattern_pd = self._pd[self._pd['rw'] == pattern]
+			iodepth_list = list(pattern_pd['iodepth'].value_counts().index)
+			iodepth_list.sort()
+			X_values = list(pattern_pd['bs'].value_counts().index)
+			X_values.sort()
+			#print(X_values)
+
+			fig, ax = plt.subplots()
+			fig.set_figheight(5)
+			fig.set_figwidth(8)
+
+			X_labels = [ str(int(x/1024)) for x in X_values]
+			#print(X_labels)
+
+			width=0.1
+			s_width=0.0-((width * len(X_labels))/2)
+			for iodepth in iodepth_list:
+				X = [ x+s_width for x in range(0,len(X_values)) ]
+				#print(X)
+				Y = [ float(pattern_pd[(pattern_pd['iodepth']==iodepth)&(pattern_pd['bs']==x)]['iops_mean']) for x in X_values ]
+				Y_dev = [ float(pattern_pd[(pattern_pd['iodepth']==iodepth)&(pattern_pd['bs']==x)]['iops_stddev']) for x in X_values ]
+				#print(Y)
+				ax.bar(X, Y, yerr=Y_dev, label='iodepth {}'.format(iodepth), width=width)
+				s_width += width
+
+			ax.set_xticks([ x for x in range(0, len(X_labels))])
+			ax.set_xticklabels(X_labels)
+
+			ax.set(title="fio {}".format(pattern), xlabel="block size (KiB)", ylabel="IOPS")
+			ax.legend(loc='upper left', ncol=4, frameon=False)
+
+			if self._options.save:
+				for f in self._options.formats:
+					save_name = 'fio_{}.{}'.format(pattern, f)
+					fig.savefig(save_name, bbox_inches="tight")
+			plt.show()
+
 ##############################################################################
 #Options.save = True
 
@@ -740,4 +790,5 @@ class FioFiles:
 #plotFiles(getFiles('exp_at3_rww'), Options(graphTickMajor=2, graphTickMinor=4, plot_io_norm=True))
 
 #fiofiles = FioFiles(getFiles('exp_fio'), Options())
-#fiofiles.graph_depth()
+#fiofiles.graph_bw()
+#fiofiles.graph_iops()
