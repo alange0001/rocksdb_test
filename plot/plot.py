@@ -721,7 +721,7 @@ class FioFiles:
 			ax.set_xticklabels(X_labels)
 
 			ax.set(title="fio {}".format(pattern), xlabel="block size (KiB)", ylabel="KiB/s")
-			ax.legend(loc='best', ncol=1, frameon=True)
+			ax.legend(loc='upper left', ncol=4, frameon=False)
 
 			if self._options.save:
 				for f in self._options.formats:
