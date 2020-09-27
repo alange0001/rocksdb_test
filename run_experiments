@@ -20,9 +20,9 @@ if [ "$1" == 'create_ycsb' ]; then
 	YDB_WORKLOAD="workloada"
 	YDB_THREADS=4
 	PARAMS="--ydb_create=true"
-	
+
 	run_generic
-	
+
 	exit 0
 fi
 
@@ -31,14 +31,14 @@ if [ "$1" == 'ycsb_db1' ]; then
 	WARM_PERIOD=1
 	RESTORE_DBS=0
 	NUM_YDBS=1
-	
+
 	for YDB_THREADS in 4 6 8 10; do
 		for YDB_WORKLOAD in workloada workloadb; do
 			OUTPUT="plot/exp_ycsb/${1}-threads${YDB_THREADS}_${YDB_WORKLOAD}.out"
 			run_generic
 		done
 	done
-	
+
 	exit 0
 fi
 
@@ -48,14 +48,14 @@ if [ "$1" == 'ycsb_db3' ]; then
 	RESTORE_DBS=0
 	NUM_YDBS=3
 	YDB_SLEEP="0#16#31"
-	
+
 	for YDB_THREADS in 4; do
 		for YDB_WORKLOAD in workloadb workloada; do
 			OUTPUT="plot/exp_ycsb/${1}-threads${YDB_THREADS}_${YDB_WORKLOAD}.out"
 			run_generic
 		done
 	done
-	
+
 	exit 0
 fi
 
@@ -65,14 +65,14 @@ if [ "$1" == 'mw_per_threads_writeratio' ]; then
 	RESTORE_DBS=0
 	NUM_DBS=1
 	DB_WORKLOAD=mixedworkload
-	
+
 	loop_threads="20 25 30 10 15"
 	for DB_THREADS in $loop_threads; do
 		DB_WORKLOADSCRIPT="writeratio=0.05;16m:writeratio=0.1;31m:writeratio=0.2;46m:writeratio=0.5"
 		OUTPUT="plot/exp_mw/${1}-dbs${NUM_DBS}_threads${DB_THREADS}.out"
 		run_generic
 	done
-	
+
 	exit 0
 fi
 
@@ -83,7 +83,7 @@ if [ "$1" == 'rrwr_dbs1' ]; then
 	RESTORE_DBS=0
 	NUM_DBS=1
 	DB_WORKLOAD=readrandomwriterandom
-	
+
 	for DB_THREADS in 20; do
 		for readwritepercent in 5 10 20 50; do
 			PARAMS="--db_readwritepercent=$readwritepercent"
@@ -91,26 +91,27 @@ if [ "$1" == 'rrwr_dbs1' ]; then
 			run_generic
 		done
 	done
-	
+
 	exit 0
 fi
 
 if [ "$1" == 'fio' ]; then
 	TEST_COMMANDS=0
-	
-	s=20
+
+	s=0
 	#for RW in randread; do
 	for RW in read randread write randwrite; do
 		[ "$RW" == "write" ] || [ "$RW" == "randwrite" ] && s=40
+		#for BS in 512k; do
 		for BS in 4k 8k 16k 32k 256k 512k; do
-			for IODEPTH in 1 2 4 8 16 32; do
+			for IODEPTH in 1 2 4 6 8 12 16 20 24 28 32; do
 				OUTPUT="plot/exp_fio/${1}-${RW}_bs${BS}_depth${IODEPTH}.out"
-				#OUTPUT="plot/exp_fio/${1}-${RW}_bs${BS}_depth${IODEPTH}.out.new"
+				#OUTPUT="plot/exp_fio/new/${1}-${RW}_bs${BS}_depth${IODEPTH}.out"
 				run_fio
 				sleep $s
 			done
 		done
 	done
-	
+
 	exit 0
 fi

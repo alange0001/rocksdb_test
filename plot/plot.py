@@ -711,13 +711,13 @@ class FioFiles:
 
 			fig, ax = plt.subplots()
 			fig.set_figheight(5)
-			fig.set_figwidth(8)
+			fig.set_figwidth(12)
 
 			X_labels = [ str(int(x/1024)) for x in X_values]
 			#print(X_labels)
 
-			width=0.1
-			s_width=0.0-((width * len(X_labels))/2)
+			width=0.05
+			s_width=0.0-((width * len(iodepth_list))/2)
 			for iodepth in iodepth_list:
 				X = [ x+s_width for x in range(0,len(X_values)) ]
 				#print(X)
@@ -731,7 +731,7 @@ class FioFiles:
 			ax.set_xticklabels(X_labels)
 
 			ax.set(title="fio {}".format(pattern), xlabel="block size (KiB)", ylabel="KiB/s")
-			ax.legend(loc='upper left', ncol=4, frameon=False)
+			ax.legend(loc='upper left', ncol=6, frameon=False)
 
 			if self._options.save:
 				for f in self._options.formats:
@@ -751,13 +751,13 @@ class FioFiles:
 
 			fig, ax = plt.subplots()
 			fig.set_figheight(5)
-			fig.set_figwidth(8)
+			fig.set_figwidth(12)
 
-			X_labels = [ str(int(x/1024)) for x in X_values]
+			X_labels = [ str(int(x/1024)) for x in X_values ]
 			#print(X_labels)
 
-			width=0.1
-			s_width=0.0-((width * len(X_labels))/2)
+			width=0.05
+			s_width=0.0-((width * len(iodepth_list))/2)
 			for iodepth in iodepth_list:
 				X = [ x+s_width for x in range(0,len(X_values)) ]
 				#print(X)
@@ -771,7 +771,7 @@ class FioFiles:
 			ax.set_xticklabels(X_labels)
 
 			ax.set(title="fio {}".format(pattern), xlabel="block size (KiB)", ylabel="IOPS")
-			ax.legend(loc='upper left', ncol=4, frameon=False)
+			ax.legend(loc='upper left', ncol=6, frameon=False)
 
 			if self._options.save:
 				for f in self._options.formats:
