@@ -6,24 +6,9 @@
 # (found in the LICENSE.Apache file in the root directory).
 #
 
-ulimit -n 1048576
-
-function test_dir() {
-	if [ ! -d "$1" ]; then
-		echo "Directory not found: $1" >&2
-		exit 1
-	fi
-}
-
 source run_environment
 
-test_dir "$DIR_BASE/build"
-test_dir "$DIR_YCSB/bin"
-test_dir "$DIR_ROCKS"
-
-test_dir "$DIR_WORK"
-test_dir "$DIR_BACKUP"
-test_dir "$DIR_AT"
+[ "$FAILED" == 1 ] && exit 1
 
 BACKUP_DB_BENCH="$DIR_BACKUP"/rocksdb.tar
 BACKUP_DB_YCSB="$DIR_BACKUP"/ycsb.tar
@@ -43,9 +28,9 @@ function run_at3() {
 		echo "output_dir not defined"
 		return
 	fi
-	
+
 	t=1
-	
+
 	at_script="${t}:wait=false"
 	for wr in 0 0.1 0.2 0.3 0.5 0.7 1; do
 		at_script="$at_script,${t}:write_ratio=${wr}"
@@ -81,10 +66,10 @@ function run_at3_rww() {
 		echo "output_dir not defined"
 		return
 	fi
-	
+
 	n=4
 	t=1
-	
+
 	ats[0]="1:wait=false"
 	for ((i=1; i<$n; i++)); do
 		t=$((t + 30))
@@ -98,7 +83,7 @@ function run_at3_rww() {
 	done
 	ats[0]="${ats[0]},$((t + 30)):stop"
 	at_script="$(echo ${ats[*]} |tr " " ";")"
-	
+
 	at_files="$(for ((i=0; i<$n; i++)); do echo "$DIR_AT/$i"; done |paste -sd'#')"
 	echo $at_files
 	echo $at_script
@@ -126,7 +111,7 @@ function run_ycsb() {
 	at_script="$(for ((i=0; i<$NUM_AT; i++)); do t=$((20 + i*2)); echo -n ${t}m:wait=false; for j in 0.1 0.2 0.3 0.5 0.7 1; do t=$((t + 8)); echo -n ,${t}m:write_ratio=$j; done; echo; done |paste -s -d'#')"
 	AT_BLOCK_SIZE=${AT_BLOCK_SIZE:-512}
 	WORKLOAD=${WORKLOAD:-workloadb}
-	
+
 	echo "DURATION      = $DURATION" >&2
 	echo "WARM_PERIOD   = $WARM_PERIOD" >&2
 	echo "RESTORE_DB    = $RESTORE_DB" >&2
@@ -138,14 +123,14 @@ function run_ycsb() {
 		at_params="--direct_io"
 	fi
 	echo "at_params = $at_params" >&2
-	
+
 	if [ "$RESTORE_DB" == 1 ]; then
 		remove_dbs
 		echo "Restore YCSB database ..." >&2
 		tar -xf "$BACKUP_DB_YCSB" -C "$DIR_DB_YCSB" || exit 1
 	fi
 	test_dir "$DIR_DB_YCSB"
-	
+
 	echo "Run rocksdb_test ..." >&2
 	rocksdb_test \
 		--log_level="info" \
@@ -176,7 +161,7 @@ function run_db_bench() {
 	at_script="$(for ((i=0; i<$NUM_AT; i++)); do t=$((20 + i*2)); echo -n ${t}m:wait=false; for j in 0.1 0.2 0.3 0.5 0.7 1; do t=$((t + 8)); echo -n ,${t}m:write_ratio=$j; done; echo; done |paste -s -d'#')"
 	AT_BLOCK_SIZE=${AT_BLOCK_SIZE:-512}
 	WORKLOAD=${WORKLOAD:-readrandomwriterandom}
-	
+
 	echo "DURATION      = $DURATION" >&2
 	echo "WARM_PERIOD   = $WARM_PERIOD" >&2
 	echo "RESTORE_DB    = $RESTORE_DB" >&2
@@ -193,7 +178,7 @@ function run_db_bench() {
 		tar -xf "$BACKUP_DB_BENCH" -C "$DIR_DB_BENCH" || exit 1
 	fi
 	test_dir "$DIR_DB_BENCH"
-	
+
 	echo "Run rocksdb_test ..." >&2
 	rocksdb_test \
 		--log_level="info" \
@@ -250,13 +235,13 @@ function run_generic() {
 	AT_BLOCK_SIZE=${AT_BLOCK_SIZE:-512}              ; echo "AT_BLOCK_SIZE     = $AT_BLOCK_SIZE" >&2
 	                                                   echo "AT_PARAMS         = $AT_PARAMS" >&2
 	                                                   echo "AT_SCRIPT         = $AT_SCRIPT" >&2
-	
+
 	test_cmd=
 	if [ "$TEST_COMMANDS" == 1 ]; then
 		test_cmd="echo COMMAND: "
 		OUTPUT=/dev/stdout
 	fi
-	
+
 	echo "RESTORE_DBS       = $RESTORE_DBS" >&2
 	if [ "$RESTORE_DB" == 1 ]; then
 		$test_cmd remove_dbs
@@ -273,9 +258,9 @@ function run_generic() {
 		done
 		IFS="$OLD_IFS"
 	fi
-	
+
 	echo "PARAMS            = $PARAMS" >&2
-	
+
 	echo "Run rocksdb_test ..." >&2
 	$test_cmd rocksdb_test \
 		--log_level="info" \
@@ -316,13 +301,13 @@ function run_fio() {
 	IODEPTH=${IODEPTH:-1}                            ; echo "IODEPTH           = $IODEPTH" >&2
 	BS=${BS:-4k}                                     ; echo "BS                = $BS" >&2
 	RW=${RW:-read}                                   ; echo "RW                = $RW" >&2
-	
+
 	test_cmd=
 	if [ "$TEST_COMMANDS" == 1 ]; then
 		test_cmd="echo COMMAND: "
 		OUTPUT=/dev/stdout
 	fi
-	
+
 	$test_cmd fio \
 		--output-format=json \
 		--unified_rw_reporting=1 \

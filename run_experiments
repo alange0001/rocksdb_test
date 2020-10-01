@@ -99,14 +99,11 @@ if [ "$1" == 'fio' ]; then
 	TEST_COMMANDS=0
 
 	s=0
-	#for RW in randread; do
 	for RW in read randread write randwrite; do
 		[ "$RW" == "write" ] || [ "$RW" == "randwrite" ] && s=40
-		#for BS in 512k; do
 		for BS in 4k 8k 16k 32k 256k 512k; do
 			for IODEPTH in 1 2 4 6 8 12 16 20 24 28 32; do
 				OUTPUT="plot/exp_fio/${1}-${RW}_bs${BS}_depth${IODEPTH}.out"
-				#OUTPUT="plot/exp_fio/new/${1}-${RW}_bs${BS}_depth${IODEPTH}.out"
 				run_fio
 				sleep $s
 			done

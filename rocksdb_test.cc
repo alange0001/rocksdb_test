@@ -15,6 +15,9 @@
 
 #include <csignal>
 #include <sys/stat.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <unistd.h>
 
 #include <spdlog/spdlog.h>
 #include <fmt/format.h>
@@ -509,73 +512,83 @@ class AccessTime3 : public ExperimentTask {
 
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
-#define __CLASS__ "IOStat::"
+#define __CLASS__ "PerformanceMonitorClient::"
+// https://github.com/alange0001/performancemonitor
 
-class IOStat : public ExperimentTask {
+class PerformanceMonitorClient {
+	Clock* clock;
 	Args* args;
-	string io_device;
+	unique_ptr<alutils::ThreadController> threadcontroller;
+	uint64_t warm_period_s;
 
-	bool first = true;
-	vector<string> columns;
+	int sock = 0;
+	sockaddr_in serv_addr;
 
-	public: //----------------------------------------------------------------------
-	IOStat(Clock* clock_, Args* args_) : ExperimentTask("iostat", clock_, args_->warm_period * 60), args(args_) {
-		DEBUG_MSG("constructor");
-		io_device = args->io_device;
-		devCheck();
-		string cmd(format("iostat -xm {} {}", args->stats_interval, io_device));
-		process.reset(new alutils::ProcessController(
-			name.c_str(),
-			cmd.c_str(),
-			[this](const char* v){this->stdoutHandler(v);},
-			[this](const char* v){this->default_stderr_handler(v);}
-			));
-	}
-	~IOStat() {}
+	public: //---------------------------------------------------------------------
+	PerformanceMonitorClient(Clock* clock_, Args* args_) : clock(clock_), args(args_) {
+		warm_period_s = args->warm_period * 60;
 
-	private: //---------------------------------------------------------------------
-	void stdoutHandler(const char* buffer) {
-		//Device            r/s     w/s     rMB/s     wMB/s   rrqm/s   wrqm/s  %rrqm  %wrqm r_await w_await aqu-sz rareq-sz wareq-sz  svctm  %util
-		//nvme0n1          0,00    0,00      0,00      0,00     0,00     0,00   0,00   0,00    0,00    0,00   0,00     0,00     0,00   0,00   0,00
-
-		if (regex_search(buffer, regex(format("^({})\\s+", io_device)))) {
-			if (first) {
-				first = false;
-			} else {
-				vector<string> values;
-				auto columns_s = columns.size();
-				auto values_s = alutils::split_columns(values, buffer, io_device.c_str());
-
-				if (values_s == 0 || values_s != columns_s) {
-					throw runtime_error(format("invalid iostat data: {}", buffer));
-				}
-
-				data.clear();
-				string aux;
-				for (int i=0; i < columns_s; i++) {
-					data[columns[i]] = alutils::str_replace(aux, values[i], ',', '.');
-				}
-
-				print();
-			}
-
-		} else if (first && regex_search(buffer, regex("^(Device)\\s+"))) {
-			if (columns.size() > 0)
-				throw runtime_error("iostat header read twice");
-			if (alutils::split_columns(columns, buffer, "Device") == 0)
-				throw runtime_error(format("invalid iostat header: {}", buffer));
+		if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+			throw runtime_error("Socket creation error");
 		}
+
+		serv_addr.sin_family = AF_INET;
+		serv_addr.sin_port = htons(args->perfmon_port);
+		if(inet_pton(AF_INET, "127.0.0.1", &serv_addr.sin_addr)<=0) {
+			throw runtime_error("Invalid address / Address not supported");
+		}
+
+		if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
+			throw runtime_error("Connection Failed. Performancemonitor is not running (https://github.com/alange0001/performancemonitor)");
+		}
+		DEBUG_MSG("socket fd={}", sock);
+
+		threadcontroller.reset(
+			new alutils::ThreadController(
+				[this](alutils::ThreadController::stop_t stop){this->threadMain(stop);}
+			)
+		);
+	}
+	~PerformanceMonitorClient() {
+		threadcontroller.reset(nullptr);
 	}
 
-	void devCheck() {
-		if (args->io_device.length() == 0)
-			throw runtime_error("io_device not specified");
+	void stop() {threadcontroller->stop();}
+	bool isActive(bool throw_exception=true) {return threadcontroller->isActive(throw_exception);}
 
-		string filename("/dev/"); filename += args->io_device;
-		struct stat s;
+	void threadMain(alutils::ThreadController::stop_t stop) {
+		// based on: https://www.geeksforgeeks.org/socket-programming-cc/
 
-		if (stat(filename.c_str(), &s) != 0)
-			throw runtime_error(format("failed to read device {}", filename));
+		const string send_msg = "stats";
+		uint32_t buffer_size = 1024 * 1024;
+		char buffer[buffer_size +1]; buffer[buffer_size] = '\0';
+
+		std::cmatch cm;
+
+		while (! stop()) {
+			send(sock, send_msg.c_str(), send_msg.length(), 0);
+			DEBUG_MSG("message \"{}\" sent", send_msg);
+
+			auto r = read(sock , buffer, buffer_size);
+			if (r < 0) {
+				close(sock);
+				throw runtime_error(format("failed to read stats from performancemonitor (errno={})", errno));
+			}
+			assert(r <= buffer_size);
+			buffer[r] = '\0';
+			DEBUG_MSG("message received (size {})", r);
+
+			auto clock_s = clock->s();
+			if (clock_s > warm_period_s) {
+				regex_search(buffer, cm, regex("STATS: \\{(.+)"));
+				if (cm.size() > 0) {
+					spdlog::info("Task performancemonitor, STATS: {{\"time\": {}, {}", clock_s, cm.str(1));
+				}
+			}
+		}
+		send(sock, "stop", sizeof("stop"), 0);
+		DEBUG_MSG("close connection");
+		close(sock);
 	}
 };
 
@@ -591,7 +604,7 @@ class Program {
 	unique_ptr<unique_ptr<DBBench>[]>     dbbench_list;
 	unique_ptr<unique_ptr<YCSB>[]>        ycsb_list;
 	unique_ptr<unique_ptr<AccessTime3>[]> at_list;
-	unique_ptr<IOStat>      iostat;
+	unique_ptr<PerformanceMonitorClient>  perfmon;
 
 	public: //---------------------------------------------------------------------
 	Program() {
@@ -621,7 +634,7 @@ class Program {
 
 	int main(int argc, char** argv) noexcept {
 		DEBUG_MSG("initialized");
-		spdlog::info("rocksdb_test version: 1.4");
+		spdlog::info("rocksdb_test version: 1.6");
 		try {
 			args.reset(new Args(argc, argv));
 			clock.reset(new Clock());
@@ -663,14 +676,16 @@ class Program {
 				at_list[i]->start();
 			}
 
-			iostat.reset(new IOStat(clock.get(), args.get()));
-
-			SystemStat s1;
-			uint64_t s_last = clock->s();
+			perfmon.reset(new PerformanceMonitorClient(clock.get(), args.get()));
 
 			bool stop = false;
-			while ( !stop && clock->s() <= (args->duration * 60) && (iostat.get() != nullptr && iostat->isActive()) )
+			while ( !stop && clock->s() <= (args->duration * 60) )
 			{
+				// performancemonitor
+				if (perfmon.get() == nullptr || ! perfmon->isActive()) {
+					throw runtime_error("performancemonitor client is not active");
+				}
+
 				// db_bench
 				for (uint32_t i=0; i<num_dbs; i++) {
 					if (dbbench_list.get() == nullptr || dbbench_list[i].get() == nullptr || !dbbench_list[i]->isActive()) {
@@ -698,16 +713,6 @@ class Program {
 				}
 				if (stop) break;
 
-				// systemstats
-				auto clock_s = clock->s();
-				if ((clock_s - s_last) > args->stats_interval) {
-					s_last = clock_s;
-					SystemStat s2;
-					if (clock_s > warm_period_s)
-						spdlog::info(stat_format, "systemstats", s2.json(s1, format("\"time\":\"{}\"", s_last - warm_period_s)));
-					s1 = s2;
-				}
-
 				std::this_thread::sleep_for(milliseconds(500));
 			}
 
@@ -729,7 +734,7 @@ class Program {
 		dbbench_list.reset(nullptr);
 		ycsb_list.reset(nullptr);
 		at_list.reset(nullptr);
-		iostat.reset(nullptr);
+		perfmon.reset(nullptr);
 
 		std::this_thread::sleep_for(milliseconds(300));
 		auto children = alutils::get_children(getpid());

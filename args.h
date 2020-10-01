@@ -78,6 +78,11 @@ using std::function;
 		"",                                                       \
 		"I/O device monitored by iostat",                         \
 		value.length() > 0,                                       \
+		nullptr)                                                  \
+	_f(perfmon_port, uint32_t, DEFINE_uint32,                     \
+		18087,                                                    \
+		"performancemonitor port",                                \
+		value > 0,                                                \
 		nullptr)
 
 /*_f(ARG_name, ARG_type, ARG_flag_type, ARG_flag_default, ARG_help, ARG_condition, ARG_set_event, ARG_item_type, ARG_item_condition, ARG_items)*/
