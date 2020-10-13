@@ -196,7 +196,7 @@ class File:
 		if self._options.savePlotData:
 			self._plotdata[name] = data
 
-	def graph_db(self):
+	def countDBs(self):
 		num_dbbench, num_ycsb = 0, 0
 		for i in range(0,1024):
 			if self._data.get('db_bench[{}]'.format(i)) is None:
@@ -206,6 +206,18 @@ class File:
 			if self._data.get('ycsb[{}]'.format(i)) is None:
 				break
 			num_ycsb += 1
+		return (num_dbbench, num_ycsb)
+
+	def countAT3(self):
+		num = 0
+		for i in range(0,1024):
+			if self._data.get('access_time3[{}]'.format(i)) is None:
+				break
+			num += 1
+		return num
+
+	def graph_db(self):
+		num_dbbench, num_ycsb = self.countDBs()
 		if num_dbbench == 0 and num_ycsb == 0:
 			return
 
@@ -255,6 +267,66 @@ class File:
 		plt.show()
 
 	def graph_io(self):
+		self.graph_io_new()
+		self.graph_io_old()
+
+	def graph_io_new(self):
+		if self._data.get('performancemonitor') is None:
+			return
+
+		io_device = self._params['io_device']
+
+		#TODO: falta terminar de implementar
+		X = [x['time']/60.0 for x in self._data['performancemonitor']]
+
+		fig, axs = plt.subplots(3, 1)
+		fig.set_figheight(5)
+		fig.set_figwidth(8)
+
+		for ax_i in range(0,3):
+			ax = axs[ax_i]
+			if ax_i == 0:
+				X = [i['time']/60.0 for i in self._data['iostat']]
+				Yr = numpy.array([i['rMB/s']     for i in self._data['iostat']])
+				Yw = numpy.array([i['wMB/s']     for i in self._data['iostat']])
+				Yt = Yr + Yw
+				ax.plot(X, Yr, '-', lw=1, label='read', color='green')
+				ax.plot(X, Yw, '-', lw=1, label='write', color='orange')
+				ax.plot(X, Yt, '-', lw=1, label='total', color='blue')
+				ax.set(title="iostat", ylabel="MB/s")
+				ax.legend(loc='upper right', ncol=3, frameon=True)
+			elif ax_i == 1:
+				Y = [i['r/s']     for i in self._data['iostat']]
+				ax.plot(X, Y, '-', lw=1, label='read', color='green')
+				Y = [i['w/s']     for i in self._data['iostat']]
+				ax.plot(X, Y, '-', lw=1, label='write', color='orange')
+				ax.set(ylabel="IO/s")
+				ax.legend(loc='upper right', ncol=2, frameon=True)
+			elif ax_i == 2:
+				Y = [i['%util']     for i in self._data['iostat']]
+				ax.plot(X, Y, '-', lw=1, label='%util')
+				ax.set(xlabel="time (min)", ylabel="percent")
+				ax.set_ylim([-5, 105])
+				ax.legend(loc='upper right', ncol=1, frameon=True)
+
+			#chartBox = ax.get_position()
+			#ax.set_position([chartBox.x0, chartBox.y0, chartBox.width*0.65, chartBox.height])
+			#ax.legend(loc='upper center', bbox_to_anchor=(1.35, 0.9), title='threads', ncol=1, frameon=True)
+
+			aux = (X[-1] - X[0]) * 0.01
+			ax.set_xlim([X[0]-aux,X[-1]+aux])
+
+			self.setXticks(ax)
+
+		fig.tight_layout()
+
+		if self._options.save:
+			for f in self._options.formats:
+				save_name = '{}_graph_io.{}'.format(self._filename.replace('.out', ''), f)
+				fig.savefig(save_name, bbox_inches="tight")
+		plt.show()
+
+	def graph_io_old(self):
 		if self._data.get('iostat') is None:
 			return
 		fig, axs = plt.subplots(3, 1)
@@ -362,8 +434,56 @@ class File:
 		plt.show()
 
 	def graph_cpu(self):
-		if self._data['systemstats'][0].get('cpus.active') is None:
+		self.graph_cpu_new()
+		self.graph_cpu_old()
+
+	def graph_cpu_new(self):
+		if 'performancemonitor' not in self._data.keys(): return
+
+		def sum_active(percents):
+			s = 0.
+			for k, v in percents.items():
+				if k not in ('idle', 'iowait', 'steal'):
+					s += v
+			return s
+
+		fig, axs = plt.subplots(2, 1)
+		fig.set_figheight(5)
+		fig.set_figwidth(8)
+		axs[0].grid()
+		axs[1].grid()
+
+		X = [x['time']/60.0 for x in self._data['performancemonitor']]
+		Y = [ sum_active(x['cpu']['percent_total']) for x in self._data['performancemonitor'] ]
+		print(Y)
+		axs[0].plot(X, Y, '-', lw=1, label='usage (all)')
+
+		for i in range(0, int(self._data['performancemonitor'][0]['cpu']['count'])):
+			Y = [ sum_active(x['cpu']['percent'][i]) for x in self._data['performancemonitor'] ]
+			axs[1].plot(X, Y, '-', lw=1, label='cpu{}'.format(i))
+
+		aux = (X[-1] - X[0]) * 0.01
+		for ax in axs:
+			ax.set_xlim([X[0]-aux,X[-1]+aux])
+			self.setXticks(ax)
+
+		axs[0].set_ylim([-5, None])
+		axs[1].set_ylim([-5, 105])
+		axs[0].set(title="cpu", ylabel="all CPUs (%)")
+		axs[1].set(xlabel="time (min)", ylabel="per CPU (%)")
+
+		axs[0].legend(loc='upper right', ncol=2, frameon=True)
+
+		if self._options.save:
+			for f in self._options.formats:
+				save_name = '{}_graph_cpu.{}'.format(self._filename.replace('.out', ''), f)
+				fig.savefig(save_name, bbox_inches="tight")
+		plt.show()
+
+	def graph_cpu_old(self):
+		if 'systemstats' not in self._data.keys() or self._data['systemstats'][0].get('cpus.active') is None:
 			return
+
 		fig, axs = plt.subplots(2, 1)
 		fig.set_figheight(5)
 		fig.set_figwidth(8)
@@ -560,6 +680,102 @@ class File:
 					fig.savefig(save_name, bbox_inches="tight")
 			plt.show()
 
+	def getPressureData(self):
+		num_dbbench, num_ycsb = self.countDBs()
+		num_at3 = self.countAT3()
+		if num_dbbench == 0 and num_ycsb == 0: return None
+		if num_at3 == 0: return None
+
+		target_attribute = 'ops_per_s'
+		if num_ycsb > 0:
+			target_db = self._data['ycsb[0]']
+		else:
+			target_db = self._data['db_bench[0]']
+
+		target_data = collections.OrderedDict()
+		target_data_delta = dict()
+		interval = self._params['stats_interval']
+		for i in target_db:
+			d = collections.OrderedDict()
+			target_data[i['time']] = d
+			target_data[i['time']]['db'] = i
+			target_data[i['time']]['at3'] = []
+
+			target_data_delta[i['time']] = d
+			for j in range(1,int(interval/2)+1):
+				target_data_delta[i['time']-j] = d
+				target_data_delta[i['time']+j] = d
+		for i in range(0,num_at3):
+			at3 = self._data[f'access_time3[{i}]']
+			for j in at3:
+				if target_data_delta.get(j['time']) is not None:
+					target_data_delta[j['time']]['at3'].append(j)
+				else:
+					print(f'at3 time {j["time"]} has no target time')
+
+		l = list(target_data_delta.keys())
+		l.sort()
+		for i in range(l[0], l[-1]+1):
+			if i not in l:
+				print(f'time {i} not in delta list')
+
+		to_pandas = collections.OrderedDict()
+		timelist = list(target_data.keys()); timelist.sort()
+		for t in timelist:
+			d = target_data[t]
+			s = len(d['at3'])
+			if s != num_at3:
+				print(f'time {t} has {s} at3, should have {num_at3}. ignoring')
+				continue
+			if to_pandas.get('time') is None: to_pandas['time'] = []
+			to_pandas['time'].append(t)
+			if to_pandas.get(target_attribute) is None: to_pandas[target_attribute] = []
+			to_pandas[target_attribute].append(d['db'][target_attribute])
+
+			if to_pandas.get('w') is None: to_pandas['w'] = []
+			aux_w = collections.OrderedDict()
+			for at in d['at3']:
+				if at['wait'] == 'false':
+					aux_s = f'{at["random_ratio"]}r,{at["write_ratio"]}w'
+					if aux_s not in aux_w.keys():
+						aux_w[aux_s] = 1
+					else:
+						aux_w[aux_s] += 1
+			if len(aux_w) == 0:
+				to_pandas['w'].append('w0')
+			else:
+				aux_s = ';'.join([f'{v}x{k}' for k, v in aux_w.items()])
+				to_pandas['w'].append(aux_s)
+
+		pd1 = pd.DataFrame(to_pandas)
+		return pd1
+
+	def graph_pressure(self):
+		pd = self.getPressureData()
+		pd2 = pd.groupby('w').agg({'ops_per_s':'mean'}).sort_values('ops_per_s', ascending=False)
+
+		fig, ax = plt.subplots()
+		fig.set_figheight(5)
+		fig.set_figwidth(12)
+
+		X_labels = list(pd2.index)
+		X = range(len(X_labels))
+		Y = [ i[0] for i in pd2.values ]
+
+		ax.bar(X, Y, label='pressure')
+
+		ax.set_xticks(X)
+		ax.set_xticklabels(X_labels, rotation=90)
+
+		ax.set(title="pressure scale", xlabel="w", ylabel="ops/s")
+		#ax.legend(loc='upper right', ncol=6, frameon=False)
+
+		if self._options.save:
+			for f in self._options.formats:
+				save_name = '{}-pressure.{}'.format(self._filename.replace('.out', ''), f)
+				fig.savefig(save_name, bbox_inches="tight")
+		plt.show()
+
 	def setXticks(self, ax):
 		if self._options.graphTickMajor is not None:
 			ax.xaxis.set_major_locator(MultipleLocator(self._options.graphTickMajor))
@@ -638,7 +854,6 @@ def getFiles(dirname):
 			files.append('{}/{}'.format(dirname, fn))
 	return sort_method(files)
 
-files = collections.OrderedDict()
 def plotFiles(filenames, options):
 	for name in filenames:
 		print(
@@ -647,7 +862,6 @@ def plotFiles(filenames, options):
 			'\n')
 		f = File(name, options)
 		f.graph_all()
-		files[name] = f
 		del f
 
 class FioFiles:
@@ -792,3 +1006,8 @@ class FioFiles:
 #fiofiles = FioFiles(getFiles('exp_fio'), Options())
 #fiofiles.graph_bw()
 #fiofiles.graph_iops()
+
+#f = File('exp_db/dbbench_wwr,at3_bs4_directio.out', Options())
+#f = File('exp_db/ycsb_wb,at3_bs512_directio.out', Options())
+#p = f.getPressureData()
+#f.graph_pressure()
