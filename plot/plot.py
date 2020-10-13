@@ -20,6 +20,7 @@ import sqlite3
 import numpy
 import matplotlib.pyplot as plt
 from matplotlib.ticker import (AutoMinorLocator, MultipleLocator)
+from mpl_toolkits.axes_grid1 import host_subplot
 import pandas as pd
 
 class Options:
@@ -37,6 +38,8 @@ class Options:
 	plot_at3_script = True
 	plot_io_norm = False
 	plot_at3_write_ratio = False
+	plot_pressure = False
+	use_at3_counters = True
 	def __init__(self, **kargs):
 		for k,v in kargs.items():
 			if k in dir(self):
@@ -208,20 +211,86 @@ class File:
 			num_ycsb += 1
 		return (num_dbbench, num_ycsb)
 
+	_count_at3 = None
 	def countAT3(self):
-		num = 0
-		for i in range(0,1024):
-			if self._data.get('access_time3[{}]'.format(i)) is None:
-				break
-			num += 1
-		return num
+		if self._count_at3 is None:
+			num = 0
+			for i in range(0,1024):
+				if self._data.get('access_time3[{}]'.format(i)) is None:
+					break
+				num += 1
+			self._count_at3 = num
+		return self._count_at3
+
+	_last_at3_time = 0
+	_last_at3_indexes = None
+	def lastAT3(self, time):
+		count_at3 = self.countAT3()
+		if time < self._last_at3_time or self._last_at3_indexes is None:
+			self._last_at3_indexes = [ 0 for i in range (0, count_at3) ]
+		ret = []
+		for i in range(0, count_at3):
+			at3 = self._data[f'access_time3[{i}]']
+			last = at3[self._last_at3_indexes[i]]
+			for j in range(self._last_at3_indexes[i], len(at3)):
+				if at3[j]['time'] > time: break
+				last = at3[j]
+			ret.append(last)
+
+		self._last_at3_time = time
+		return ret
+
+	def lastAT3str(self, time):
+		at3list = self.lastAT3(time)
+
+		ret = collections.OrderedDict()
+		for i in at3list:
+			if i['wait'] != 'true':
+				#s = f'{i["random_ratio"]}r,{i["write_ratio"]}w'
+				s = f'{i["write_ratio"]}w'
+				if s in ret.keys():
+					ret[s] += 1
+				else:
+					ret[s] = 1
+		if len(ret) == 0:
+			return 'w0'
+		else:
+			return '|'.join([ f'{v}x{k}' for k, v in ret.items() ])
+
+	def addAT3ticks(self, ax, Xmin, Xmax):
+		if self.countAT3() > 0:
+			last_w = ''
+			last_count = 0
+			X2_ticks = []
+			X2_labels = []
+			for i in range(int(Xmin*60), int((Xmax*60)+1)):
+				w = self.lastAT3str(i)
+				if w != last_w:
+					X2_ticks.append(i/60.0)
+					if self._options.use_at3_counters:
+						X2_labels.append(f'w{last_count}')
+						last_count += 1
+					else:
+						X2_labels.append(w)
+					last_w = w
+
+			ax2 = ax.twin()
+			ax2.set_xticks(X2_ticks)
+			ax2.set_xticklabels(X2_labels, rotation=90)
+			ax2.axis["right"].major_ticklabels.set_visible(False)
+			ax2.axis["top"].major_ticklabels.set_visible(True)
+
+			return ax2
+		return None
 
 	def graph_db(self):
 		num_dbbench, num_ycsb = self.countDBs()
 		if num_dbbench == 0 and num_ycsb == 0:
 			return
 
-		fig, ax = plt.subplots()
+		fig = plt.gcf()
+		#fig, ax = plt.subplots()
+		ax = host_subplot(111, figure=fig)
 		fig.set_figheight(5)
 		fig.set_figwidth(8)
 
@@ -248,12 +317,14 @@ class File:
 			if (Xmax is None) or (X[-1] > Xmax): Xmax = X[-1]
 			ax.plot(X, Y, '-', lw=1, label='ycsb {}'.format(i))
 
+		self.addAT3ticks(ax, Xmin, Xmax)
+
 		aux = (Xmax - Xmin) * 0.01
 		ax.set_xlim( [Xmin - aux, Xmax + aux] )
 
 		self.setXticks(ax)
 
-		ax.set(title="database throughput", xlabel="time (min)", ylabel="tx/s")
+		ax.set(xlabel="time (min)", ylabel="tx/s")
 
 		#chartBox = ax.get_position()
 		#ax.set_position([chartBox.x0, chartBox.y0, chartBox.width*0.65, chartBox.height])
@@ -581,25 +652,31 @@ class File:
 		if self._num_at == 0 or self._num_at is None:
 			return
 
-		fig, axs = plt.subplots(self._num_at, 1)
+		fig = plt.gcf()
+		#fig, axs = plt.subplots(self._num_at, 1)
 		fig.set_figheight(5)
 		fig.set_figwidth(8)
 
 		for i in range(0,self._num_at):
-			ax = axs[i] if self._num_at > 1 else axs
+			#ax = axs[i] if self._num_at > 1 else axs
+			ax = host_subplot((100 * self._num_at) + 10+i+1, figure=fig)
+			if i == 0:
+				ax0 = ax
+
 			ax.grid()
 			cur_at = self._data['access_time3[{}]'.format(i)]
 			X = [j['time']/60.0 for j in cur_at]
-			Y = [j['write_ratio']*100 if j['wait'] == 'false' else None for j in cur_at]
-			ax.plot(X, Y, '-', lw=1.5, label='% write', color='orange')
-			Y = [j['random_ratio']*100 if j['wait'] == 'false' else None for j in cur_at]
-			ax.plot(X, Y, '-.', lw=1.5, label='% random', color='blue')
+			Y = [j['write_ratio'] if j['wait'] == 'false' else None for j in cur_at]
+			ax.plot(X, Y, '-', lw=1.5, label='write_ratio (wr)', color='orange')
+			Y = [j['random_ratio'] if j['wait'] == 'false' else None for j in cur_at]
+			ax.plot(X, Y, '-.', lw=1.5, label='random_ratio (rr)', color='blue')
 
 			ax_set = dict()
-			ax_set['ylabel'] ="%"
+			#ax_set['ylabel'] ="%"
 
 			if i == 0:
-				ax_set['title'] = "access_time3: access pattern"
+				pass
+				#ax_set['title'] = "access_time3: access pattern"
 			if i == self._num_at -1:
 				ax_set['xlabel'] = "time (min)"
 				ax.legend(bbox_to_anchor=(0., -.8, 1., .102), loc='lower left',
@@ -609,7 +686,7 @@ class File:
 
 			aux = (X[-1] - X[0]) * 0.01
 			ax.set_xlim([X[0]-aux,X[-1]+aux])
-			ax.set_ylim([-5,108])
+			ax.set_ylim([-0.05,1.08])
 
 			self.setXticks(ax)
 
@@ -619,6 +696,8 @@ class File:
 			#chartBox = ax.get_position()
 			#ax.set_position([chartBox.x0, chartBox.y0, chartBox.width*0.75, chartBox.height])
 			#ax.legend(loc='upper center', bbox_to_anchor=(1.25, 1.0), ncol=2, frameon=True)
+
+		self.addAT3ticks(ax0, X[0], X[-1])
 
 		plt.subplots_adjust(hspace=0.1)
 
@@ -693,72 +772,45 @@ class File:
 			target_db = self._data['db_bench[0]']
 
 		target_data = collections.OrderedDict()
-		target_data_delta = dict()
-		interval = self._params['stats_interval']
+		last_w = ''
+		last_w_counter = -1
 		for i in target_db:
-			d = collections.OrderedDict()
-			target_data[i['time']] = d
+			target_data[i['time']] = collections.OrderedDict()
 			target_data[i['time']]['db'] = i
-			target_data[i['time']]['at3'] = []
 
-			target_data_delta[i['time']] = d
-			for j in range(1,int(interval/2)+1):
-				target_data_delta[i['time']-j] = d
-				target_data_delta[i['time']+j] = d
-		for i in range(0,num_at3):
-			at3 = self._data[f'access_time3[{i}]']
-			for j in at3:
-				if target_data_delta.get(j['time']) is not None:
-					target_data_delta[j['time']]['at3'].append(j)
-				else:
-					print(f'at3 time {j["time"]} has no target time')
-
-		l = list(target_data_delta.keys())
-		l.sort()
-		for i in range(l[0], l[-1]+1):
-			if i not in l:
-				print(f'time {i} not in delta list')
-
-		to_pandas = collections.OrderedDict()
-		timelist = list(target_data.keys()); timelist.sort()
-		for t in timelist:
-			d = target_data[t]
-			s = len(d['at3'])
-			if s != num_at3:
-				print(f'time {t} has {s} at3, should have {num_at3}. ignoring')
-				continue
-			if to_pandas.get('time') is None: to_pandas['time'] = []
-			to_pandas['time'].append(t)
-			if to_pandas.get(target_attribute) is None: to_pandas[target_attribute] = []
-			to_pandas[target_attribute].append(d['db'][target_attribute])
-
-			if to_pandas.get('w') is None: to_pandas['w'] = []
-			aux_w = collections.OrderedDict()
-			for at in d['at3']:
-				if at['wait'] == 'false':
-					aux_s = f'{at["random_ratio"]}r,{at["write_ratio"]}w'
-					if aux_s not in aux_w.keys():
-						aux_w[aux_s] = 1
-					else:
-						aux_w[aux_s] += 1
-			if len(aux_w) == 0:
-				to_pandas['w'].append('w0')
+			w = self.lastAT3str(i['time'])
+			if w != last_w:
+				last_w_counter += 1
+				last_w = w
+			if self._options.use_at3_counters:
+				target_data[i['time']]['at3'] = f'w{last_w_counter}'
 			else:
-				aux_s = ';'.join([f'{v}x{k}' for k, v in aux_w.items()])
-				to_pandas['w'].append(aux_s)
+				target_data[i['time']]['at3'] = w
+			target_data[i['time']]['at3_counter'] = last_w_counter
 
-		pd1 = pd.DataFrame(to_pandas)
+		timelist = list(target_data.keys()); timelist.sort()
+
+		pd1 = pd.DataFrame({
+			'time'      : timelist,
+			'ops_per_s' : [ target_data[t]['db'][target_attribute] for t in timelist ],
+			'w'         : [ target_data[t]['at3'] for t in timelist ],
+			'w_counter' : [ target_data[t]['at3_counter'] for t in timelist ],
+			})
 		return pd1
 
 	def graph_pressure(self):
 		pd = self.getPressureData()
-		pd2 = pd.groupby('w').agg({'ops_per_s':'mean'}).sort_values('ops_per_s', ascending=False)
+		if pd is None: return
+		if self._options.use_at3_counters:
+			pd2 = pd.groupby(['w', 'w_counter']).agg({'ops_per_s':'mean'}).sort_values('w_counter')
+		else:
+			pd2 = pd.groupby(['w', 'w_counter']).agg({'ops_per_s':'mean'}).sort_values('ops_per_s', ascending=False)
 
 		fig, ax = plt.subplots()
 		fig.set_figheight(5)
 		fig.set_figwidth(12)
 
-		X_labels = list(pd2.index)
+		X_labels = [ x[0] for x in pd2.index ]
 		X = range(len(X_labels))
 		Y = [ i[0] for i in pd2.values ]
 
@@ -773,6 +825,31 @@ class File:
 		if self._options.save:
 			for f in self._options.formats:
 				save_name = '{}-pressure.{}'.format(self._filename.replace('.out', ''), f)
+				fig.savefig(save_name, bbox_inches="tight")
+		plt.show()
+
+		##############################################
+		fig, ax = plt.subplots()
+		fig.set_figheight(5)
+		fig.set_figwidth(12)
+
+		w0 = pd2.loc['w0', 0][0]
+
+		X_labels = [ x[0] for x in pd2.index ]
+		X = range(len(X_labels))
+		Y = [ w0/i[0] for i in pd2.values ]
+
+		ax.plot(X, Y, label='pressure')
+
+		ax.set_xticks(X)
+		ax.set_xticklabels(X_labels, rotation=90)
+
+		ax.set(title="normalized pressure scale", xlabel="w", ylabel="p(w0) / p(wi)")
+		#ax.legend(loc='upper right', ncol=6, frameon=False)
+
+		if self._options.save:
+			for f in self._options.formats:
+				save_name = '{}-pressure_norm.{}'.format(self._filename.replace('.out', ''), f)
 				fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
 
@@ -792,6 +869,7 @@ class File:
 		if self._options.plot_cpu:        self.graph_cpu()
 		if self._options.plot_at3:        self.graph_at3()
 		if self._options.plot_at3_script: self.graph_at3_script()
+		if self._options.plot_pressure:   self.graph_pressure()
 
 		## Special case graphs:
 		# exp_at3_rww:
@@ -994,20 +1072,25 @@ class FioFiles:
 			plt.show()
 
 ##############################################################################
-#Options.save = True
+if __name__ == '__main__':
+	pass
+	Options.save = True
 
-#options = Options(graphTickMajor=10, graphTickMinor=4)
-#plotFiles(["dbbench_mw2.out"], options)
+	#options = Options(graphTickMajor=10, graphTickMinor=4)
+	#plotFiles(["dbbench_mw2.out"], options)
 
-#plotFiles(getFiles('exp_db'), Options())
-#plotFiles(getFiles('exp_at3'), Options(plot_at3_write_ratio=True))
-#plotFiles(getFiles('exp_at3_rww'), Options(graphTickMajor=2, graphTickMinor=4, plot_io_norm=True))
+	plotFiles(getFiles('exp_db'), Options(plot_pressure=True))
+	#plotFiles(getFiles('exp_at3'), Options(plot_at3_write_ratio=True))
+	#plotFiles(getFiles('exp_at3_rww'), Options(graphTickMajor=2, graphTickMinor=4, plot_io_norm=True))
 
-#fiofiles = FioFiles(getFiles('exp_fio'), Options())
-#fiofiles.graph_bw()
-#fiofiles.graph_iops()
+	#fiofiles = FioFiles(getFiles('exp_fio'), Options())
+	#fiofiles.graph_bw()
+	#fiofiles.graph_iops()
 
-#f = File('exp_db/dbbench_wwr,at3_bs4_directio.out', Options())
-#f = File('exp_db/ycsb_wb,at3_bs512_directio.out', Options())
-#p = f.getPressureData()
-#f.graph_pressure()
+	#f = File('exp_db/dbbench_wwr,at3_bs512_directio.out', Options())
+	#f = File('exp_db/ycsb_wa,at3_bs512_directio.out', Options())
+	#p = f.getPressureData()
+	#f.graph_pressure()
+	#f.graph_at3_script()
+	#f.graph_db()
+
