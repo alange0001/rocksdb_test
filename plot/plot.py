@@ -309,11 +309,11 @@ class File:
 
 		Xmin, Xmax = None, None
 		for i in range(0, num_dbbench):
-			X = [i['time']/60.0 for i in self._data['db_bench[{}]'.format(i)]]
-			Y = [i['ops_per_s'] for i in self._data['db_bench[{}]'.format(i)]]
+			X = [i['time']/60.0 for i in self._data[f'db_bench[{i}]']]
+			Y = [i['ops_per_s'] for i in self._data[f'db_bench[{i}]']]
 			if (Xmin is None) or (X[ 0] < Xmin): Xmin = X[ 0]
 			if (Xmax is None) or (X[-1] > Xmax): Xmax = X[-1]
-			ax.plot(X, Y, '-', lw=1, label='db_bench {}'.format(i))
+			ax.plot(X, Y, '-', lw=1, label=f'db_bench')
 
 			if self._dbbench[i].get("sine_d") is not None:
 				sine_a = coalesce(self._dbbench[i]['sine_a'], 0)
@@ -321,22 +321,27 @@ class File:
 				sine_c = coalesce(self._dbbench[i]['sine_c'], 0)
 				sine_d = coalesce(self._dbbench[i]['sine_d'], 0)
 				Y = [ sine_a * math.sin(sine_b * x + sine_c) + sine_d for x in X]
-				ax.plot(X, Y, '-', lw=1, label='db_bench {} (expect)'.format(i))
+				ax.plot(X, Y, '-', lw=1, label=f'db_bench (expected)')
 
 			if self._options.plot_db_mean_interval is not None:
 				X, Y = self.getMean(X, Y, self._options.plot_db_mean_interval)
-				ax.plot(X, Y, '-', lw=1, label='db_bench {} mean'.format(i))
+				ax.plot(X, Y, '-', lw=1, label=f'db_bench mean')
 
 		for i in range(0, num_ycsb):
-			X = [i['time']/60.0 for i in self._data['ycsb[{}]'.format(i)]]
-			Y = [i['ops_per_s'] for i in self._data['ycsb[{}]'.format(i)]]
+			try:
+				workload = self._params[f'ydb_workload[{i}]'].split('/')[-1]
+				i_label = {'workloada': 'A', 'workloadb':'B'}[workload]
+			except:
+				i_label = i
+			X = [i['time']/60.0 for i in self._data[f'ycsb[{i}]']]
+			Y = [i['ops_per_s'] for i in self._data[f'ycsb[{i}]']]
 			if (Xmin is None) or (X[ 0] < Xmin): Xmin = X[ 0]
 			if (Xmax is None) or (X[-1] > Xmax): Xmax = X[-1]
-			ax.plot(X, Y, '-', lw=1, label='ycsb {}'.format(i))
+			ax.plot(X, Y, '-', lw=1, label=f'ycsb {i_label}')
 
 			if self._options.plot_db_mean_interval is not None:
 				X, Y = self.getMean(X, Y, self._options.plot_db_mean_interval)
-				ax.plot(X, Y, '-', lw=1, label='ycsb {} mean'.format(i))
+				ax.plot(X, Y, '-', lw=1, label=f'ycsb {i_label} mean')
 
 		self.addAT3ticks(ax, Xmin, Xmax)
 
@@ -1104,7 +1109,7 @@ if __name__ == '__main__':
 	#plotFiles(["dbbench_mw2.out"], options)
 
 	plotFiles(getFiles('exp_db'), Options(plot_nothing=True, plot_db=True, plot_db_mean_interval=2))
-	#plotFiles(getFiles('exp_db2'), Options(plot_pressure=True, graphTickMajor=10, graphTickMinor=4))
+	#plotFiles(getFiles('exp_db5min'), Options(plot_pressure=True, graphTickMajor=10, graphTickMinor=4))
 	#plotFiles(getFiles('exp_at3'), Options(plot_at3_write_ratio=True))
 	#plotFiles(getFiles('exp_at3_rww'), Options(graphTickMajor=2, graphTickMinor=4, plot_io_norm=True))
 
@@ -1112,7 +1117,7 @@ if __name__ == '__main__':
 	#fiofiles.graph_bw()
 	#fiofiles.graph_iops()
 
-	#f = File('exp_db/dbbench_wwr,at3_bs512_directio.out', Options(plot_db_mean_interval=2))
+	#f = File('exp_db/dbbench_wwr,at3_bs512_directio.out', Options())
 	#f = File('exp_db/dbbench_wwr.out', Options())
 	#f = File('exp_db/ycsb_wa,at3_bs512_directio.out', Options())
 	#p = f.getPressureData()
