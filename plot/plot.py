@@ -31,6 +31,7 @@ class Options:
 	graphTickMajor = 5
 	graphTickMinor = 5
 	plot_db = True
+	plot_db_mean_interval = 2
 	plot_ycsb = True
 	plot_io = True
 	plot_cpu = True
@@ -42,7 +43,11 @@ class Options:
 	use_at3_counters = True
 	def __init__(self, **kargs):
 		for k,v in kargs.items():
-			if k in dir(self):
+			if k == 'plot_nothing' and v:
+				for i in dir(self):
+					if 'plot_' in i:
+						self.__setattr__(i, False)
+			elif k in dir(self):
 				self.__setattr__(k, v)
 			else:
 				raise Exception('Invalid option name: {}'.format(k))
@@ -283,6 +288,14 @@ class File:
 			return ax2
 		return None
 
+	def getMean(self, X, Y, interval):
+		pd1 = pd.DataFrame({
+			'X': [(int(x/interval)*interval)+(interval/2) for x in X],
+			'Y': Y,
+			})
+		pd2 = pd1.groupby(['X']).agg({'Y':'mean'}).sort_values('X')
+		return list(pd2.index), list(pd2['Y'])
+
 	def graph_db(self):
 		num_dbbench, num_ycsb = self.countDBs()
 		if num_dbbench == 0 and num_ycsb == 0:
@@ -310,6 +323,10 @@ class File:
 				Y = [ sine_a * math.sin(sine_b * x + sine_c) + sine_d for x in X]
 				ax.plot(X, Y, '-', lw=1, label='db_bench {} (expect)'.format(i))
 
+			if self._options.plot_db_mean_interval is not None:
+				X, Y = self.getMean(X, Y, self._options.plot_db_mean_interval)
+				ax.plot(X, Y, '-', lw=1, label='db_bench {} mean'.format(i))
+
 		for i in range(0, num_ycsb):
 			X = [i['time']/60.0 for i in self._data['ycsb[{}]'.format(i)]]
 			Y = [i['ops_per_s'] for i in self._data['ycsb[{}]'.format(i)]]
@@ -317,10 +334,15 @@ class File:
 			if (Xmax is None) or (X[-1] > Xmax): Xmax = X[-1]
 			ax.plot(X, Y, '-', lw=1, label='ycsb {}'.format(i))
 
+			if self._options.plot_db_mean_interval is not None:
+				X, Y = self.getMean(X, Y, self._options.plot_db_mean_interval)
+				ax.plot(X, Y, '-', lw=1, label='ycsb {} mean'.format(i))
+
 		self.addAT3ticks(ax, Xmin, Xmax)
 
 		aux = (Xmax - Xmin) * 0.01
 		ax.set_xlim( [Xmin - aux, Xmax + aux] )
+		ax.set_ylim( [0, None] )
 
 		self.setXticks(ax)
 
@@ -837,14 +859,16 @@ class File:
 
 		X_labels = [ x[0] for x in pd2.index ]
 		X = range(len(X_labels))
+		#Y = [ w0/i[0] if w0 >= i[0] else -i[0]/w0 for i in pd2.values ]
 		Y = [ w0/i[0] for i in pd2.values ]
 
-		ax.plot(X, Y, label='pressure')
+		#ax.plot(X, Y, label='pressure')
+		ax.bar(X, Y, label='normalized performance')
 
 		ax.set_xticks(X)
 		ax.set_xticklabels(X_labels, rotation=90)
 
-		ax.set(title="normalized pressure scale", xlabel="w", ylabel="p(w0) / p(wi)")
+		ax.set(title="normalized pressure scale", xlabel="w", ylabel="pressure scale")
 		#ax.legend(loc='upper right', ncol=6, frameon=False)
 
 		if self._options.save:
@@ -1079,7 +1103,8 @@ if __name__ == '__main__':
 	#options = Options(graphTickMajor=10, graphTickMinor=4)
 	#plotFiles(["dbbench_mw2.out"], options)
 
-	plotFiles(getFiles('exp_db'), Options(plot_pressure=True))
+	plotFiles(getFiles('exp_db'), Options(plot_nothing=True, plot_db=True, plot_db_mean_interval=2))
+	#plotFiles(getFiles('exp_db2'), Options(plot_pressure=True, graphTickMajor=10, graphTickMinor=4))
 	#plotFiles(getFiles('exp_at3'), Options(plot_at3_write_ratio=True))
 	#plotFiles(getFiles('exp_at3_rww'), Options(graphTickMajor=2, graphTickMinor=4, plot_io_norm=True))
 
@@ -1087,7 +1112,8 @@ if __name__ == '__main__':
 	#fiofiles.graph_bw()
 	#fiofiles.graph_iops()
 
-	#f = File('exp_db/dbbench_wwr,at3_bs512_directio.out', Options())
+	#f = File('exp_db/dbbench_wwr,at3_bs512_directio.out', Options(plot_db_mean_interval=2))
+	#f = File('exp_db/dbbench_wwr.out', Options())
 	#f = File('exp_db/ycsb_wa,at3_bs512_directio.out', Options())
 	#p = f.getPressureData()
 	#f.graph_pressure()
