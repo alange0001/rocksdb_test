@@ -16,7 +16,7 @@ BACKUP_DB_YCSB="$DIR_BACKUP"/ycsb.tar
 RESTORE_DB=${RESTORE_DB:-0}
 
 function remove_dbs {
-	for i in "$DIR_DB_BENCH" "$DIR_DB_BENCH"_* rm -fr "$DIR_DB_YCSB" "$DIR_DB_YCSB"_*; do
+	for i in "$DIR_DB_BENCH" "$DIR_DB_BENCH"_* "$DIR_DB_YCSB" "$DIR_DB_YCSB"_*; do
 		echo "removing database dir: $i" >&2
 		rm -fr "$i"
 	done
@@ -243,16 +243,19 @@ function run_generic() {
 	fi
 
 	echo "RESTORE_DBS       = $RESTORE_DBS" >&2
-	if [ "$RESTORE_DB" == 1 ]; then
+	if [ "$RESTORE_DBS" == 1 ]; then
+		echo "OK, restoring DBs" >&2
 		$test_cmd remove_dbs
 		IFS="#"
 		for i in $DB_PATH; do
 			echo "Restore db_bench database: $i" >&2
+			$test_cmd mkdir "$i"
 			$test_cmd tar -xf "$BACKUP_DB_BENCH" -C "$i" || exit 1
 			$test_cmd test_dir "$i"
 		done
 		for i in $YDB_PATH; do
 			echo "Restore ycsb database: $i" >&2
+			$test_cmd mkdir "$i"
 			$test_cmd tar -xf "$BACKUP_DB_YCSB" -C "$i" || exit 1
 			$test_cmd test_dir "$i"
 		done

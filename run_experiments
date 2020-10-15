@@ -59,6 +59,43 @@ if [ "$1" == 'ycsb_db3' ]; then
 	exit 0
 fi
 
+function get_at3script() {
+	wait="$1"
+	instances="$2"
+	interval="$3"
+	for ((i=0;i<$instances;i++)); do
+		jc=$((wait + i*interval))
+		echo -n "0:wait;0:write_ratio=0;${jc}m:wait=false"
+		for j in 0.1 0.2 0.3 0.5 0.7 1; do
+			jc=$((jc + interval*instances))
+			echo -n ";${jc}m:write_ratio=$j"
+		done
+		echo
+	done
+}
+
+if [ "$1" == 'dbbench_at3' ]; then
+	DURATION=160
+	WARM_PERIOD=10
+	RESTORE_DBS=1
+	NUM_DBS=1
+	DB_WORKLOAD=readwhilewriting
+	DB_THREADS=9
+	NUM_AT=4
+	AT_PARAMS="--flush_blocks=0 --random_ratio=0.5 --wait --direct_io"
+	atinterval=5
+	AT_SCRIPT=`get_at3script 20 $NUM_AT $atinterval |paste -s -d'#'`
+	#echo $AT_SCRIPT
+	#exit 0
+
+	for AT_BLOCK_SIZE in 512 4 8 16; do
+		OUTPUT="plot/exp_db${atinterval}min/dbbench_wwr,at3_bs${AT_BLOCK_SIZE}_directio.out"
+		run_generic
+	done
+
+	exit 0
+fi
+
 if [ "$1" == 'mw_per_threads_writeratio' ]; then
 	DURATION=61
 	WARM_PERIOD=1
