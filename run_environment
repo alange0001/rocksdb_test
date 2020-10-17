@@ -17,6 +17,10 @@ function test_dir() {
 	return 0
 }
 
+function send_message() {
+	telegram-send "$@"
+}
+
 DIR_BASE="$PWD"
 [ -z "$DIR_BASE" ] && exit 1
 

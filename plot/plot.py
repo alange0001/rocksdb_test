@@ -864,8 +864,8 @@ class File:
 
 		X_labels = [ x[0] for x in pd2.index ]
 		X = range(len(X_labels))
-		#Y = [ w0/i[0] if w0 >= i[0] else -i[0]/w0 for i in pd2.values ]
-		Y = [ w0/i[0] for i in pd2.values ]
+		Y = [ (w0 - i[0])/w0  for i in pd2.values ]
+		#Y = [ w0/i[0] for i in pd2.values ]
 
 		#ax.plot(X, Y, label='pressure')
 		ax.bar(X, Y, label='normalized performance')
@@ -1103,12 +1103,12 @@ class FioFiles:
 ##############################################################################
 if __name__ == '__main__':
 	pass
-	Options.save = True
+	#Options.save = True
 
 	#options = Options(graphTickMajor=10, graphTickMinor=4)
 	#plotFiles(["dbbench_mw2.out"], options)
 
-	plotFiles(getFiles('exp_db'), Options(plot_nothing=True, plot_db=True, plot_db_mean_interval=2))
+	#plotFiles(getFiles('exp_db'), Options(plot_nothing=True, plot_db=True, plot_db_mean_interval=2))
 	#plotFiles(getFiles('exp_db5min'), Options(plot_pressure=True, graphTickMajor=10, graphTickMinor=4))
 	#plotFiles(getFiles('exp_at3'), Options(plot_at3_write_ratio=True))
 	#plotFiles(getFiles('exp_at3_rww'), Options(graphTickMajor=2, graphTickMinor=4, plot_io_norm=True))
@@ -1119,9 +1119,9 @@ if __name__ == '__main__':
 
 	#f = File('exp_db/dbbench_wwr,at3_bs512_directio.out', Options())
 	#f = File('exp_db/dbbench_wwr.out', Options())
-	#f = File('exp_db/ycsb_wa,at3_bs512_directio.out', Options())
+	f = File('exp_db/ycsb_wa,at3_bs512_directio.out', Options())
 	#p = f.getPressureData()
-	#f.graph_pressure()
+	f.graph_pressure()
 	#f.graph_at3_script()
 	#f.graph_db()
 

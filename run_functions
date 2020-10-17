@@ -223,7 +223,7 @@ function run_generic() {
 	# YCSB params
 	NUM_YDBS=${NUM_YDBS:-0}                          ; echo "NUM_YDBS          = $NUM_YDBS" >&2
 	YDB_KEYS=${YDB_KEYS:-50000000}                   ; echo "YDB_KEYS          = $YDB_KEYS" >&2
-	YDB_PATH=`for ((i=1;i<=$NUM_YDBS;i++)); do echo "$DIR_WORK/ycsb_$i"; done |paste -sd'#'`
+	YDB_PATH=`for ((i=1;i<=$NUM_YDBS;i++)); do echo "$DIR_WORK/rocksdb_ycsb_$i"; done |paste -sd'#'`
 	                                                   echo "YDB_PATH          = $YDB_PATH" >&2
 	YDB_WORKLOAD=${YDB_WORKLOAD:-workloadb}          ; echo "YDB_WORKLOAD      = $YDB_WORKLOAD" >&2
 	YDB_THREADS=${YDB_THREADS:-1}                    ; echo "YDB_THREADS       = $YDB_THREADS" >&2
@@ -265,6 +265,7 @@ function run_generic() {
 	echo "PARAMS            = $PARAMS" >&2
 
 	echo "Run rocksdb_test ..." >&2
+	$test_cmd send_message "Initiating experiment $(basename $OUTPUT)."
 	$test_cmd rocksdb_test \
 		--log_level="info" \
 		--stats_interval=5 \
@@ -291,6 +292,9 @@ function run_generic() {
 		--at_params="$AT_PARAMS" \
 		--at_script="$AT_SCRIPT" \
 		$PARAMS > $OUTPUT
+
+	exit_code=$?
+	$test_cmd send_message "Experiment $(basename $OUTPUT) finished. Exit code $exit_code."
 }
 
 function run_fio() {
