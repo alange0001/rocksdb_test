@@ -31,7 +31,7 @@ class Options:
 	graphTickMajor = 5
 	graphTickMinor = 5
 	plot_db = True
-	plot_db_mean_interval = 2
+	db_mean_interval = 2
 	plot_ycsb = True
 	plot_io = True
 	plot_cpu = True
@@ -252,7 +252,7 @@ class File:
 		for i in at3list:
 			if i['wait'] != 'true':
 				#s = f'{i["random_ratio"]}r,{i["write_ratio"]}w'
-				s = f'{i["write_ratio"]}w'
+				s = f'{i["random_ratio"]}r{i["write_ratio"]}w'
 				if s in ret.keys():
 					ret[s] += 1
 				else:
@@ -272,11 +272,11 @@ class File:
 				w = self.lastAT3str(i)
 				if w != last_w:
 					X2_ticks.append(i/60.0)
-					if self._options.use_at3_counters:
-						X2_labels.append(f'w{last_count}')
-						last_count += 1
-					else:
-						X2_labels.append(w)
+					#if self._options.use_at3_counters:
+					X2_labels.append(f'$w_{{{last_count}}}$')
+					last_count += 1
+					#else:
+					#	X2_labels.append(w)
 					last_w = w
 
 			ax2 = ax.twin()
@@ -323,8 +323,8 @@ class File:
 				Y = [ sine_a * math.sin(sine_b * x + sine_c) + sine_d for x in X]
 				ax.plot(X, Y, '-', lw=1, label=f'db_bench (expected)')
 
-			if self._options.plot_db_mean_interval is not None:
-				X, Y = self.getMean(X, Y, self._options.plot_db_mean_interval)
+			if self._options.db_mean_interval is not None:
+				X, Y = self.getMean(X, Y, self._options.db_mean_interval)
 				ax.plot(X, Y, '-', lw=1, label=f'db_bench mean')
 
 		for i in range(0, num_ycsb):
@@ -339,8 +339,8 @@ class File:
 			if (Xmax is None) or (X[-1] > Xmax): Xmax = X[-1]
 			ax.plot(X, Y, '-', lw=1, label=f'ycsb {i_label}')
 
-			if self._options.plot_db_mean_interval is not None:
-				X, Y = self.getMean(X, Y, self._options.plot_db_mean_interval)
+			if self._options.db_mean_interval is not None:
+				X, Y = self.getMean(X, Y, self._options.db_mean_interval)
 				ax.plot(X, Y, '-', lw=1, label=f'ycsb {i_label} mean')
 
 		self.addAT3ticks(ax, Xmin, Xmax)
@@ -809,10 +809,10 @@ class File:
 			if w != last_w:
 				last_w_counter += 1
 				last_w = w
-			if self._options.use_at3_counters:
-				target_data[i['time']]['at3'] = f'w{last_w_counter}'
-			else:
-				target_data[i['time']]['at3'] = w
+			#if self._options.use_at3_counters:
+			target_data[i['time']]['at3'] = f'w{last_w_counter}'
+			#else:
+			#	target_data[i['time']]['at3'] = w
 			target_data[i['time']]['at3_counter'] = last_w_counter
 
 		timelist = list(target_data.keys()); timelist.sort()
@@ -833,52 +833,63 @@ class File:
 		else:
 			pd2 = pd.groupby(['w', 'w_counter']).agg({'ops_per_s':'mean'}).sort_values('ops_per_s', ascending=False)
 
-		fig, ax = plt.subplots()
+		#fig = plt.gcf()
+		fig = plt.figure()
 		fig.set_figheight(5)
 		fig.set_figwidth(12)
+
+		ax = fig.add_axes([0,1,1,1])
 
 		X_labels = [ x[0] for x in pd2.index ]
 		X = range(len(X_labels))
 		Y = [ i[0] for i in pd2.values ]
-
-		ax.bar(X, Y, label='pressure')
-
+		ax.bar(X, Y, label='throughput')
 		ax.set_xticks(X)
 		ax.set_xticklabels(X_labels, rotation=90)
 
-		ax.set(title="pressure scale", xlabel="w", ylabel="ops/s")
-		#ax.legend(loc='upper right', ncol=6, frameon=False)
+		ax.set(xlabel="$w_i$", ylabel="$\\rho(w_i)$")
+		ax.legend(loc='upper center', ncol=1, frameon=False)
+
+		ax2 = ax.twinx()
+		ax2.set_yticks([ 0, 0.25, 0.5, 0.75, 1])
+		ax2.grid()
+		ax2.yaxis.set_visible(True)
+		ax2.xaxis.set_visible(False)
+
+		w0 = pd2.loc['w0', 0][0]
+		Y2 = [ (w0 - i[0])/w0  for i in pd2.values ]
+		ax2.plot(X, Y2, '-', label='normalized pressure', color='red')
+		ax2.legend(loc='upper right', ncol=1, frameon=False)
+		ax2.set(ylabel="$\\frac{\\rho(w_0)-\\rho(w_i)}{\\rho(w_0)}$")
+
+		ax.set_ylim([0, 1.08*w0])
+		ax2.set_ylim([min(0, min(Y2)), 1.08])
+
+
+		######################################################
+		ax = fig.add_axes([0,0.65,1,0.2])
+
+		X = [ (w0 - i[0])/w0  for i in pd2.values ]
+		Y = [ 0  for i in pd2.values ]
+		ax.plot(X, Y, 'o', label='pressure')
+
+		ax.set_xlim([min(0, min(X))-0.05, 1.05])
+		ax.set_ylim([-0.1, 0.1])
+		ax.yaxis.set_ticklabels([])
+
+		for i in range(len(X)):
+			ax.annotate(f'{X_labels[i]}', xy=(X[i], 0), xytext=(X[i]-0.005,0.03), rotation=90)
+
+		ax.grid()
+
+		ax.set(xlabel="normalized pressure: $\\frac{\\rho(w_0)-\\rho(w_i)}{\\rho(w_0)}$")
+
+		global a
+		a = ax
 
 		if self._options.save:
 			for f in self._options.formats:
 				save_name = '{}-pressure.{}'.format(self._filename.replace('.out', ''), f)
-				fig.savefig(save_name, bbox_inches="tight")
-		plt.show()
-
-		##############################################
-		fig, ax = plt.subplots()
-		fig.set_figheight(5)
-		fig.set_figwidth(12)
-
-		w0 = pd2.loc['w0', 0][0]
-
-		X_labels = [ x[0] for x in pd2.index ]
-		X = range(len(X_labels))
-		Y = [ (w0 - i[0])/w0  for i in pd2.values ]
-		#Y = [ w0/i[0] for i in pd2.values ]
-
-		#ax.plot(X, Y, label='pressure')
-		ax.bar(X, Y, label='normalized performance')
-
-		ax.set_xticks(X)
-		ax.set_xticklabels(X_labels, rotation=90)
-
-		ax.set(title="normalized pressure scale", xlabel="w", ylabel="pressure scale")
-		#ax.legend(loc='upper right', ncol=6, frameon=False)
-
-		if self._options.save:
-			for f in self._options.formats:
-				save_name = '{}-pressure_norm.{}'.format(self._filename.replace('.out', ''), f)
 				fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
 
@@ -905,6 +916,75 @@ class File:
 		if self._options.plot_io_norm: self.graph_io_norm()
 		# exp_at3:
 		if self._options.plot_at3_write_ratio: self.graph_at3_write_ratio()
+
+def graph_at3_script(filename, num_at3, max_w):
+	fig = plt.gcf()
+	#fig, axs = plt.subplots(self._num_at, 1)
+	fig.set_figheight(5)
+	fig.set_figwidth(9)
+
+	X = [j for j in range(0,max_w+1)]
+	X_labels = [f'$w_{{{j}}}$' for j in range(0,max_w+1)]
+
+	write_ratios = [0., 0.1, 0.2, 0.3, 0.5, 0.7, 1.]
+
+	for i in range(0, num_at3):
+		#ax = axs[i] if self._num_at > 1 else axs
+		ax = host_subplot((100 * num_at3) + 10+i+1, figure=fig)
+		#if i == 0:
+		#	ax0 = ax
+
+		ax.grid()
+
+		cur_wr = 0
+		X2, Y = [], []
+		j2 = 0
+		for j in range(0,max_w+1):
+			if j <= i:
+				pass
+				#Y.append(None)
+			else:
+				X2.append(j)
+				Y.append(write_ratios[cur_wr])
+				j2 += 1
+				if j2 >= num_at3:
+					cur_wr += 1
+					j2 = 0
+		ax.plot(X2, Y, '-', lw=1.5, label='write_ratio ($wr$)', color='orange')
+		#ax.bar(X2, Y, label='write_ratio (wr)', color='orange')
+
+		Y = [0.5 if j>i else None for j in range(0,max_w+1)]
+		ax.plot(X, Y, '-.', lw=1.5, label='random_ratio ($rr$)', color='blue')
+
+		ax_set = dict()
+
+		ax.set_xticks(X)
+		if i == 0:
+			pass
+			#ax_set['title'] = "access_time3: access pattern"
+		if i == num_at3 -1:
+			ax_set['xlabel'] = "concurrent workloads ($W$)"
+			ax.legend(bbox_to_anchor=(0., -.9, 1., .102), loc='lower left',
+				ncol=2, mode="expand", borderaxespad=0.)
+			ax.set_xticklabels(X_labels)
+		if i>=0 and i < num_at3 -1:
+			ax.xaxis.set_ticklabels([])
+
+		ax.set_xlim([-0.5,  max_w+0.5])
+		ax.set_ylim([-0.05, 1.08])
+
+		ax.set(**ax_set)
+
+		#chartBox = ax.get_position()
+		#ax.set_position([chartBox.x0, chartBox.y0, chartBox.width*0.75, chartBox.height])
+		#ax.legend(loc='upper center', bbox_to_anchor=(1.25, 1.0), ncol=2, frameon=True)
+
+
+	plt.subplots_adjust(hspace=0.1)
+
+	save_name = filename
+	fig.savefig(save_name, bbox_inches="tight")
+	plt.show()
 
 def coalesce(*values):
 	for v in values:
@@ -1009,7 +1089,7 @@ class FioFiles:
 				self._files.append(filename)
 				self._data.append(j)
 		except Exception as e:
-			print("filed to read file {}: {}".format(filename, str(e)))
+			print("failed to read file {}: {}".format(filename, str(e)))
 
 	def sortPatterns(self, patterns):
 		ret = []
@@ -1103,25 +1183,29 @@ class FioFiles:
 ##############################################################################
 if __name__ == '__main__':
 	pass
-	#Options.save = True
+	Options.save = True
 
 	#options = Options(graphTickMajor=10, graphTickMinor=4)
 	#plotFiles(["dbbench_mw2.out"], options)
 
-	#plotFiles(getFiles('exp_db'), Options(plot_nothing=True, plot_db=True, plot_db_mean_interval=2))
-	#plotFiles(getFiles('exp_db5min'), Options(plot_pressure=True, graphTickMajor=10, graphTickMinor=4))
+	plotFiles(getFiles('exp_db'), Options(plot_nothing=True, plot_pressure=True, db_mean_interval=2))
+	#plotFiles(getFiles('exp_db5min'), Options(plot_pressure=True, graphTickMajor=10, graphTickMinor=4, db_mean_interval=5))
 	#plotFiles(getFiles('exp_at3'), Options(plot_at3_write_ratio=True))
 	#plotFiles(getFiles('exp_at3_rww'), Options(graphTickMajor=2, graphTickMinor=4, plot_io_norm=True))
+
+	#f = File('exp_db/dbbench_wwr,at3_bs512_directio.out', Options(use_at3_counters=True))
+	#f = File('exp_db/dbbench_wwr.out', Options())
+	#f = File('exp_db5min/ycsb_workloadb.out', Options(plot_pressure=True, graphTickMajor=10, graphTickMinor=4, plot_db_mean_interval=5))
+	#p = f.getPressureData()
+	#f.graph_pressure()
+	#f.graph_at3_script()
+	#f.graph_db()
+	#f.graph_all()
+
+	#graph_at3_script('at3_script25.pdf', 4, 25)
+	#graph_at3_script('at3_script28.pdf', 4, 28)
 
 	#fiofiles = FioFiles(getFiles('exp_fio'), Options())
 	#fiofiles.graph_bw()
 	#fiofiles.graph_iops()
-
-	#f = File('exp_db/dbbench_wwr,at3_bs512_directio.out', Options())
-	#f = File('exp_db/dbbench_wwr.out', Options())
-	f = File('exp_db/ycsb_wa,at3_bs512_directio.out', Options())
-	#p = f.getPressureData()
-	f.graph_pressure()
-	#f.graph_at3_script()
-	#f.graph_db()
 
