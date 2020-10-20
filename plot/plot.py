@@ -835,8 +835,8 @@ class File:
 
 		#fig = plt.gcf()
 		fig = plt.figure()
-		fig.set_figheight(5)
-		fig.set_figwidth(12)
+		fig.set_figheight(3.5)
+		fig.set_figwidth(9)
 
 		ax = fig.add_axes([0,1,1,1])
 
@@ -860,14 +860,14 @@ class File:
 		Y2 = [ (w0 - i[0])/w0  for i in pd2.values ]
 		ax2.plot(X, Y2, '-', label='normalized pressure', color='red')
 		ax2.legend(loc='upper right', ncol=1, frameon=False)
-		ax2.set(ylabel="$\\frac{\\rho(w_0)-\\rho(w_i)}{\\rho(w_0)}$")
+		ax2.set(ylabel="$(\\rho(w_0)-\\rho(w_i)) / \\rho(w_0)$")
 
-		ax.set_ylim([0, 1.08*w0])
-		ax2.set_ylim([min(0, min(Y2)), 1.08])
+		ax.set_ylim([0, 1.09*w0])
+		ax2.set_ylim([min(0, min(Y2)), 1.09])
 
 
 		######################################################
-		ax = fig.add_axes([0,0.65,1,0.2])
+		ax = fig.add_axes([0,0.55,1,0.25])
 
 		X = [ (w0 - i[0])/w0  for i in pd2.values ]
 		Y = [ 0  for i in pd2.values ]
@@ -878,11 +878,15 @@ class File:
 		ax.yaxis.set_ticklabels([])
 
 		for i in range(len(X)):
-			ax.annotate(f'{X_labels[i]}', xy=(X[i], 0), xytext=(X[i]-0.005,0.03), rotation=90)
+			ax.annotate(f'{X_labels[i]}', xy=(X[i], 0), xytext=(X[i]-0.006,0.035), rotation=90)
 
-		ax.grid()
+		#ax.grid()
+		ax.xaxis.set_major_locator(MultipleLocator(0.1))
+		ax.xaxis.set_minor_locator(AutoMinorLocator(4))
+		ax.grid(which='major', color='#888888', linestyle='--')
+		ax.grid(which='minor', color='#CCCCCC', linestyle=':')
 
-		ax.set(xlabel="normalized pressure: $\\frac{\\rho(w_0)-\\rho(w_i)}{\\rho(w_0)}$")
+		ax.set(xlabel="normalized pressure: $(\\rho(w_0)-\\rho(w_i)) / \\rho(w_0)$")
 
 		global a
 		a = ax
@@ -1196,6 +1200,8 @@ if __name__ == '__main__':
 	#f = File('exp_db/dbbench_wwr,at3_bs512_directio.out', Options(use_at3_counters=True))
 	#f = File('exp_db/dbbench_wwr.out', Options())
 	#f = File('exp_db5min/ycsb_workloadb.out', Options(plot_pressure=True, graphTickMajor=10, graphTickMinor=4, plot_db_mean_interval=5))
+	#f = File('ycsb_workloadb_threads5.out', Options())
+	#f = File('ycsb_workloadb_threads8.out', Options())
 	#p = f.getPressureData()
 	#f.graph_pressure()
 	#f.graph_at3_script()
