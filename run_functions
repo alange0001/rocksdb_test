@@ -263,6 +263,9 @@ function run_generic() {
 	fi
 
 	echo "PARAMS            = $PARAMS" >&2
+	
+	$test_cmd send_message "fstrim on directory $DIR_WORK."
+	sudo fstrim "$DIR_WORK"
 
 	echo "Run rocksdb_test ..." >&2
 	$test_cmd send_message "Initiating experiment $(basename $OUTPUT)."

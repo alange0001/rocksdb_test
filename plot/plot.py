@@ -32,6 +32,7 @@ class Options:
 	graphTickMinor = 5
 	plot_db = True
 	db_mean_interval = 2
+	file_start_time = {}
 	plot_ycsb = True
 	plot_io = True
 	plot_cpu = True
@@ -41,12 +42,14 @@ class Options:
 	plot_at3_write_ratio = False
 	plot_pressure = False
 	use_at3_counters = True
+	fio_folder = None
 	def __init__(self, **kargs):
 		for k,v in kargs.items():
-			if k == 'plot_nothing' and v:
-				for i in dir(self):
-					if 'plot_' in i:
-						self.__setattr__(i, False)
+			if k == 'plot_nothing':
+				if v:
+					for i in dir(self):
+						if 'plot_' in i:
+							self.__setattr__(i, False)
 			elif k in dir(self):
 				self.__setattr__(k, v)
 			else:
@@ -296,6 +299,14 @@ class File:
 		pd2 = pd1.groupby(['X']).agg({'Y':'mean'}).sort_values('X')
 		return list(pd2.index), list(pd2['Y'])
 
+	def cutBegin(self, X, Y, start):
+		retX, retY = [], []
+		for i in range(len(X)):
+			if X[i] >= start:
+				retX.append(X[i] - start)
+				retY.append(Y[i])
+		return (retX, retY)
+
 	def graph_db(self):
 		num_dbbench, num_ycsb = self.countDBs()
 		if num_dbbench == 0 and num_ycsb == 0:
@@ -304,16 +315,21 @@ class File:
 		fig = plt.gcf()
 		#fig, ax = plt.subplots()
 		ax = host_subplot(111, figure=fig)
-		fig.set_figheight(5)
+		fig.set_figheight(3)
 		fig.set_figwidth(8)
 
-		Xmin, Xmax = None, None
+		Xmin, Xmax = 10**10, -10**10
 		for i in range(0, num_dbbench):
 			X = [i['time']/60.0 for i in self._data[f'db_bench[{i}]']]
 			Y = [i['ops_per_s'] for i in self._data[f'db_bench[{i}]']]
-			if (Xmin is None) or (X[ 0] < Xmin): Xmin = X[ 0]
-			if (Xmax is None) or (X[-1] > Xmax): Xmax = X[-1]
-			ax.plot(X, Y, '-', lw=1, label=f'db_bench')
+
+			if self._options.file_start_time is not None and self._options.file_start_time.get(self._filename) is not None:
+				Xplot, Yplot = self.cutBegin(X, Y, self._options.file_start_time.get(self._filename))
+			else:
+				Xplot, Yplot = X, Y
+			Xmin = min([Xmin, min(Xplot)])
+			Xmax = max([Xmax, max(Xplot)])
+			ax.plot(Xplot, Yplot, '-', lw=1, label=f'db_bench')
 
 			if self._dbbench[i].get("sine_d") is not None:
 				sine_a = coalesce(self._dbbench[i]['sine_a'], 0)
@@ -321,10 +337,14 @@ class File:
 				sine_c = coalesce(self._dbbench[i]['sine_c'], 0)
 				sine_d = coalesce(self._dbbench[i]['sine_d'], 0)
 				Y = [ sine_a * math.sin(sine_b * x + sine_c) + sine_d for x in X]
-				ax.plot(X, Y, '-', lw=1, label=f'db_bench (expected)')
+				if self._options.file_start_time is not None and self._options.file_start_time.get(self._filename) is not None:
+					Xplot, Yplot = self.cutBegin(X, Y, self._options.file_start_time.get(self._filename))
+				else:
+					Xplot, Yplot = X, Y
+				ax.plot(Xplot, Yplot, '-', lw=1, label=f'db_bench (expected)')
 
 			if self._options.db_mean_interval is not None:
-				X, Y = self.getMean(X, Y, self._options.db_mean_interval)
+				X, Y = self.getMean(Xplot, Yplot, self._options.db_mean_interval)
 				ax.plot(X, Y, '-', lw=1, label=f'db_bench mean')
 
 		for i in range(0, num_ycsb):
@@ -335,15 +355,20 @@ class File:
 				i_label = i
 			X = [i['time']/60.0 for i in self._data[f'ycsb[{i}]']]
 			Y = [i['ops_per_s'] for i in self._data[f'ycsb[{i}]']]
-			if (Xmin is None) or (X[ 0] < Xmin): Xmin = X[ 0]
-			if (Xmax is None) or (X[-1] > Xmax): Xmax = X[-1]
-			ax.plot(X, Y, '-', lw=1, label=f'ycsb {i_label}')
+			if self._options.file_start_time is not None and self._options.file_start_time.get(self._filename) is not None:
+				Xplot, Yplot = self.cutBegin(X, Y, self._options.file_start_time.get(self._filename))
+			else:
+				Xplot, Yplot = X, Y
+			Xmin = min([Xmin, min(Xplot)])
+			Xmax = max([Xmax, max(Xplot)])
+			ax.plot(Xplot, Yplot, '-', lw=1, label=f'ycsb {i_label}')
 
 			if self._options.db_mean_interval is not None:
-				X, Y = self.getMean(X, Y, self._options.db_mean_interval)
+				X, Y = self.getMean(Xplot, Yplot, self._options.db_mean_interval)
 				ax.plot(X, Y, '-', lw=1, label=f'ycsb {i_label} mean')
 
-		self.addAT3ticks(ax, Xmin, Xmax)
+		if not(self._options.file_start_time is not None and self._options.file_start_time.get(self._filename) is not None):
+			self.addAT3ticks(ax, Xmin, Xmax)
 
 		aux = (Xmax - Xmin) * 0.01
 		ax.set_xlim( [Xmin - aux, Xmax + aux] )
@@ -626,6 +651,7 @@ class File:
 	def graph_at3(self):
 		if self._num_at == 0 or self._num_at is None:
 			return
+		print(f'graph_at3() filename: {self._filename}')
 
 		fig, axs = plt.subplots(self._num_at, 1)
 		fig.set_figheight(5)
@@ -859,11 +885,21 @@ class File:
 		w0 = pd2.loc['w0', 0][0]
 		Y2 = [ (w0 - i[0])/w0  for i in pd2.values ]
 		ax2.plot(X, Y2, '-', label='normalized pressure', color='red')
-		ax2.legend(loc='upper right', ncol=1, frameon=False)
+
+		X3, Y3 = [], []
+		min_p = Y2[0]
+		for i in range(1, len(Y2)):
+			if Y2[i] < min_p:
+				X3.append(X[i])
+				Y3.append(Y2[i])
+			else:
+				min_p = Y2[i]
+		ax2.plot(X3, Y3, '*', label='decreased', color='red')
+		ax2.legend(loc='upper right', ncol=2, frameon=False)
 		ax2.set(ylabel="$(\\rho(w_0)-\\rho(w_i)) / \\rho(w_0)$")
 
-		ax.set_ylim([0, 1.09*w0])
-		ax2.set_ylim([min(0, min(Y2)), 1.09])
+		ax.set_ylim([0, 1.1*w0])
+		ax2.set_ylim([min(0, min(Y2)), 1.1])
 
 
 		######################################################
@@ -1115,13 +1151,14 @@ class FioFiles:
 			#print(X_values)
 
 			fig, ax = plt.subplots()
-			fig.set_figheight(5)
-			fig.set_figwidth(12)
+			fig.set_figheight(4)
+			fig.set_figwidth(9.8)
 
 			X_labels = [ str(int(x/1024)) for x in X_values]
 			#print(X_labels)
 
-			width=0.05
+			Y_max = 0
+			width=0.07
 			s_width=0.0-((width * len(iodepth_list))/2)
 			for iodepth in iodepth_list:
 				X = [ x+s_width for x in range(0,len(X_values)) ]
@@ -1129,18 +1166,23 @@ class FioFiles:
 				Y = [ float(pattern_pd[(pattern_pd['iodepth']==iodepth)&(pattern_pd['bs']==x)]['bw_mean']) for x in X_values ]
 				Y_dev = [ float(pattern_pd[(pattern_pd['iodepth']==iodepth)&(pattern_pd['bs']==x)]['bw_dev']) for x in X_values ]
 				#print(Y)
-				ax.bar(X, Y, yerr=Y_dev, label='iodepth {}'.format(iodepth), width=width)
+				label = f'iodepth {iodepth}' if iodepth == 1 else f'{iodepth}'
+				ax.bar(X, Y, yerr=Y_dev, label=label, width=width)
+				Y_max = max([ Y_max, max(numpy.array(Y) + numpy.array(Y_dev)) ])
 				s_width += width
 
 			ax.set_xticks([ x for x in range(0, len(X_labels))])
 			ax.set_xticklabels(X_labels)
 
+			ax.set_ylim([0, Y_max * 1.2])
+
 			ax.set(title="fio {}".format(pattern), xlabel="block size (KiB)", ylabel="KiB/s")
-			ax.legend(loc='upper left', ncol=6, frameon=False)
+			ax.legend(loc='upper left', ncol=8, frameon=False)
 
 			if self._options.save:
+				folder = f'{self._options.fio_folder}/' if self._options.fio_folder is not None else ''
 				for f in self._options.formats:
-					save_name = 'fio_{}.{}'.format(pattern, f)
+					save_name = f'{folder}fio_bw_{pattern}.{f}'
 					fig.savefig(save_name, bbox_inches="tight")
 			plt.show()
 
@@ -1155,13 +1197,14 @@ class FioFiles:
 			#print(X_values)
 
 			fig, ax = plt.subplots()
-			fig.set_figheight(5)
-			fig.set_figwidth(12)
+			fig.set_figheight(4)
+			fig.set_figwidth(9.8)
 
 			X_labels = [ str(int(x/1024)) for x in X_values ]
 			#print(X_labels)
 
-			width=0.05
+			Y_max = 0
+			width=0.07
 			s_width=0.0-((width * len(iodepth_list))/2)
 			for iodepth in iodepth_list:
 				X = [ x+s_width for x in range(0,len(X_values)) ]
@@ -1169,18 +1212,23 @@ class FioFiles:
 				Y = [ float(pattern_pd[(pattern_pd['iodepth']==iodepth)&(pattern_pd['bs']==x)]['iops_mean']) for x in X_values ]
 				Y_dev = [ float(pattern_pd[(pattern_pd['iodepth']==iodepth)&(pattern_pd['bs']==x)]['iops_stddev']) for x in X_values ]
 				#print(Y)
-				ax.bar(X, Y, yerr=Y_dev, label='iodepth {}'.format(iodepth), width=width)
+				label = f'iodepth {iodepth}' if iodepth == 1 else f'{iodepth}'
+				ax.bar(X, Y, yerr=Y_dev, label=label, width=width)
+				Y_max = max([ Y_max, max(numpy.array(Y) + numpy.array(Y_dev)) ])
 				s_width += width
 
 			ax.set_xticks([ x for x in range(0, len(X_labels))])
 			ax.set_xticklabels(X_labels)
 
+			ax.set_ylim([0, Y_max * 1.2])
+
 			ax.set(title="fio {}".format(pattern), xlabel="block size (KiB)", ylabel="IOPS")
-			ax.legend(loc='upper left', ncol=6, frameon=False)
+			ax.legend(loc='upper left', ncol=8, frameon=False)
 
 			if self._options.save:
+				folder = f'{self._options.fio_folder}/' if self._options.fio_folder is not None else ''
 				for f in self._options.formats:
-					save_name = 'fio_{}.{}'.format(pattern, f)
+					save_name = f'{folder}fio_iops_{pattern}.{f}'
 					fig.savefig(save_name, bbox_inches="tight")
 			plt.show()
 
@@ -1189,16 +1237,35 @@ if __name__ == '__main__':
 	pass
 	Options.save = True
 
+	#graph_at3_script('at3_script25.pdf', 4, 25)
+	#graph_at3_script('at3_script28.pdf', 4, 28)
+
 	#options = Options(graphTickMajor=10, graphTickMinor=4)
 	#plotFiles(["dbbench_mw2.out"], options)
 
-	plotFiles(getFiles('exp_db'), Options(plot_nothing=True, plot_pressure=True, db_mean_interval=2))
+	#plotFiles(getFiles('exp_db'), Options(plot_nothing=True, plot_db=True, db_mean_interval=2))
+
+	Options.file_start_time['exp_db2/ycsb_wa.out'] = 30
+	Options.file_start_time['exp_db2/ycsb_wb.out'] = 30
+	Options.file_start_time['exp_db2/dbbench_wwr.out'] = 30
+	plotFiles(getFiles('exp_db2'), Options(plot_nothing=True, plot_pressure=True, plot_db=True, plot_at3=False, plot_at3_script=False, db_mean_interval=2))
+	#f = File('exp_db2/ycsb_wb.out', Options(plot_nothing=True, plot_db=True, db_mean_interval=2)); f.graph_all()
+
+	#plotFiles(getFiles('exp_dbbench/rrwr'), Options(plot_nothing=True, plot_db=True, db_mean_interval=5))
+
 	#plotFiles(getFiles('exp_db5min'), Options(plot_pressure=True, graphTickMajor=10, graphTickMinor=4, db_mean_interval=5))
+
 	#plotFiles(getFiles('exp_at3'), Options(plot_at3_write_ratio=True))
 	#plotFiles(getFiles('exp_at3_rww'), Options(graphTickMajor=2, graphTickMinor=4, plot_io_norm=True))
 
 	#f = File('exp_db/dbbench_wwr,at3_bs512_directio.out', Options(use_at3_counters=True))
-	#f = File('exp_db/dbbench_wwr.out', Options())
+	#f = File('dbbench_wwr.out', Options(plot_pressure=True, db_mean_interval=2)); f.graph_all()
+	#f = File('exp_db/ycsb_wa,at3_bs32_directio.out', Options(plot_pressure=True, db_mean_interval=2)); f.graph_all()
+	#f = File('exp_db/ycsb_wb,at3_bs32_directio.out', Options(plot_pressure=True, db_mean_interval=2)); f.graph_all()
+	#f = File('ycsb_wb,at3_bs32_directio.out', Options(plot_pressure=True, db_mean_interval=2)); f.graph_all()
+	#f = File('ycsb_workloadb_threads5.out', Options(plot_pressure=True, db_mean_interval=2)); f.graph_all()
+	#f = File('ycsb_workloada_threads5.out', Options(plot_pressure=True, db_mean_interval=2)); f.graph_all()
+
 	#f = File('exp_db5min/ycsb_workloadb.out', Options(plot_pressure=True, graphTickMajor=10, graphTickMinor=4, plot_db_mean_interval=5))
 	#f = File('ycsb_workloadb_threads5.out', Options())
 	#f = File('ycsb_workloadb_threads8.out', Options())
@@ -1208,10 +1275,7 @@ if __name__ == '__main__':
 	#f.graph_db()
 	#f.graph_all()
 
-	#graph_at3_script('at3_script25.pdf', 4, 25)
-	#graph_at3_script('at3_script28.pdf', 4, 28)
-
-	#fiofiles = FioFiles(getFiles('exp_fio'), Options())
+	#fiofiles = FioFiles(getFiles('exp_fio'), Options(fio_folder='exp_fio'))
 	#fiofiles.graph_bw()
 	#fiofiles.graph_iops()
 

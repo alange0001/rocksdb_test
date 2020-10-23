@@ -14,24 +14,22 @@ YDB_KEYS=50000000  # YCSB
 TEST_COMMANDS=0
 
 if [ "$1" == 'dbbench' ]; then
-	DURATION=70
-	WARM_PERIOD=10
+	DURATION=90
+	WARM_PERIOD=0
 	RESTORE_DBS=1
 	NUM_DBS=1
 	DB_WORKLOAD=readwhilewriting
 	DB_THREADS=9
 	NUM_AT=0
 	
-	atinterval=5
-
-	OUTPUT="plot/exp_db${atinterval}min/dbbench_wwr.out"
+	OUTPUT="plot/dbbench_wwr.out"
 	run_generic
 
 	exit 0
 fi
 
 if [ "$1" == 'create_ycsb' ]; then
-	DURATION=10
+	DURATION=60
 	WARM_PERIOD=0
 	ROCKSDB_CONFIG="files/rocksdb-6.11-db_bench.options"
 	NUM_YDBS=1
@@ -45,17 +43,18 @@ if [ "$1" == 'create_ycsb' ]; then
 fi
 
 if [ "$1" == 'ycsb' ]; then
-	DURATION=70
-	WARM_PERIOD=10
+	DURATION=90
+	#DURATION=50
+	WARM_PERIOD=0
 	RESTORE_DBS=1
 	NUM_YDBS=1
 
-	atinterval=5
-	
+	YDB_WORKLOAD_LIST=${YDB_WORKLOAD_LIST:-workloadb workloada}
+
 	#for YDB_THREADS in 4 6 8 10; do
-	for YDB_THREADS in 8; do
-		for YDB_WORKLOAD in workloada workloadb; do
-			OUTPUT="plot/exp_db${atinterval}min/ycsb_${YDB_WORKLOAD}.out"
+	for YDB_THREADS in 5; do
+		for YDB_WORKLOAD in $YDB_WORKLOAD_LIST; do
+			OUTPUT="plot/ycsb_${YDB_WORKLOAD}_threads${YDB_THREADS}.out"
 			run_generic
 		done
 	done
@@ -96,21 +95,23 @@ function get_at3script() {
 }
 
 if [ "$1" == 'dbbench_at3' ]; then
-	DURATION=160
-	WARM_PERIOD=10
+	DURATION=90
+	WARM_PERIOD=30
 	RESTORE_DBS=1
 	NUM_DBS=1
 	DB_WORKLOAD=readwhilewriting
 	DB_THREADS=9
 	NUM_AT=4
 	AT_PARAMS="--flush_blocks=0 --random_ratio=0.5 --wait --direct_io"
-	atinterval=5
-	AT_SCRIPT=`get_at3script 20 $NUM_AT $atinterval |paste -s -d'#'`
+	atinterval=2
+	AT_SCRIPT=`get_at3script 40 $NUM_AT $atinterval |paste -s -d'#'`
 	#echo $AT_SCRIPT
 	#exit 0
 
-	for AT_BLOCK_SIZE in 512 4 8 16; do
-		OUTPUT="plot/exp_db${atinterval}min/dbbench_wwr,at3_bs${AT_BLOCK_SIZE}_directio.out"
+	AT_BLOCK_SIZE_LIST=${AT_BLOCK_SIZE_LIST:-4}
+
+	for AT_BLOCK_SIZE in $AT_BLOCK_SIZE_LIST; do
+		OUTPUT="plot/dbbench_wwr,at3_bs${AT_BLOCK_SIZE}_directio.out"
 		run_generic
 	done
 
@@ -118,22 +119,24 @@ if [ "$1" == 'dbbench_at3' ]; then
 fi
 
 if [ "$1" == 'ycsb_at3' ]; then
-	DURATION=160
-	WARM_PERIOD=10
+	DURATION=90
+	WARM_PERIOD=30
 	RESTORE_DBS=1
 	NUM_YDBS=1
-	YDB_THREADS=8
+	YDB_THREADS=5
 	NUM_AT=4
 	AT_PARAMS="--flush_blocks=0 --random_ratio=0.5 --wait --direct_io"
-	atinterval=5
-	AT_SCRIPT=`get_at3script 20 $NUM_AT $atinterval |paste -s -d'#'`
+	atinterval=2
+	AT_SCRIPT=`get_at3script 40 $NUM_AT $atinterval |paste -s -d'#'`
 	#echo $AT_SCRIPT
 	#exit 0
+	
+	AT_BLOCK_SIZE_LIST=${AT_BLOCK_SIZE_LIST:-4}
+	YDB_WORKLOAD_LIST=${YDB_WORKLOAD_LIST:-workloadb workloada}
 
-	#for AT_BLOCK_SIZE in 512 4 8 16; do
-	for AT_BLOCK_SIZE in 16 32; do
-		for YDB_WORKLOAD in workloada workloadb; do
-			OUTPUT="plot/exp_db${atinterval}min/ycsb_${YDB_WORKLOAD},at3_bs${AT_BLOCK_SIZE}_directio.out"
+	for AT_BLOCK_SIZE in $AT_BLOCK_SIZE_LIST; do
+		for YDB_WORKLOAD in $YDB_WORKLOAD_LIST; do
+			OUTPUT="plot/ycsb_${YDB_WORKLOAD},at3_bs${AT_BLOCK_SIZE}_directio.out"
 			run_generic
 		done
 	done
