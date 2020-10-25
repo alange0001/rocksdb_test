@@ -32,6 +32,8 @@ class Options:
 	graphTickMinor = 5
 	plot_db = True
 	db_mean_interval = 2
+	db_xlim = None
+	db_ylim = None
 	file_start_time = None
 	plot_ycsb = True
 	plot_io = True
@@ -91,9 +93,74 @@ class DBClass:
 
 DB = DBClass()
 
+class AllFiles:
+	_options = None
+	_dbmean = None
+	_filename = None
+	def __init__(self, filename):
+		self._dbmean = []
+		self._filename = filename
+	def setOptions(self, options):
+		self._options = options
+	def add_dbmean_data(self, label, X, Y, W_ticks, W_labels):
+		ret = {
+			'label':label,
+			'X':X,
+			'Y':Y,
+			'W_ticks':W_ticks,
+			'W_labels':W_labels}
+		self._dbmean.append(ret)
+		return ret
+	def set_dblim(self, X, Y):
+		self._xlim = X
+		self._ylim = Y
+	def plot_dbmean(self):
+		if len(self._dbmean) == 0:
+			return
+
+		fig = plt.gcf()
+		#fig, ax = plt.subplots()
+		ax = host_subplot(111, figure=fig)
+		fig.set_figheight(3)
+		fig.set_figwidth(8)
+
+		for v in self._dbmean:
+			X = v['X']
+			Y = v['Y']
+			ax.plot(X, Y, '-', lw=1, label=v['label'])
+
+		if v.get('W_ticks') is not None:
+			ax2 = ax.twin()
+			ax2.set_xticks(v['W_ticks'])
+			ax2.set_xticklabels(v['W_labels'], rotation=90)
+			ax2.axis["right"].major_ticklabels.set_visible(False)
+			ax2.axis["top"].major_ticklabels.set_visible(True)
+
+		if self._options.db_xlim is not None:
+			ax.set_xlim( self._options.db_xlim )
+		if self._options.db_ylim is not None:
+			ax.set_ylim( self._options.db_ylim )
+
+		if self._options.graphTickMajor is not None:
+			ax.xaxis.set_major_locator(MultipleLocator(self._options.graphTickMajor))
+			ax.xaxis.set_minor_locator(AutoMinorLocator(self._options.graphTickMinor))
+			ax.grid(which='major', color='#CCCCCC', linestyle='--')
+			ax.grid(which='minor', color='#CCCCCC', linestyle=':')
+
+		ax.set(xlabel="time (min)", ylabel="tx/s")
+
+		ax.legend(loc='best', ncol=1, frameon=True)
+
+		if self._options.save:
+			for f in self._options.formats:
+				save_name = '{}_graph_db.{}'.format(self._filename.replace('.out', ''), f)
+				fig.savefig(save_name, bbox_inches="tight")
+		plt.show()
+
 class File:
 	_filename = None
 	_options = None
+	_allfiles = None
 	_params = None
 
 	_stats_interval = None
@@ -106,9 +173,12 @@ class File:
 	_num_at = None
 	_at_direct_io = None
 
-	def __init__(self, filename, options):
+	def __init__(self, filename, options, allfiles=None):
 		self._filename = filename
 		self._options = options
+		self._allfiles = allfiles
+		if allfiles:
+			self._allfiles.setOptions(options)
 		self._params = collections.OrderedDict()
 		self._data = dict()
 		self._dbbench = list()
@@ -267,29 +337,28 @@ class File:
 		else:
 			return '|'.join([ f'{v}x{k}' for k, v in ret.items() ])
 
-	def addAT3ticks(self, ax, Xmin, Xmax):
+	def getAT3ticks(self, Xmin, Xmax):
+		ticks, labels = [], []
 		if self.countAT3() > 0:
 			last_w = ''
 			last_count = 0
-			X2_ticks = []
-			X2_labels = []
 			for i in range(int(Xmin*60), int((Xmax*60)+1)):
 				w = self.lastAT3str(i)
 				if w != last_w:
-					X2_ticks.append(i/60.0)
-					#if self._options.use_at3_counters:
-					X2_labels.append(f'$w_{{{last_count}}}$')
+					ticks.append(i/60.0)
+					labels.append(f'$w_{{{last_count}}}$')
 					last_count += 1
-					#else:
-					#	X2_labels.append(w)
 					last_w = w
+		return (ticks, labels)
 
+	def addAT3ticks(self, ax, Xmin, Xmax):
+		if self.countAT3() > 0:
+			X2_ticks, X2_labels = self.getAT3ticks(Xmin, Xmax)
 			ax2 = ax.twin()
 			ax2.set_xticks(X2_ticks)
 			ax2.set_xticklabels(X2_labels, rotation=90)
 			ax2.axis["right"].major_ticklabels.set_visible(False)
 			ax2.axis["top"].major_ticklabels.set_visible(True)
-
 			return ax2
 		return None
 
@@ -320,7 +389,9 @@ class File:
 		fig.set_figheight(3)
 		fig.set_figwidth(8)
 
+		Ymax = -1
 		Xmin, Xmax = 10**10, -10**10
+		allfiles_d = None
 		for i in range(0, num_dbbench):
 			X = [i['time']/60.0 for i in self._data[f'db_bench[{i}]']]
 			Y = [i['ops_per_s'] for i in self._data[f'db_bench[{i}]']]
@@ -331,6 +402,7 @@ class File:
 				Xplot, Yplot = X, Y
 			Xmin = min([Xmin, min(Xplot)])
 			Xmax = max([Xmax, max(Xplot)])
+			Ymax = max([Ymax, max(Yplot)])
 			ax.plot(Xplot, Yplot, '-', lw=1, label=f'db_bench')
 
 			if self._dbbench[i].get("sine_d") is not None:
@@ -348,6 +420,8 @@ class File:
 			if self._options.db_mean_interval is not None:
 				X, Y = self.getMean(Xplot, Yplot, self._options.db_mean_interval)
 				ax.plot(X, Y, '-', lw=1, label=f'db_bench mean')
+				if i == 0 and self._allfiles is not None and self._params['num_at'] > 0:
+					allfiles_d = self._allfiles.add_dbmean_data(f"bs{self._params['at_block_size[0]']}", X, Y, None, None)
 
 		for i in range(0, num_ycsb):
 			try:
@@ -363,18 +437,30 @@ class File:
 				Xplot, Yplot = X, Y
 			Xmin = min([Xmin, min(Xplot)])
 			Xmax = max([Xmax, max(Xplot)])
+			Ymax = max([Ymax, max(Yplot)])
 			ax.plot(Xplot, Yplot, '-', lw=1, label=f'ycsb {i_label}')
 
 			if self._options.db_mean_interval is not None:
 				X, Y = self.getMean(Xplot, Yplot, self._options.db_mean_interval)
 				ax.plot(X, Y, '-', lw=1, label=f'ycsb {i_label} mean')
+				if i == 0 and self._allfiles is not None and self._params['num_at'] > 0:
+					allfiles_d = self._allfiles.add_dbmean_data(f"bs{self._params['at_block_size[0]']}", X, Y, None, None)
 
 		if not(self._options.file_start_time is not None and self._options.file_start_time.get(self._filename) is not None):
-			self.addAT3ticks(ax, Xmin, Xmax)
+			X2_ticks, X2_labels = self.getAT3ticks(Xmin, Xmax)
+			ax2 = ax.twin()
+			ax2.set_xticks(X2_ticks)
+			ax2.set_xticklabels(X2_labels, rotation=90)
+			ax2.axis["right"].major_ticklabels.set_visible(False)
+			ax2.axis["top"].major_ticklabels.set_visible(True)
+			if allfiles_d is not None:
+				allfiles_d['W_ticks'] = X2_ticks
+				allfiles_d['W_labels'] = X2_labels
 
-		aux = (Xmax - Xmin) * 0.01
-		ax.set_xlim( [Xmin - aux, Xmax + aux] )
-		ax.set_ylim( [0, None] )
+		if self._options.db_xlim is not None:
+			ax.set_xlim( self._options.db_xlim )
+		if self._options.db_ylim is not None:
+			ax.set_ylim( self._options.db_ylim )
 
 		self.setXticks(ax)
 
@@ -1083,13 +1169,13 @@ def getFiles(dirname):
 			files.append('{}/{}'.format(dirname, fn))
 	return sort_method(files)
 
-def plotFiles(filenames, options):
+def plotFiles(filenames, options, allfiles=None):
 	for name in filenames:
 		print(
 			'######################################################\n' +
 			'Graphs from file "{}":'.format(name) +
 			'\n')
-		f = File(name, options)
+		f = File(name, options, allfiles)
 		f.graph_all()
 		del f
 
@@ -1245,13 +1331,17 @@ if __name__ == '__main__':
 	#options = Options(graphTickMajor=10, graphTickMinor=4)
 	#plotFiles(["dbbench_mw2.out"], options)
 
-	#plotFiles(getFiles('exp_db'), Options(plot_nothing=True, plot_db=True, db_mean_interval=2))
-
-	#Options.file_start_time['exp_db2/ycsb_wa.out'] = 30
-	#Options.file_start_time['exp_db2/ycsb_wb.out'] = 30
-	#Options.file_start_time['exp_db2/dbbench_wwr.out'] = 30
-	#plotFiles(getFiles('exp_db2'), Options(plot_nothing=True, plot_pressure=True, plot_db=True, plot_at3=False, plot_at3_script=False, db_mean_interval=2))
+	#Options.file_start_time['exp_db/ycsb_wa.out'] = 30
+	#Options.file_start_time['exp_db/ycsb_wb.out'] = 30
+	#Options.file_start_time['exp_db/dbbench_wwr.out'] = 30
+	#Options.db_xlim = [-0.01,     60.01]
+	#Options.db_ylim = [ 0   , 125000   ]
+	#plotFiles(getFiles('exp_db'), Options(plot_nothing=True, plot_pressure=True, plot_db=True, db_mean_interval=2))
 	##f = File('exp_db2/ycsb_wb.out', Options(plot_nothing=True, plot_db=True, db_mean_interval=2)); f.graph_all()
+	#a = AllFiles()
+	#f = File('exp_db/ycsb_wb,at3_bs64_directio.out', Options(plot_nothing=True, plot_db=True, db_mean_interval=2), a); f.graph_all()
+	#f = File('exp_db/ycsb_wb,at3_bs128_directio.out', Options(plot_nothing=True, plot_db=True, db_mean_interval=2), a); f.graph_all()
+	#a.plot_dbmean()
 
 	#plotFiles(getFiles('exp_dbbench/rrwr'), Options(plot_nothing=True, plot_db=True, db_mean_interval=5))
 
