@@ -32,7 +32,7 @@ class Options:
 	graphTickMinor = 5
 	plot_db = True
 	db_mean_interval = 2
-	file_start_time = {}
+	file_start_time = None
 	plot_ycsb = True
 	plot_io = True
 	plot_cpu = True
@@ -44,6 +44,8 @@ class Options:
 	use_at3_counters = True
 	fio_folder = None
 	def __init__(self, **kargs):
+		if self.file_start_time is None:
+			self.file_start_time = {}
 		for k,v in kargs.items():
 			if k == 'plot_nothing':
 				if v:
@@ -1235,7 +1237,7 @@ class FioFiles:
 ##############################################################################
 if __name__ == '__main__':
 	pass
-	Options.save = True
+	#Options.save = True
 
 	#graph_at3_script('at3_script25.pdf', 4, 25)
 	#graph_at3_script('at3_script28.pdf', 4, 28)
@@ -1245,11 +1247,11 @@ if __name__ == '__main__':
 
 	#plotFiles(getFiles('exp_db'), Options(plot_nothing=True, plot_db=True, db_mean_interval=2))
 
-	Options.file_start_time['exp_db2/ycsb_wa.out'] = 30
-	Options.file_start_time['exp_db2/ycsb_wb.out'] = 30
-	Options.file_start_time['exp_db2/dbbench_wwr.out'] = 30
-	plotFiles(getFiles('exp_db2'), Options(plot_nothing=True, plot_pressure=True, plot_db=True, plot_at3=False, plot_at3_script=False, db_mean_interval=2))
-	#f = File('exp_db2/ycsb_wb.out', Options(plot_nothing=True, plot_db=True, db_mean_interval=2)); f.graph_all()
+	#Options.file_start_time['exp_db2/ycsb_wa.out'] = 30
+	#Options.file_start_time['exp_db2/ycsb_wb.out'] = 30
+	#Options.file_start_time['exp_db2/dbbench_wwr.out'] = 30
+	#plotFiles(getFiles('exp_db2'), Options(plot_nothing=True, plot_pressure=True, plot_db=True, plot_at3=False, plot_at3_script=False, db_mean_interval=2))
+	##f = File('exp_db2/ycsb_wb.out', Options(plot_nothing=True, plot_db=True, db_mean_interval=2)); f.graph_all()
 
 	#plotFiles(getFiles('exp_dbbench/rrwr'), Options(plot_nothing=True, plot_db=True, db_mean_interval=5))
 
