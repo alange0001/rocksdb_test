@@ -80,7 +80,7 @@ using std::function;
 		value.length() > 0,                                       \
 		nullptr)                                                  \
 	_f(docker_image, string, DEFINE_string,                       \
-		"ubuntu:20.04",                                           \
+		"alange0001/rocksdb_test:1",                              \
 		"docker image used for each container",                   \
 		value.length() > 0,                                       \
 		nullptr)                                                  \
