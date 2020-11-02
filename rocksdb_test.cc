@@ -591,6 +591,8 @@ class PerformanceMonitorClient {
 		std::cmatch cm;
 
 		while (! stop()) {
+			std::this_thread::sleep_for(seconds(args->stats_interval));
+
 			send(sock, send_msg.c_str(), send_msg.length(), 0);
 			DEBUG_MSG("message \"{}\" sent", send_msg);
 
