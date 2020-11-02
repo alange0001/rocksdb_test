@@ -17,19 +17,11 @@ function test_dir() {
 	return 0
 }
 
-function send_message() {
-	telegram-send "$@"
-}
-
 DIR_BASE="$PWD"
 [ -z "$DIR_BASE" ] && exit 1
 
 DIR_YCSB="$DIR_BASE/../YCSB"
 DIR_ROCKS="$DIR_BASE/../rocksdb"
-
-test_dir "$DIR_BASE/build" && export PATH="$PATH:$DIR_BASE/build"
-test_dir "$DIR_YCSB/bin"   && export PATH="$PATH:$DIR_YCSB/bin"
-test_dir "$DIR_ROCKS"      && export PATH="$PATH:$DIR_ROCKS"
 
 DIR_WORK="/media/auto/work"
 test_dir "$DIR_WORK"
@@ -43,3 +35,11 @@ DIR_BACKUP="/media/auto/work2"
 test_dir "$DIR_BACKUP"
 
 IO_DEVICE="nvme0n1"
+
+#ulimit -n 1048576
+
+DEFAULT_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ADD_PATH="/workspace/rocksdb_test/build:/workspace/YCSB/bin:/workspace/rocksdb"
+DOCKER_PARAMS="-v $DIR_BASE/..:/workspace -e PATH=$DEFAULT_PATH:$ADD_PATH"
+unset ADD_PATH
+unset DEFAULT_PATH

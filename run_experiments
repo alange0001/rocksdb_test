@@ -6,22 +6,36 @@
 # (found in the LICENSE.Apache file in the root directory).
 #
 
+DB_KEYS=${DB_KEYS:-500000000}  # db_bench
+YDB_KEYS=${YDB_KEYS:-50000000} # YCSB
+
+TEST_COMMANDS=${TEST_COMMANDS:-0}
+SEND_MESSAGE=${SEND_MESSAGE:-1}
+
 source run_functions
 
-DB_KEYS=500000000  # db_bench
-YDB_KEYS=50000000  # YCSB
+if [ "$1" == 'at3' ]; then
+	DURATION=10
+	WARM_PERIOD=0
+	NUM_AT=1
+	AT_PARAMS="--flush_blocks=0 --random_ratio=0.5 --wait --direct_io"
+	AT_SCRIPT="10:wait=false"
 
-TEST_COMMANDS=0
+	OUTPUT="plot/at3.out"
+	run_generic
+
+	exit 0
+fi
 
 if [ "$1" == 'dbbench' ]; then
-	DURATION=90
+	DURATION=15
 	WARM_PERIOD=0
-	RESTORE_DBS=1
+	RESTORE_DBS=0
 	NUM_DBS=1
 	DB_WORKLOAD=readwhilewriting
 	DB_THREADS=9
 	NUM_AT=0
-	
+
 	OUTPUT="plot/dbbench_wwr.out"
 	run_generic
 
@@ -79,21 +93,6 @@ if [ "$1" == 'ycsb_db3' ]; then
 	exit 0
 fi
 
-function get_at3script() {
-	wait="$1"
-	instances="$2"
-	interval="$3"
-	for ((i=0;i<$instances;i++)); do
-		jc=$((wait + i*interval))
-		echo -n "0:wait;0:write_ratio=0;${jc}m:wait=false"
-		for j in 0.1 0.2 0.3 0.5 0.7 1; do
-			jc=$((jc + interval*instances))
-			echo -n ";${jc}m:write_ratio=$j"
-		done
-		echo
-	done
-}
-
 if [ "$1" == 'dbbench_at3' ]; then
 	DURATION=90
 	WARM_PERIOD=30
@@ -130,7 +129,7 @@ if [ "$1" == 'ycsb_at3' ]; then
 	AT_SCRIPT=`get_at3script 40 $NUM_AT $atinterval |paste -s -d'#'`
 	#echo $AT_SCRIPT
 	#exit 0
-	
+
 	AT_BLOCK_SIZE_LIST=${AT_BLOCK_SIZE_LIST:-4}
 	YDB_WORKLOAD_LIST=${YDB_WORKLOAD_LIST:-workloadb workloada}
 
@@ -144,25 +143,7 @@ if [ "$1" == 'ycsb_at3' ]; then
 	exit 0
 fi
 
-if [ "$1" == 'mw_per_threads_writeratio' ]; then
-	DURATION=61
-	WARM_PERIOD=1
-	RESTORE_DBS=0
-	NUM_DBS=1
-	DB_WORKLOAD=mixedworkload
-
-	loop_threads="20 25 30 10 15"
-	for DB_THREADS in $loop_threads; do
-		DB_WORKLOADSCRIPT="writeratio=0.05;16m:writeratio=0.1;31m:writeratio=0.2;46m:writeratio=0.5"
-		OUTPUT="plot/exp_mw/${1}-dbs${NUM_DBS}_threads${DB_THREADS}.out"
-		run_generic
-	done
-
-	exit 0
-fi
-
 if [ "$1" == 'rrwr_dbs1' ]; then
-	TEST_COMMANDS=0
 	DURATION=16
 	WARM_PERIOD=1
 	RESTORE_DBS=0
@@ -181,8 +162,6 @@ if [ "$1" == 'rrwr_dbs1' ]; then
 fi
 
 if [ "$1" == 'fio' ]; then
-	TEST_COMMANDS=0
-
 	s=0
 	for RW in read randread write randwrite; do
 		[ "$RW" == "write" ] || [ "$RW" == "randwrite" ] && s=40

@@ -45,15 +45,24 @@ using fmt::format;
 class DBBench : public ExperimentTask {
 	Args* args;
 	uint number;
+	string container_name;
 
 	public:    //------------------------------------------------------------------
 	DBBench(Clock* clock_, Args* args_, uint number_) : ExperimentTask(format("db_bench[{}]", number_), clock_, args_->warm_period * 60), args(args_), number(number_) {
 		DEBUG_MSG("constructor");
 
+		container_name = format("db_bench_{}", number_);
 		if (args->db_create)
 			createDB();
 	}
-	~DBBench() {}
+	~DBBench() {
+		DEBUG_MSG("constructor");
+		try {
+			alutils::command_output(format("docker rm -f {}", container_name).c_str());
+		} catch (const std::exception& e) {
+			spdlog::warn(e.what());
+		}
+	}
 
 	void start() {
 		string cmd(get_cmd_run());
@@ -74,7 +83,7 @@ class DBBench : public ExperimentTask {
 			format("    --stats_interval_seconds=60                   \\\n") +
 			format("    --histogram=1                                 \\\n");
 
-		string cmd =
+		string cmd = get_docker_cmd() +
 			format("db_bench --benchmarks=fillrandom                  \\\n") +
 			format("    --use_existing_db=0                           \\\n") +
 			format("    --disable_auto_compactions=1                  \\\n") +
@@ -92,7 +101,7 @@ class DBBench : public ExperimentTask {
 		if (ret != 0)
 			throw runtime_error("database bulkload error");
 
-		cmd =
+		cmd = get_docker_cmd() +
 			format("db_bench --benchmarks=compact                     \\\n") +
 			format("    --use_existing_db=1                           \\\n") +
 			format("    --disable_auto_compactions=1                  \\\n") +
@@ -107,13 +116,22 @@ class DBBench : public ExperimentTask {
 			throw runtime_error("database compact error");
 	}
 
+	string get_docker_cmd() {
+		string ret =
+			format("docker run --name=\"{}\" -t --rm                  \\\n", container_name) +
+			format("  -v \"{}\":/workdata                             \\\n", args->db_path[number]) +
+			format("  {}                                              \\\n", args->docker_params) +
+			format("  {}                                              \\\n", args->docker_image);
+		return ret;
+	}
+
 	string get_const_params() {
 		string config;
 		if (args->rocksdb_config_file.length() > 0)
 			config = fmt::format("	--options_file=\"{}\" \\\n", args->rocksdb_config_file);
 		string ret =
-			format("    --db=\"{}\"                                   \\\n", args->db_path[number]) +
-			format("    --wal_dir=\"{}\"                              \\\n", args->db_path[number]) +
+			format("    --db=\"/workdata\"                            \\\n") +
+			format("    --wal_dir=\"/workdata\"                       \\\n") +
 			config +
 			format("    --num={}                                      \\\n", args->db_num_keys[number]) +
 			format("    --num_levels=6                                \\\n", args->db_num_levels[number]) +
@@ -181,7 +199,6 @@ class DBBench : public ExperimentTask {
 
 		returnCommand(readwhilewriting);
 		returnCommand(readrandomwriterandom);
-		returnCommand(mixedworkload);
 		returnCommand(mixgraph);
 #		undef returnCommand
 
@@ -191,7 +208,7 @@ class DBBench : public ExperimentTask {
 	string get_cmd_readwhilewriting() {
 		uint32_t duration_s = args->duration * 60; /*minutes to seconds*/
 
-		string ret =
+		string ret = get_docker_cmd() +
 			format("db_bench --benchmarks=readwhilewriting            \\\n") +
 			format("    --duration={}                                 \\\n", duration_s) +
 			get_params_w() +
@@ -212,7 +229,7 @@ class DBBench : public ExperimentTask {
 	string get_cmd_readrandomwriterandom() {
 		uint32_t duration_s = args->duration * 60; /*minutes to seconds*/
 
-		string ret =
+		string ret = get_docker_cmd() +
 			format("db_bench --benchmarks=readrandomwriterandom       \\\n") +
 			format("    --duration={}                                 \\\n", duration_s) +
 			get_params_w() +
@@ -231,34 +248,12 @@ class DBBench : public ExperimentTask {
 		return ret;
 	}
 
-	string get_cmd_mixedworkload() {
-		uint32_t duration_s = args->duration * 60; /*minutes to seconds*/
-
-		string ret =
-			format("db_bench --benchmarks=mixedworkload               \\\n") +
-			format("    --duration={}                                 \\\n", duration_s) +
-			get_params_w() +
-			format("    --use_existing_db=true                        \\\n") +
-			format("    --threads={}                                  \\\n", args->db_threads[number]) +
-			format("                                                  \\\n") +
-			format("    --perf_level=2                                \\\n") +
-			format("    --stats_interval_seconds={}                   \\\n", args->stats_interval) +
-			format("    --stats_per_interval=1                        \\\n") +
-			format("                                                  \\\n") +
-			format("    --sync={}                                     \\\n", 1 /*syncval*/) +
-			format("    --merge_operator=\"put\"                      \\\n") +
-			format("    --seed=$( date +%s )                          \\\n") +
-			format("    --workloadscript=\"{}\"                       \\\n", args->db_workloadscript[number]) +
-			format("    {}  2>&1 ", args->db_bench_params[number]);
-		return ret;
-	}
-
 	string get_cmd_mixgraph() {
 		uint32_t duration_s = args->duration * 60; /*minutes to seconds*/
 		double   sine_b   = 0.000073 * 24.0 * 60.0 * ((double)args->db_sine_cycles[number] / (double)args->duration); /*adjust the sine cycle*/
 		double   sine_c   = sine_b * (double)args->db_sine_shift[number] * 60.0;
 
-		string ret =
+		string ret = get_docker_cmd() +
 			format("db_bench --benchmarks=mixgraph                    \\\n") +
 			format("    --duration={}                                 \\\n", duration_s) +
 			get_params_w() +
@@ -346,15 +341,24 @@ class DBBench : public ExperimentTask {
 class YCSB : public ExperimentTask {
 	Args* args;
 	uint number;
+	string container_name;
 
 	public:    //------------------------------------------------------------------
 	YCSB(Clock* clock_, Args* args_, uint number_) : ExperimentTask(format("ycsb[{}]", number_), clock_, args_->warm_period * 60), args(args_), number(number_) {
 		DEBUG_MSG("constructor");
 
+		container_name = format("ycsb_{}", number_);
 		if (args->ydb_create)
 			createDB();
 	}
-	~YCSB() {}
+	~YCSB() {
+		DEBUG_MSG("constructor");
+		try {
+			alutils::command_output(format("docker rm -f {}", container_name).c_str());
+		} catch (const std::exception& e) {
+			spdlog::warn(e.what());
+		}
+	}
 
 	void start() {
 		string cmd(get_cmd_run());
@@ -372,8 +376,8 @@ class YCSB : public ExperimentTask {
 		string config;
 		if (args->rocksdb_config_file.length() > 0)
 			config = format("    -p rocksdb.optionsfile=\"{}\"  \\\n", args->rocksdb_config_file);
-		string cmd =
-			format("ycsb.sh load rocksdb -s                           \\\n") +
+		string cmd = get_docker_cmd(0) +
+			format("  ycsb.sh load rocksdb -s                         \\\n") +
 			get_const_params() +
 			config +
 			format("    2>&1 ");
@@ -384,19 +388,28 @@ class YCSB : public ExperimentTask {
 			throw runtime_error("database bulkload error");
 	}
 
+	string get_docker_cmd(uint32_t sleep) {
+		string ret =
+			format("docker run --name=\"{}\" -t --rm                  \\\n", container_name) +
+			format("  -v \"{}\":/workdata -e YCSB_SLEEP={}m           \\\n", args->ydb_path[number], sleep) +
+			format("  {}                                              \\\n", args->docker_params) +
+			format("  {}                                              \\\n", args->docker_image);
+		return ret;
+	}
+
 	string get_const_params() {
 		string ret =
 			format("    -P \"{}\"                                     \\\n", args->ydb_workload[number]) +
-			format("    -p rocksdb.dir=\"{}\"                         \\\n", args->ydb_path[number]) +
+			format("    -p rocksdb.dir=\"/workdata\"                  \\\n") +
 			format("    -p recordcount={}                             \\\n", args->ydb_num_keys[number]);
 		return ret;
 	}
 
 	string get_cmd_run() {
-		string cmd =
-			format("sleep {}m && ycsb.sh run rocksdb -s               \\\n", args->ydb_sleep[number]) +
+		string cmd = get_docker_cmd(args->ydb_sleep[number]) +
+			format("  ycsb.sh run rocksdb -s                          \\\n") +
 			get_const_params() +
-			format("    -p operationcount={}                          \\\n", 260000 * 60 * args->duration) +
+			format("    -p operationcount={}                          \\\n", 0) +
 			format("    -p status.interval={}                         \\\n", args->stats_interval) +
 			format("    -threads {}                                   \\\n", args->ydb_threads[number]) +
 			format("    {}                                            \\\n", args->ydb_params[number]) +
@@ -460,12 +473,21 @@ class YCSB : public ExperimentTask {
 class AccessTime3 : public ExperimentTask {
 	Args* args;
 	uint number;
+	string container_name;
 
 	public:    //------------------------------------------------------------------
 	AccessTime3(Clock* clock_, Args* args_, uint number_) : ExperimentTask(format("access_time3[{}]", number_), clock_, args_->warm_period * 60), args(args_), number(number_) {
+		container_name = format("at3_{}", number_);
 		DEBUG_MSG("constructor");
 	}
-	~AccessTime3() {}
+	~AccessTime3() {
+		DEBUG_MSG("destructor");
+		try {
+			alutils::command_output(format("docker rm -f {}", container_name).c_str());
+		} catch (const std::exception& e) {
+			spdlog::warn(e.what());
+		}
+	}
 
 	void start() {
 		string cmd( getCmd() );
@@ -481,12 +503,15 @@ class AccessTime3 : public ExperimentTask {
 	private:    //------------------------------------------------------------------
 	string getCmd() {
 		string ret =
-			format("                                                  \\\n") +
-			format("access_time3                                      \\\n") +
+			format("docker run --name=\"{}\" -t --rm                  \\\n", container_name) +
+			format("  -v \"{}\":/workdata                             \\\n", args->at_dir[number]) +
+			format("  {}                                              \\\n", args->docker_params) +
+			format("  {}                                              \\\n", args->docker_image) +
+			format("  access_time3                                    \\\n") +
 			format("    --duration={}                                 \\\n", args->duration * 60) +
 			format("    --stats_interval={}                           \\\n", args->stats_interval) +
 			format("    --log_time_prefix=false                       \\\n") +
-			format("    --filename=\"{}\"                             \\\n", args->at_file[number]) +
+			format("    --filename=\"/workdata/{}\"                   \\\n", args->at_file[number]) +
 			format("    --create_file=false                           \\\n") +
 			format("    --block_size={}                               \\\n", args->at_block_size[number]) +
 			format("    --command_script=\"{}\"                       \\\n", args->at_script[number]) +
@@ -570,14 +595,18 @@ class PerformanceMonitorClient {
 			DEBUG_MSG("message \"{}\" sent", send_msg);
 
 			auto r = read(sock , buffer, buffer_size);
-			if (r < 0) {
+			if (r <= 0) {
 				close(sock);
-				throw runtime_error(format("failed to read stats from performancemonitor (errno={})", errno));
+				if (r < 0)
+					throw runtime_error(format("failed to read stats from performancemonitor (errno={})", errno));
+				else
+					throw runtime_error("failed to read stats from performancemonitor (zero bytes received)");
 			}
+			DEBUG_MSG("message received (size {})", r);
 			assert(r <= buffer_size);
 			buffer[r] = '\0';
-			DEBUG_MSG("message received (size {})", r);
 
+			//TODO verificar se o dispositivo monitorado pelo performancemonitor é o mesmo informado aqui (args->device)
 			auto clock_s = clock->s();
 			if (clock_s > warm_period_s) {
 				regex_search(buffer, cm, regex("STATS: \\{(.+)"));
@@ -634,7 +663,7 @@ class Program {
 
 	int main(int argc, char** argv) noexcept {
 		DEBUG_MSG("initialized");
-		spdlog::info("rocksdb_test version: 1.6");
+		spdlog::info("rocksdb_test version: 1.7");
 		try {
 			args.reset(new Args(argc, argv));
 			clock.reset(new Clock());

@@ -79,6 +79,16 @@ using std::function;
 		"I/O device monitored by iostat",                         \
 		value.length() > 0,                                       \
 		nullptr)                                                  \
+	_f(docker_image, string, DEFINE_string,                       \
+		"ubuntu:20.04",                                           \
+		"docker image used for each container",                   \
+		value.length() > 0,                                       \
+		nullptr)                                                  \
+	_f(docker_params, string, DEFINE_string,                      \
+		"",                                                       \
+		"additional docker parameters",                           \
+		true,                                                     \
+		nullptr)                                                  \
 	_f(perfmon_port, uint32_t, DEFINE_uint32,                     \
 		18087,                                                    \
 		"performancemonitor port",                                \
@@ -93,7 +103,7 @@ using std::function;
 		true,                                                     \
 		nullptr,                                                  \
 		string,                                                   \
-		value == "readwhilewriting" || value == "readrandomwriterandom" || value == "mixedworkload" || value == "mixgraph", \
+		value == "readwhilewriting" || value == "readrandomwriterandom" || value == "mixgraph", \
 		num_dbs)                                                  \
 	_f(db_path, VectorParser<string>, DEFINE_string,              \
 		"/media/auto/work/rocksdb",                               \
@@ -142,14 +152,6 @@ using std::function;
 		nullptr,                                                  \
 		uint32_t,                                                 \
 		(value >= 0)&&(value <= 100),                             \
-		num_dbs)                                                  \
-	_f(db_workloadscript, VectorParser<string>, DEFINE_string,    \
-		"",                                                       \
-		"workload script for the db_bench",                       \
-		true,                                                     \
-		nullptr,                                                  \
-		string,                                                   \
-		true,                                                     \
 		num_dbs)                                                  \
 	_f(db_sine_cycles, VectorParser<uint32_t>, DEFINE_string,     \
 		"1",                                                      \
@@ -223,6 +225,14 @@ using std::function;
 		string,                                                   \
 		true,                                                     \
 		num_ydbs)                                                 \
+	_f(at_dir, VectorParser<string>, DEFINE_string,               \
+		"",                                                       \
+		"access_time3 directory mounted inside docker instance (list)", \
+		true,                                                     \
+		nullptr,                                                  \
+		string,                                                   \
+		value.length() > 0,                                       \
+		num_at)                                                   \
 	_f(at_file, VectorParser<string>, DEFINE_string,              \
 		"",                                                       \
 		"access_time3 --filename (list)",                         \
