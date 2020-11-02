@@ -84,7 +84,7 @@ class DBBench : public ExperimentTask {
 			format("    --histogram=1                                 \\\n");
 
 		string cmd = get_docker_cmd() +
-			format("db_bench --benchmarks=fillrandom                  \\\n") +
+			format("  db_bench --benchmarks=fillrandom                \\\n") +
 			format("    --use_existing_db=0                           \\\n") +
 			format("    --disable_auto_compactions=1                  \\\n") +
 			format("    --sync=0                                      \\\n") +
@@ -102,7 +102,7 @@ class DBBench : public ExperimentTask {
 			throw runtime_error("database bulkload error");
 
 		cmd = get_docker_cmd() +
-			format("db_bench --benchmarks=compact                     \\\n") +
+			format("  db_bench --benchmarks=compact                   \\\n") +
 			format("    --use_existing_db=1                           \\\n") +
 			format("    --disable_auto_compactions=1                  \\\n") +
 			format("    --sync=0                                      \\\n") +
@@ -209,7 +209,7 @@ class DBBench : public ExperimentTask {
 		uint32_t duration_s = args->duration * 60; /*minutes to seconds*/
 
 		string ret = get_docker_cmd() +
-			format("db_bench --benchmarks=readwhilewriting            \\\n") +
+			format("  db_bench --benchmarks=readwhilewriting          \\\n") +
 			format("    --duration={}                                 \\\n", duration_s) +
 			get_params_w() +
 			format("    --use_existing_db=true                        \\\n") +
@@ -230,7 +230,7 @@ class DBBench : public ExperimentTask {
 		uint32_t duration_s = args->duration * 60; /*minutes to seconds*/
 
 		string ret = get_docker_cmd() +
-			format("db_bench --benchmarks=readrandomwriterandom       \\\n") +
+			format("  db_bench --benchmarks=readrandomwriterandom     \\\n") +
 			format("    --duration={}                                 \\\n", duration_s) +
 			get_params_w() +
 			format("    --use_existing_db=true                        \\\n") +
@@ -254,7 +254,7 @@ class DBBench : public ExperimentTask {
 		double   sine_c   = sine_b * (double)args->db_sine_shift[number] * 60.0;
 
 		string ret = get_docker_cmd() +
-			format("db_bench --benchmarks=mixgraph                    \\\n") +
+			format("  db_bench --benchmarks=mixgraph                  \\\n") +
 			format("    --duration={}                                 \\\n", duration_s) +
 			get_params_w() +
 			format("    --use_existing_db=true                        \\\n") +
@@ -606,11 +606,18 @@ class PerformanceMonitorClient {
 			assert(r <= buffer_size);
 			buffer[r] = '\0';
 
-			//TODO verificar se o dispositivo monitorado pelo performancemonitor é o mesmo informado aqui (args->device)
 			auto clock_s = clock->s();
 			if (clock_s > warm_period_s) {
 				regex_search(buffer, cm, regex("STATS: \\{(.+)"));
 				if (cm.size() > 0) {
+					std::cmatch cm2;
+					regex_search(buffer, cm2, regex("\"arg_device\": *\"([^\"]+)\""));
+					if (cm2.size() < 2)
+						throw runtime_error("failed to read arg_device from performance monitor");
+					string perf_device( cm2.str(1) );
+					if (perf_device != args->io_device)
+						throw runtime_error(format("performancemonitor is monitoring device {}, but rocksdb_test is using device {}", perf_device, args->io_device));
+
 					spdlog::info("Task performancemonitor, STATS: {{\"time\": {}, {}", clock_s, cm.str(1));
 				}
 			}

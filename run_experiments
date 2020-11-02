@@ -36,7 +36,7 @@ if [ "$1" == 'dbbench' ]; then
 	DB_THREADS=9
 	NUM_AT=0
 
-	OUTPUT="plot/dbbench_wwr.out"
+	OUTPUT=${OUTPUT:-plot/dbbench_wwr.out}
 	run_generic
 
 	exit 0
