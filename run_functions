@@ -116,7 +116,7 @@ function run_generic() {
 	                                                   echo "===================================" >&2
 	OUTPUT=${OUTPUT:-/dev/stdout}                    ; echo "OUTPUT            = $OUTPUT" >&2
 	TEST_COMMANDS=${TEST_COMMANDS:-0}                ; echo "TEST_COMMANDS     = $TEST_COMMANDS" >&2
-	DOCKER_IMAGE=${DOCKER_IMAGE:-ubuntu:20.04}       ; echo "DOCKER_IMAGE      = $DOCKER_IMAGE" >&2
+	DOCKER_IMAGE=${DOCKER_IMAGE:-alange0001/rocksdb_test:1} ; echo "DOCKER_IMAGE      = $DOCKER_IMAGE" >&2
 	                                                   echo "DOCKER_PARAMS     = $DOCKER_PARAMS" >&2
 	DURATION=${DURATION:-0}                          ; echo "DURATION          = $DURATION" >&2
 	WARM_PERIOD=${WARM_PERIOD:-0}                    ; echo "WARM_PERIOD       = $WARM_PERIOD" >&2
