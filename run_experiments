@@ -15,8 +15,8 @@ SEND_MESSAGE=${SEND_MESSAGE:-1}
 source run_functions
 
 if [ "$1" == 'at3' ]; then
-	DURATION=10
-	WARM_PERIOD=0
+	DURATION=${DURATION:-10}
+	WARM_PERIOD=${WARM_PERIOD:-0}
 	NUM_AT=1
 	AT_PARAMS="--flush_blocks=0 --random_ratio=0.5 --wait --direct_io"
 	AT_SCRIPT="10:wait=false"
@@ -28,9 +28,9 @@ if [ "$1" == 'at3' ]; then
 fi
 
 if [ "$1" == 'dbbench' ]; then
-	DURATION=15
-	WARM_PERIOD=0
-	RESTORE_DBS=0
+	DURATION=${DURATION:-60}
+	WARM_PERIOD=${WARM_PERIOD:-0}
+	RESTORE_DBS=${RESTORE_DBS:-1}
 	NUM_DBS=1
 	DB_WORKLOAD=readwhilewriting
 	DB_THREADS=9
@@ -58,10 +58,9 @@ fi
 
 if [ "$1" == 'ycsb' ]; then
 	OUTPUT2=${OUTPUT}
-	DURATION=10
-	#DURATION=50
-	WARM_PERIOD=0
-	RESTORE_DBS=0
+	DURATION=${DURATION:-60}
+	WARM_PERIOD=${WARM_PERIOD:-0}
+	RESTORE_DBS=${RESTORE_DBS:-1}
 	NUM_YDBS=1
 
 	YDB_WORKLOAD_LIST=${YDB_WORKLOAD_LIST:-workloadb workloada}
@@ -95,16 +94,16 @@ if [ "$1" == 'ycsb_x3' ]; then
 fi
 
 if [ "$1" == 'dbbench_at3' ]; then
-	DURATION=90
-	WARM_PERIOD=30
-	RESTORE_DBS=1
+	DURATION=${DURATION:-90}
+	WARM_PERIOD=${WARM_PERIOD:-30}
+	RESTORE_DBS=${RESTORE_DBS:-1}
 	NUM_DBS=1
 	DB_WORKLOAD=readwhilewriting
 	DB_THREADS=9
 	NUM_AT=4
 	AT_PARAMS="--flush_blocks=0 --random_ratio=0.5 --wait --direct_io"
 	atinterval=2
-	AT_SCRIPT=`get_at3script 40 $NUM_AT $atinterval |paste -s -d'#'`
+	AT_SCRIPT=`get_at3script $((WARM_PERIOD + 10)) $NUM_AT $atinterval |paste -s -d'#'`
 	#echo $AT_SCRIPT
 	#exit 0
 
@@ -119,15 +118,15 @@ if [ "$1" == 'dbbench_at3' ]; then
 fi
 
 if [ "$1" == 'ycsb_at3' ]; then
-	DURATION=90
-	WARM_PERIOD=30
-	RESTORE_DBS=1
+	DURATION=${DURATION:-90}
+	WARM_PERIOD=${WARM_PERIOD:-30}
+	RESTORE_DBS=${RESTORE_DBS:-1}
 	NUM_YDBS=1
 	YDB_THREADS=5
 	NUM_AT=4
 	AT_PARAMS="--flush_blocks=0 --random_ratio=0.5 --wait --direct_io"
 	atinterval=2
-	AT_SCRIPT=`get_at3script 40 $NUM_AT $atinterval |paste -s -d'#'`
+	AT_SCRIPT=`get_at3script $((WARM_PERIOD + 10)) $NUM_AT $atinterval |paste -s -d'#'`
 	#echo $AT_SCRIPT
 	#exit 0
 
