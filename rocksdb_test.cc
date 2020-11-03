@@ -584,12 +584,15 @@ class PerformanceMonitorClient {
 	void threadMain(alutils::ThreadController::stop_t stop) {
 		// based on: https://www.geeksforgeeks.org/socket-programming-cc/
 
-		const string send_msg = "stats";
 		uint32_t buffer_size = 1024 * 1024;
 		char buffer[buffer_size +1]; buffer[buffer_size] = '\0';
-
 		std::cmatch cm;
 
+		string send_msg = "reset";
+		send(sock, send_msg.c_str(), send_msg.length(), 0);
+		DEBUG_MSG("message \"{}\" sent", send_msg);
+
+		send_msg = "stats";
 		while (! stop()) {
 			std::this_thread::sleep_for(seconds(args->stats_interval));
 
@@ -597,13 +600,22 @@ class PerformanceMonitorClient {
 			DEBUG_MSG("message \"{}\" sent", send_msg);
 
 			auto r = read(sock , buffer, buffer_size);
-			if (r <= 0) {
+			if (r < 0) {
 				close(sock);
-				if (r < 0)
-					throw runtime_error(format("failed to read stats from performancemonitor (errno={})", errno));
-				else
-					throw runtime_error("failed to read stats from performancemonitor (zero bytes received)");
+				throw runtime_error(format("failed to read stats from performancemonitor (errno={})", errno));
+			} else if (r == 0) {
+				spdlog::warn("failed to read stats from performancemonitor (zero bytes received)");
+				const string alive_msg( "alive" );
+				send(sock, alive_msg.c_str(), alive_msg.length(), 0);
+				DEBUG_MSG("message \"{}\" sent", alive_msg);
+				r = read(sock , buffer, buffer_size);
+				if (r <= 0) {
+					close(sock);
+					throw runtime_error(format("failed to read alive status from performancemonitor (errno={})", errno));
+				}
+				continue;
 			}
+
 			DEBUG_MSG("message received (size {})", r);
 			assert(r <= buffer_size);
 			buffer[r] = '\0';
