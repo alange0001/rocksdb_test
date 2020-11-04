@@ -485,9 +485,6 @@ class File:
 		if self._data.get('performancemonitor') is None:
 			return
 
-		io_device = self._params['io_device']
-
-		#TODO: falta terminar de implementar
 		X = [x['time']/60.0 for x in self._data['performancemonitor']]
 
 		fig, axs = plt.subplots(3, 1)
@@ -497,9 +494,8 @@ class File:
 		for ax_i in range(0,3):
 			ax = axs[ax_i]
 			if ax_i == 0:
-				X = [i['time']/60.0 for i in self._data['iostat']]
-				Yr = numpy.array([i['rMB/s']     for i in self._data['iostat']])
-				Yw = numpy.array([i['wMB/s']     for i in self._data['iostat']])
+				Yr = numpy.array([i['disk']['iostat']['rkB/s']/1024  for i in self._data['performancemonitor']])
+				Yw = numpy.array([i['disk']['iostat']['wkB/s']/1024  for i in self._data['performancemonitor']])
 				Yt = Yr + Yw
 				ax.plot(X, Yr, '-', lw=1, label='read', color='green')
 				ax.plot(X, Yw, '-', lw=1, label='write', color='orange')
@@ -507,14 +503,14 @@ class File:
 				ax.set(title="iostat", ylabel="MB/s")
 				ax.legend(loc='upper right', ncol=3, frameon=True)
 			elif ax_i == 1:
-				Y = [i['r/s']     for i in self._data['iostat']]
+				Y = [i['disk']['iostat']['r/s']     for i in self._data['performancemonitor']]
 				ax.plot(X, Y, '-', lw=1, label='read', color='green')
-				Y = [i['w/s']     for i in self._data['iostat']]
+				Y = [i['disk']['iostat']['w/s']     for i in self._data['performancemonitor']]
 				ax.plot(X, Y, '-', lw=1, label='write', color='orange')
 				ax.set(ylabel="IO/s")
 				ax.legend(loc='upper right', ncol=2, frameon=True)
 			elif ax_i == 2:
-				Y = [i['%util']     for i in self._data['iostat']]
+				Y = [i['disk']['iostat']['util']     for i in self._data['performancemonitor']]
 				ax.plot(X, Y, '-', lw=1, label='%util')
 				ax.set(xlabel="time (min)", ylabel="percent")
 				ax.set_ylim([-5, 105])
@@ -666,8 +662,11 @@ class File:
 
 		X = [x['time']/60.0 for x in self._data['performancemonitor']]
 		Y = [ sum_active(x['cpu']['percent_total']) for x in self._data['performancemonitor'] ]
-		print(Y)
+		#print(Y)
 		axs[0].plot(X, Y, '-', lw=1, label='usage (all)')
+
+		Y = [i['cpu']['percent_total']['iowait'] for i in self._data['performancemonitor']]
+		axs[0].plot(X, Y, '-', lw=1, label='iowait')
 
 		for i in range(0, int(self._data['performancemonitor'][0]['cpu']['count'])):
 			Y = [ sum_active(x['cpu']['percent'][i]) for x in self._data['performancemonitor'] ]
@@ -1359,13 +1358,13 @@ if __name__ == '__main__':
 	#f = File('ycsb_workloada_threads5.out', Options(plot_pressure=True, db_mean_interval=2)); f.graph_all()
 
 	#f = File('exp_db5min/ycsb_workloadb.out', Options(plot_pressure=True, graphTickMajor=10, graphTickMinor=4, plot_db_mean_interval=5))
-	#f = File('ycsb_workloadb_threads5.out', Options())
+	f = File('ycsb_workloadb_threads5.out', Options())
 	#f = File('ycsb_workloadb_threads8.out', Options())
 	#p = f.getPressureData()
 	#f.graph_pressure()
 	#f.graph_at3_script()
 	#f.graph_db()
-	#f.graph_all()
+	f.graph_all()
 
 	#fiofiles = FioFiles(getFiles('exp_fio'), Options(fio_folder='exp_fio'))
 	#fiofiles.graph_bw()
