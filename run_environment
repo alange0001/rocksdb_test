@@ -36,8 +36,6 @@ test_dir "$DIR_BACKUP"
 
 IO_DEVICE="nvme0n1"
 
-#ulimit -n 1048576
-
 DEFAULT_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 ADD_PATH="/workspace/rocksdb_test/build:/workspace/YCSB/bin:/workspace/rocksdb"
 DOCKER_PARAMS="-v $DIR_BASE/..:/workspace -e PATH=$DEFAULT_PATH:$ADD_PATH"

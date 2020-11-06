@@ -65,24 +65,28 @@ class ArgsWrapper: # single global instance "args"
 		parser.add_argument('--save_args', type=str,
 			default=None,
 			help='save arguments to a file')
+		
 		parser.add_argument('--data_path', type=str,
 			default=coalesce(load_args.get('data_path'), '/media/auto/work'),
 			help='the mount point of "--io_device" used to store database experiments')
 		parser.add_argument('--backup_path', type=str,
 			default=coalesce(load_args.get('backup_path'), '/media/auto/work2'),
 			help='directory used to store database backups')
-		parser.add_argument('--dir_rocksdb_test', type=str,
-			default=load_args.get('dir_rocksdb_test'),
+		
+		parser.add_argument('--rocksdb_test_path', type=str,
+			default=load_args.get('rocksdb_test_path'),
 			help='directory of rocksdb_test')
-		parser.add_argument('--dir_rocksdb', type=str,
-			default=load_args.get('dir_rocksdb'),
+		parser.add_argument('--rocksdb_path', type=str,
+			default=load_args.get('rocksdb_path'),
 			help='directory of rocksdb')
-		parser.add_argument('--dir_ycsb', type=str,
-			default=load_args.get('dir_ycsb'),
+		parser.add_argument('--ycsb_path', type=str,
+			default=load_args.get('ycsb_path'),
 			help='directory of YCSB')
-		parser.add_argument('--confirm_params', type=bool,
-			default=coalesce(load_args.get('confirm_params'), True),
-			help='confirm params before experiments')
+		
+		parser.add_argument('--confirm_cmd', type=bool,
+			default=coalesce(load_args.get('confirm_cmd'), False),
+			help='confirm before execution')
+		
 		parser.add_argument('--test', type=str,
 			default='',
 			help='test routines')
@@ -184,21 +188,21 @@ class GenericExperiment:
 		docker_default_path = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 		docker_add_path = "/workspace/rocksdb_test/build:/workspace/YCSB/bin:/workspace/rocksdb"
 		
-		dir_base = '..'
-		args_d['docker_params'] = ' '.join([
-			coalesce(args_d.get('docker_params'), ''),
-			'-v ' + test_dir(coalesce(args_d.get('dir_rocksdb_test'), f'{dir_base}/rocksdb_test')) + ':/workspace/rocksdb_test',
-			'-v ' + test_dir(coalesce(args_d.get('dir_rocksdb'), f'{dir_base}/rocksdb')) + ':/workspace/rocksdb',
-			'-v ' + test_dir(coalesce(args_d.get('dir_ycsb'), f'{dir_base}/YCSB')) + ':/workspace/YCSB',
-			f"-e PATH={docker_default_path}:{docker_add_path}",
-			])
+		docker_params = [coalesce(args_d.get('docker_params'), '')]
+		for k, v in [('rocksdb_test_path', '/workspace/rocksdb_test'),
+		             ('rocksdb_path', '/workspace/rocksdb'),
+		             ('ycsb_path', '/workspace/YCSB')]:
+			if args_d.get(k) is not None:
+				docker_params.append(f'-v {args_d[k]}:{v}')
+		docker_params.append(f"-e PATH={docker_default_path}:{docker_add_path}")
+		args_d['docker_params'] = ' '.join(docker_params)
 
 		return args_d
 		
-	def run(self):
+	def run(self, args_d=None):
 		log.info('')
 		log.info('==========================================')
-		args_d = self.get_args_d()
+		args_d = coalesce( args_d, self.get_args_d() )
 		
 		cmd = 'build/rocksdb_test \\\n'
 		cmd += f'	--log_level="info"  \\\n'
@@ -216,10 +220,53 @@ class GenericExperiment:
 				cmd += p_func(k, v)
 				
 		log.debug(cmd)
+		
+	def get_at3_script(self, wait, instances, interval):
+		ret = []
+		for i in range(0, instances):
+			jc = wait + i * interval
+			ret_l = f"0:wait;0:write_ratio=0;{jc}m:wait=false"
+			for j in [0.1, 0.2, 0.3, 0.5, 0.7, 1]:
+				jc += interval * instances
+				ret_l += f";{jc}m:write_ratio={j}"
+			ret.append(ret_l)
+		return '#'.join(ret)
 
 #=============================================================================
 class Exp_ycsb_at3 (GenericExperiment):
-	pass
+	@classmethod
+	def set_args(cls, parser, load_args):
+		parser.add_argument('--ydb_workload_list', type=str, default=coalesce(load_args.get('ydb_workload_list'), 'workloadb workloada'),
+			help='list of YCSB workloads (space separated)')
+		parser.add_argument('--at_block_size_list', type=str, default=coalesce(load_args.get('at_block_size_list'), '512 4'),
+			help='list of access_time3\'s block sizes (space separated)')
+		parser.add_argument('--at_interval', type=int, default=coalesce(load_args.get('at_interval'), 2),
+			help='interval between changes in the access_time3\' access pattern')
+		
+		cls.exp_params = cls.exp_params.copy()
+		def replace_def(k, d):
+			cls.exp_params[k] = cls.exp_params[k].copy()
+			cls.exp_params[k]['default'] = d
+		replace_def('duration'    , 90)
+		replace_def('warm_period' , 30)
+		replace_def('num_ydbs'    , 1)
+		replace_def('ydb_threads' , 5)
+		replace_def('num_at'      , 4)
+		replace_def('at_params'   , '--flush_blocks=0 --random_ratio=0.5 --wait --direct_io')
+
+		super(Exp_ycsb_at3, cls).set_args(parser, load_args)
+	
+	def run(self):
+		args_d = self.get_args_d()
+		
+		args_d['at_script'] = self.get_at3_script(int(args_d['warm_period'])+10, int(args_d['num_at']), 2)
+		
+		for at_bs in args_d['at_block_size_list'].split(' '):
+			args_d['at_block_size'] = at_bs
+			for ydb_workload in args_d['ydb_workload_list'].split(' '):
+				args_d['ydb_workload'] = ydb_workload
+				args_d['output'] = f'ycsb_{ydb_workload},at3_bs{at_bs}_directio.out'
+				super(Exp_ycsb_at3, self).run(args_d)
 
 #=============================================================================
 def command(cmd, raise_exception=True):
