@@ -239,7 +239,7 @@ class GenericExperiment:
 		if args_d.get('before_run_cmd') is not None:
 			command(args_d.get('before_run_cmd'), args_d)
 
-		command(cmd)
+		args_d['exit_code'] = command(cmd, raise_exception=False)
 
 		if args_d.get('after_run_cmd') is not None:
 			command(args_d.get('after_run_cmd'), args_d)
@@ -328,7 +328,10 @@ def command_output(cmd, raise_exception=True):
 			log.error(msg)
 	return out
 
-def command(cmd, cmd_args=None):
+_command_p = None
+def command(cmd, raise_exception=True, cmd_args=None):
+	global _command_p
+	
 	if cmd_args is not None:
 		cmd = cmd.format(**cmd_args)
 
@@ -348,7 +351,19 @@ def command(cmd, cmd_args=None):
 			sys.stdout.write(f'invalid option\n')
 	
 	log.debug(f'Executing command: {cmd}')
-	subprocess.run(cmd, shell=True, check=True)
+	
+	p = subprocess.Popen(cmd, shell=True)
+	_command_p = p
+	exit_code = p.wait()
+	_command_p = None
+	
+	if exit_code != 0:
+		msg = f'Exit code {err} from command "{cmd}"'
+		if raise_exception:
+			raise Exception(msg)
+		else:
+			log.error(msg)
+	return exit_code
 
 def test_dir(d):
 	if not os.path.isdir(d):
@@ -388,6 +403,9 @@ class Test:
 #=============================================================================
 def signal_handler(signame, signumber, stack):
 	log.warning("signal {} received".format(signame))
+	if _command_p is not None:
+		_command_p.terminate()
+		_command_p.wait()
 	exit(1)
 
 #=============================================================================
