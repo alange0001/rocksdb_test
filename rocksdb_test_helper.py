@@ -69,9 +69,9 @@ class ArgsWrapper: # single global instance "args"
 		parser.add_argument('--data_path', type=str,
 			default=coalesce(load_args.get('data_path'), '/media/auto/work'),
 			help='the mount point of "--io_device" used to store database experiments')
-		parser.add_argument('--backup_path', type=str,
-			default=coalesce(load_args.get('backup_path'), '/media/auto/work2'),
-			help='directory used to store database backups')
+		parser.add_argument('--output_path', type=str,
+			default=coalesce(load_args.get('output_path'), ''),
+			help='output directory of the experiments')
 		
 		parser.add_argument('--rocksdb_test_path', type=str,
 			default=load_args.get('rocksdb_test_path'),
@@ -85,7 +85,7 @@ class ArgsWrapper: # single global instance "args"
 		
 		parser.add_argument('--confirm_cmd', type=bool,
 			default=coalesce(load_args.get('confirm_cmd'), False),
-			help='confirm before execution')
+			help='confirm before each command execution')
 		
 		parser.add_argument('--test', type=str,
 			default='',
@@ -158,6 +158,16 @@ class GenericExperiment:
 
 	@classmethod
 	def set_args(cls, parser, load_args):
+		parser.add_argument('--backup_dbbench', type=str, default=load_args.get('backup_dbbench'),
+			help='restore db_bench backup from this .tar file (no subdir)')
+		parser.add_argument('--backup_ycsb', type=str, default=load_args.get('backup_ycsb'),
+			help='restore ycsb backup from this .tar file (no subdir)')
+
+		parser.add_argument('--before_run_cmd', type=str, default=load_args.get('before_run_cmd'),
+			help='command executed before running rocksdb_test')
+		parser.add_argument('--after_run_cmd', type=str, default=load_args.get('after_run_cmd'),
+			help='command executed after rocksdb_test')
+		
 		for k, v in cls.exp_params.items():
 			parser.add_argument(f'--{k}', type=v['type'], default=coalesce(load_args.get(k), v['default']),
 				help=v['help'])
@@ -207,19 +217,56 @@ class GenericExperiment:
 		cmd = 'build/rocksdb_test \\\n'
 		cmd += f'	--log_level="info"  \\\n'
 		cmd += f'	--stats_interval=5  \\\n'
+		
+		output_path = coalesce(args_d.get('output_path'), '')
+		if output_path != '':
+			output_path = f'{test_dir(output_path)}/'
 
 		def_p_func = lambda k, v: f'	--{k}="{args_d[k]}" \\\n'
 		self.exp_params['ydb_workload']['p_func'] = lambda k, v: f'	--{k}="/workspace/YCSB/workloads/{args_d[k]}" \\\n'
 		self.exp_params['params']['p_func'] = lambda k, v: f'	{args_d[k]}'
-		self.exp_params['output']['p_func'] = lambda k, v: f' > "{args_d[k]}"'
+		self.exp_params['output']['p_func'] = lambda k, v: f' > "{output_path}{args_d[k]}"'
 		
 		for k, v in self.exp_params.items():
-			log.info(f'{k:<20} = {coalesce(args_d.get(k), "")}')
+			if args_d.get(k) is not None:
+				log.info(f'{k:<20} = {args_d.get(k)}')
 			if args_d.get(k) is not None:
 				p_func = coalesce(v.get('p_func'), def_p_func)
 				cmd += p_func(k, v)
 				
-		log.debug(cmd)
+		self.restore_dbs(args_d)
+		
+		if args_d.get('before_run_cmd') is not None:
+			command(args_d.get('before_run_cmd'), args_d)
+
+		command(cmd)
+
+		if args_d.get('after_run_cmd') is not None:
+			command(args_d.get('after_run_cmd'), args_d)
+		
+	def restore_dbs(self, args_d):
+		def rm_old_dbs():
+			log.info('Removing old database directores before restoring backup...')
+			command(f'rm -fr {args_d["data_path"]}/rocksdb_*')
+			
+		if args_d.get('backup_ycsb') is not None and args_d['num_ydbs'] > 0:
+			log.info(f"Using database backup file: {args_d['backup_ycsb']}")
+			tarfile = test_path(args_d['backup_ycsb'])
+			rm_old_dbs()
+			for db in args_d['ydb_path'].split('#'):
+				log.info(f'Restoring backup on directory {db}..')
+				command(f'mkdir "{db}"')
+				command(f'tar -xf "{tarfile}" -C "{db}"')
+				
+		if args_d.get('backup_dbbench') is not None and args_d['num_dbs'] > 0:
+			log.info(f"Using database backup file: {args_d['backup_dbbench']}")
+			tarfile = test_path(args_d.get('backup_dbbench'))
+			rm_old_dbs()
+			for db in args_d['db_path'].split('#'):
+				log.info(f'Restoring backup on directory {db}..')
+				command(f'mkdir "{db}"')
+				command(f'tar -xf "{tarfile}" -C "{db}"')
+			
 		
 	def get_at3_script(self, wait, instances, interval):
 		ret = []
@@ -259,17 +306,18 @@ class Exp_ycsb_at3 (GenericExperiment):
 	def run(self):
 		args_d = self.get_args_d()
 		
-		args_d['at_script'] = self.get_at3_script(int(args_d['warm_period'])+10, int(args_d['num_at']), 2)
+		args_d['at_script'] = self.get_at3_script(int(args_d['warm_period'])+10, int(args_d['num_at']), int(args_d['at_interval']))
 		
 		for at_bs in args_d['at_block_size_list'].split(' '):
 			args_d['at_block_size'] = at_bs
 			for ydb_workload in args_d['ydb_workload_list'].split(' '):
 				args_d['ydb_workload'] = ydb_workload
 				args_d['output'] = f'ycsb_{ydb_workload},at3_bs{at_bs}_directio.out'
+				
 				super(Exp_ycsb_at3, self).run(args_d)
 
 #=============================================================================
-def command(cmd, raise_exception=True):
+def command_output(cmd, raise_exception=True):
 	log.debug(f'Executing command: {cmd}')
 	err, out = subprocess.getstatusoutput(cmd)
 	if err != 0:
@@ -279,6 +327,28 @@ def command(cmd, raise_exception=True):
 		else:
 			log.error(msg)
 	return out
+
+def command(cmd, cmd_args=None):
+	if cmd_args is not None:
+		cmd = cmd.format(**cmd_args)
+
+	if args.confirm_cmd:
+		sys.stdout.write(f'Execute command?\n\t{cmd}\n')
+		while True:
+			sys.stdout.write(f'y (yes) / n (no) /a (always): ')
+			sys.stdout.flush()
+			l = sys.stdin.readline().strip().lower()
+			if l in ['a', 'always']:
+				args.confirm_cmd = False
+				break
+			elif l in ['n', 'no']:
+				return
+			elif l in ['y', 'yes']:
+				break
+			sys.stdout.write(f'invalid option\n')
+	
+	log.debug(f'Executing command: {cmd}')
+	subprocess.run(cmd, shell=True, check=True)
 
 def test_dir(d):
 	if not os.path.isdir(d):
