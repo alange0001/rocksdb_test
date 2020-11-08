@@ -50,11 +50,9 @@ class DBBench : public ExperimentTask {
 	public:    //------------------------------------------------------------------
 	DBBench(Clock* clock_, Args* args_, uint number_) : ExperimentTask(format("db_bench[{}]", number_), clock_, args_->warm_period * 60), args(args_), number(number_) {
 		DEBUG_MSG("constructor");
-
 		container_name = format("db_bench_{}", number_);
-		if (args->db_create)
-			createDB();
 	}
+
 	~DBBench() {
 		DEBUG_MSG("constructor");
 		try {
@@ -62,6 +60,11 @@ class DBBench : public ExperimentTask {
 		} catch (const std::exception& e) {
 			spdlog::warn(e.what());
 		}
+	}
+
+	void checkCreate() {
+		if (args->db_create)
+			createDB();
 	}
 
 	void start() {
@@ -346,11 +349,9 @@ class YCSB : public ExperimentTask {
 	public:    //------------------------------------------------------------------
 	YCSB(Clock* clock_, Args* args_, uint number_) : ExperimentTask(format("ycsb[{}]", number_), clock_, args_->warm_period * 60), args(args_), number(number_) {
 		DEBUG_MSG("constructor");
-
 		container_name = format("ycsb_{}", number_);
-		if (args->ydb_create)
-			createDB();
 	}
+
 	~YCSB() {
 		DEBUG_MSG("constructor");
 		try {
@@ -358,6 +359,11 @@ class YCSB : public ExperimentTask {
 		} catch (const std::exception& e) {
 			spdlog::warn(e.what());
 		}
+	}
+
+	void checkCreate() {
+		if (args->ydb_create)
+			createDB();
 	}
 
 	void start() {
@@ -693,11 +699,13 @@ class Program {
 			dbbench_list.reset(new unique_ptr<DBBench>[num_dbs]);
 			for (uint32_t i=0; i<num_dbs; i++) {
 				dbbench_list[i].reset(new DBBench(clock.get(), args.get(), i));
+				dbbench_list[i]->checkCreate();
 			}
 			// create YCSB instances and create DBs, if necessary
 			ycsb_list.reset(new unique_ptr<YCSB>[num_ydbs]);
 			for (uint32_t i=0; i<num_ydbs; i++) {
 				ycsb_list[i].reset(new YCSB(clock.get(), args.get(), i));
+				ycsb_list[i]->checkCreate();
 			}
 
 			clock->reset(); // reset clock
