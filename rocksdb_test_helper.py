@@ -25,6 +25,12 @@ log = logging.getLogger('rocksdb_test_helper')
 log.setLevel(logging.INFO)
 
 #=============================================================================
+class ExperimentList (collections.OrderedDict):
+	def register(self, cls):
+		self[cls.exp_name] = cls
+experiment_list = ExperimentList()
+
+#=============================================================================
 class ArgsWrapper: # single global instance "args"
 	def get_args(self):
 		preparser = argparse.ArgumentParser("rocksdb_test helper", add_help=False)
@@ -46,7 +52,7 @@ class ArgsWrapper: # single global instance "args"
 		log.setLevel(getattr(logging, preargs.log_level.upper()))
 
 		log.debug(f'Preargs: {str(preargs)}')
-		
+
 		if preargs.load_args is not None:
 			log.info(f'Loading arguments from file "{preargs.load_args}".')
 			with open(preargs.load_args, 'r') as fd:
@@ -54,7 +60,7 @@ class ArgsWrapper: # single global instance "args"
 			log.info(f'    loaded arguments: {load_args}')
 		else:
 			load_args = {}
-			
+
 		parser = argparse.ArgumentParser(
 			description="rocksdb_test helper")
 		parser.add_argument('-l', '--log_level', type=str,
@@ -66,14 +72,14 @@ class ArgsWrapper: # single global instance "args"
 		parser.add_argument('--save_args', type=str,
 			default=None,
 			help='save arguments to a file')
-		
+
 		parser.add_argument('--data_path', type=str,
 			default=coalesce(load_args.get('data_path'), '/media/auto/work'),
 			help='mount point used to store the databases')
 		parser.add_argument('--output_path', type=str,
 			default=coalesce(load_args.get('output_path'), ''),
 			help='output directory of the experiments')
-		
+
 		parser.add_argument('--rocksdb_test_path', type=str,
 			default=load_args.get('rocksdb_test_path'),
 			help='directory of rocksdb_test')
@@ -83,21 +89,20 @@ class ArgsWrapper: # single global instance "args"
 		parser.add_argument('--ycsb_path', type=str,
 			default=load_args.get('ycsb_path'),
 			help='directory of YCSB')
-		
+
 		log.debug(f"load_args.get('confirm_cmd') = {load_args.get('confirm_cmd')}")
 		parser.add_argument('--confirm_cmd', type=str, action=self.__class__.BoolAction, nargs='?', const='true',
 			default=coalesce(load_args.get('confirm_cmd'), False),
 			help='confirm before each command execution')
-		
+
 		parser.add_argument('--test', type=str,
 			default='',
 			help='test routines')
-		
+
 		subparsers = parser.add_subparsers(dest='experiment', title='experiments', description='Experiments available')
-		Exp_create_ycsb.register_subcommand(subparsers, load_args)
-		Exp_ycsb.register_subcommand(subparsers, load_args)
-		Exp_ycsb_at3.register_subcommand(subparsers, load_args)
-		
+		for eclass in experiment_list.values():
+			eclass.register_subcommand(subparsers, load_args)
+
 		args = parser.parse_args(remainargv)
 		log.debug(f'Arguments: {str(args)}')
 
@@ -110,14 +115,14 @@ class ArgsWrapper: # single global instance "args"
 			with open(preargs.save_args, 'w') as f:
 				json.dump(args_d, f)
 				f.write('\n')
-		
+
 		return args
 
 	def __getattr__(self, name):
 		global args
 		args = self.get_args()
 		return getattr(args, name)
-	
+
 	class BoolAction(argparse.Action):
 		def __call__(self, parser, namespace, values, option_string):
 			log.debug(f'BoolAction.__call__: {option_string}="{values}"')
@@ -129,47 +134,40 @@ class ArgsWrapper: # single global instance "args"
 				raise ValueError(f'invalid value for boolean argument {option_string}="{values}"')
 
 args = ArgsWrapper()
-experiment_list = collections.OrderedDict()
-
-#=============================================================================
-def main():
-	exp_class = experiment_list.get(args.experiment)
-	if exp_class is not None:
-		exp_class().run()
-	
-	return 0
 
 #=============================================================================
 class GenericExperiment:
+	exp_name = 'generic'
+
 	exp_params = collections.OrderedDict([
 		#Name,                   Type       Def   Help
-		('docker_image',          {'type':str,  'default':None, 'help':'docker image' }),
-		('docker_params',         {'type':str,  'default':None, 'help':'additional docker arguments' }),
-		('duration',              {'type':int,  'default':None, 'help':'duration of the experiment (minutes)' }),
-		('warm_period',           {'type':int,  'default':None, 'help':'warm period (minutes)' }),
-		('rocksdb_config_file',   {'type':str,  'default':None, 'help':None }),
-		('num_dbs',               {'type':int,  'default':0,    'help':None }),
-		('db_num_keys',           {'type':str,  'default':None, 'help':None }),
-		('db_path',               {'type':str,  'default':None, 'help':None }),
-		('db_benchmark',          {'type':str,  'default':None, 'help':None }),
-		('db_threads',            {'type':str,  'default':None, 'help':None }),
-		('db_cache_size',         {'type':str,  'default':None, 'help':None }),
-		('num_ydbs',              {'type':int,  'default':0,    'help':None }),
-		('ydb_num_keys',          {'type':str,  'default':None, 'help':None }),
-		('ydb_path',              {'type':str,  'default':None, 'help':None }),
-		('ydb_threads',           {'type':str,  'default':None, 'help':None }),
-		('ydb_workload',          {'type':str,  'default':None, 'help':None }),
-		('ydb_sleep',             {'type':str,  'default':None, 'help':None }),
-		('num_at',                {'type':int,  'default':0,    'help':None }),
-		('at_dir',                {'type':str,  'default':None, 'help':None }),
-		('at_file',               {'type':str,  'default':None, 'help':None }),
-		('at_block_size',         {'type':str,  'default':None, 'help':None }),
-		('at_params',             {'type':str,  'default':None, 'help':None }),
-		('at_script',             {'type':str,  'default':None, 'help':None }),
-		('perfmon',               {'type':str,  'default':None, 'help':'connect to performancemonitor' }),
-		('perfmon_port',          {'type':int,  'default':None, 'help':'performancemonitor port' }),
-		('params',                {'type':str,  'default':None, 'help':None }),
-		('output',                {'type':str,  'default':None, 'help':None }),
+		('docker_image',          {'type':str,  'default':None,        'help':'docker image' }),
+		('docker_params',         {'type':str,  'default':None,        'help':'additional docker arguments' }),
+		('duration',              {'type':int,  'default':None,        'help':'duration of the experiment (minutes)' }),
+		('warm_period',           {'type':int,  'default':None,        'help':'warm period (minutes)' }),
+		('rocksdb_config_file',   {'type':str,  'default':None,        'help':None }),
+		('num_dbs',               {'type':int,  'default':0,           'help':None }),
+		('db_num_keys',           {'type':str,  'default':'500000000', 'help':None }),
+		('db_path',               {'type':str,  'default':None,        'help':None }),
+		('db_benchmark',          {'type':str,  'default':'readwhilewriting', 'help':None }),
+		('db_threads',            {'type':str,  'default':'9',         'help':None }),
+		('db_cache_size',         {'type':str,  'default':'536870912', 'help':None }),
+		('num_ydbs',              {'type':int,  'default':0,           'help':None }),
+		('ydb_num_keys',          {'type':str,  'default':'50000000',  'help':None }),
+		('ydb_path',              {'type':str,  'default':None,        'help':None }),
+		('ydb_threads',           {'type':str,  'default':'5',         'help':None }),
+		('ydb_workload',          {'type':str,  'default':'workloadb', 'help':None }),
+		('ydb_sleep',             {'type':str,  'default':'0',         'help':None }),
+		('num_at',                {'type':int,  'default':0,           'help':None }),
+		('at_dir',                {'type':str,  'default':None,        'help':None }),
+		('at_file',               {'type':str,  'default':None,        'help':None }),
+		('at_block_size',         {'type':str,  'default':'512',       'help':None }),
+		('at_params',             {'type':str,  'default':None,        'help':None }),
+		('at_script',             {'type':str,  'default':None,        'help':None }),
+		('perfmon',               {'type':str,  'default':None,        'help':'connect to performancemonitor' }),
+		('perfmon_port',          {'type':int,  'default':None,        'help':'performancemonitor port' }),
+		('params',                {'type':str,  'default':None,        'help':None }),
+		('output',                {'type':str,  'default':None,        'help':None }),
 		])
 
 	@classmethod
@@ -191,44 +189,35 @@ class GenericExperiment:
 			help='command executed before running rocksdb_test')
 		parser.add_argument('--after_run_cmd', type=str, default=load_args.get('after_run_cmd'),
 			help='command executed after rocksdb_test')
-		
+
 		for k, v in cls.exp_params.items():
-			parser.add_argument(f'--{k}', type=v['type'], default=coalesce(load_args.get(k), v['default']),
-				help=v['help'])
-	
+			parser.add_argument(f'--{k}', type=v['type'], default=coalesce(load_args.get(k), v.get('default')),
+				help=v.get('help'))
+
 	@classmethod
 	def filter_args(cls, arg_names):
 		filtered = collections.OrderedDict()
 		for k in arg_names:
 			filtered[k] = cls.exp_params[k].copy()
 		cls.exp_params = filtered
-			
+
 	def get_args_d(self):
 		return self.process_args_d( args_to_dir(args) )
-	
+
 	def process_args_d(self, args_d):
 		if coalesce(args_d.get('num_dbs'), 0) > 0:
-			args_d['db_num_keys']   = coalesce(args_d.get('db_num_keys'), 500000000 )
 			args_d['db_path'] = '#'.join([ f'{args_d["data_path"]}/rocksdb_{x}' for x in range(0, args_d['num_dbs']) ])
-			args_d['db_benchmark']  = coalesce(args_d.get('db_benchmark'), 'readwhilewriting' )
-			args_d['db_threads']    = coalesce(args_d.get('db_threads'), 1 )
-			args_d['db_cache_size'] = coalesce(args_d.get('db_cache_size'), 536870912 )
 
 		if coalesce(args_d.get('num_ydbs'), 0) > 0:
-			args_d['ydb_num_keys'] = coalesce(args_d.get('ydb_num_keys'), 50000000 )
 			args_d['ydb_path'] = '#'.join([ f'{args_d["data_path"]}/rocksdb_ycsb_{x}' for x in range(0, args_d['num_ydbs']) ])
-			args_d['ydb_threads']  = coalesce(args_d.get('ydb_threads'), 1 )
-			args_d['ydb_workload'] = coalesce(args_d.get('ydb_workload'), 'workloadb' )
-			args_d['ydb_sleep']    = coalesce(args_d.get('ydb_sleep'), 0 )
-			
+
 		if coalesce(args_d.get('num_at'), 0) > 0:
 			args_d['at_dir']        = coalesce(args_d.get('at_dir'), f'{args_d["data_path"]}/tmp' )
 			args_d['at_file'] = '#'.join([ str(x) for x in range(0, args_d['num_at']) ])
-			args_d['at_block_size'] = coalesce(args_d.get('at_block_size'), 512 )
-			
+
 		docker_default_path = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 		docker_add_path = "/workspace/rocksdb_test/build:/workspace/YCSB/bin:/workspace/rocksdb"
-		
+
 		docker_params = [coalesce(args_d.get('docker_params'), '')]
 		for k, v in [('rocksdb_test_path', '/workspace/rocksdb_test'),
 		             ('rocksdb_path', '/workspace/rocksdb'),
@@ -240,16 +229,16 @@ class GenericExperiment:
 		args_d['docker_params'] = ' '.join(docker_params)
 
 		return args_d
-		
+
 	def run(self, args_d=None):
 		log.info('')
 		log.info('==========================================')
 		args_d = coalesce( args_d, self.get_args_d() )
-		
+
 		cmd = 'build/rocksdb_test \\\n'
 		cmd += f'	--log_level="info"  \\\n'
 		cmd += f'	--stats_interval=5  \\\n'
-		
+
 		output_path = coalesce(args_d.get('output_path'), '')
 		if output_path != '':
 			output_path = f'{test_dir(output_path)}/'
@@ -261,20 +250,25 @@ class GenericExperiment:
 			self.exp_params['params']['p_func'] = lambda k, v: f'	{args_d[k]}'
 		if self.exp_params.get('output') is not None:
 			self.exp_params['output']['p_func'] = lambda k, v: f' > "{output_path}{args_d[k]}"'
-		
+
 		for k, v in self.exp_params.items():
 			if args_d.get(k) is not None:
 				log.info(f'{k:<20} = {args_d.get(k)}')
 			if args_d.get(k) is not None:
 				p_func = coalesce(v.get('p_func'), def_p_func)
 				cmd += p_func(k, v)
-				
+
 		self.before_run(args_d)
-		
+
 		if args_d.get('before_run_cmd') is not None:
 			command(args_d.get('before_run_cmd'), cmd_args=args_d)
 
+		log.info(f'Executing rocksdb_test experiment {args_d.get("experiment")} ...')
 		args_d['exit_code'] = command(cmd, raise_exception=False)
+		log.info(f'Experiment {args_d.get("experiment")} finished.')
+
+		if coalesce(args_d.get('exit_code'), 0) != 0:
+			log.error(f"rocksdb_test returned error code {args_d.get('exit_code')}. Check output file \"{args_d.get('output')}\"")
 
 		if args_d.get('after_run_cmd') is not None:
 			command(args_d.get('after_run_cmd'), cmd_args=args_d)
@@ -290,12 +284,12 @@ class GenericExperiment:
 		if coalesce(args_d.get('num_dbs'), 0) > 0:
 			for db in args_d['db_path'].split('#'):
 				test_path(f'{db}/CURRENT')
-	
+
 	def restore_dbs(self, args_d):
 		def rm_old_dbs():
 			log.info('Removing old database directores before restoring backup...')
 			command(f'rm -fr {args_d["data_path"]}/rocksdb_*')
-			
+
 		if coalesce(args_d.get('backup_ycsb'), '') != '' and coalesce(args_d.get('num_ydbs'), 0) > 0:
 			log.info(f"Using database backup file: {args_d['backup_ycsb']}")
 			tarfile = test_path(args_d['backup_ycsb'])
@@ -304,7 +298,7 @@ class GenericExperiment:
 				log.info(f'Restoring backup on directory {db}..')
 				command(f'mkdir "{db}"')
 				command(f'tar -xf "{tarfile}" -C "{db}"')
-				
+
 		if coalesce(args_d.get('backup_dbbench'), '') != '' and coalesce(args_d.get('num_dbs'), 0) > 0:
 			log.info(f"Using database backup file: {args_d['backup_dbbench']}")
 			tarfile = test_path(args_d.get('backup_dbbench'))
@@ -313,8 +307,8 @@ class GenericExperiment:
 				log.info(f'Restoring backup on directory {db}..')
 				command(f'mkdir "{db}"')
 				command(f'tar -xf "{tarfile}" -C "{db}"')
-			
-		
+
+
 	def get_at3_script(self, wait, instances, interval):
 		ret = []
 		for i in range(0, instances):
@@ -328,19 +322,19 @@ class GenericExperiment:
 
 #=============================================================================
 class Exp_create_ycsb (GenericExperiment):
+	exp_name = 'create_ycsb'
+
 	@classmethod
 	def register_subcommand(cls, subparsers, load_args):
-		global experiment_list
-		experiment_list['create_ycsb'] = cls
-		
-		parser = subparsers.add_parser('create_ycsb', help='create the database used for YCSB benchmark')
+		parser = subparsers.add_parser(cls.exp_name, help='create the database used for YCSB benchmark')
 
-		cls.filter_args(['docker_image', 'docker_params', 'duration', 'warm_period',
-		                 'rocksdb_config_file', 'num_ydbs', 'ydb_num_keys', 'ydb_path',
-		                 'ydb_threads', 'ydb_workload', 'params', 'output'])
-		
+		cls.filter_args(['docker_image', 'docker_params', 'duration', 'warm_period', 'rocksdb_config_file',
+		                 'num_ydbs', 'ydb_num_keys', 'ydb_path', 'ydb_threads', 'ydb_workload',
+		                 'params', 'output'])
+
 		cls.exp_params['rocksdb_config_file']['default'] = '/workspace/rocksdb_test/files/rocksdb-6.8-db_bench.options'
 		cls.exp_params['duration']['default']     = 60
+		cls.exp_params['warm_period']['default']  = 0
 		cls.exp_params['num_ydbs']['default']     = 1
 		cls.exp_params['ydb_threads']['default']  = 4
 		cls.exp_params['ydb_workload']['default'] = 'workloada'
@@ -349,82 +343,89 @@ class Exp_create_ycsb (GenericExperiment):
 		cls.exp_params.move_to_end('output')
 
 		cls.set_args(parser, load_args)
-	
+
 	def run(self):
 		args_d = self.get_args_d()
+		args_d['num_ydbs'] = 1
 		args_d['output'] = f'ycsb_create.out'
 
-		backup_file = args_d.get('backup_ycsb')
-		if os.path.exists(backup_file):
+		backup_file = coalesce(args_d.get('backup_ycsb'), '').strip()
+		if backup_file != '' and os.path.exists(backup_file):
 			raise Exception(f'YCSB database backup file already exists: {backup_file}')
 
 		super(self.__class__, self).run(args_d)
 
 		if coalesce(args_d.get('exit_code'), 0) != 0:
-			raise Exception(f"Database creation returned error code {args_d.get('exit_code')}")
+			raise Exception(f"Database creation returned error code {args_d.get('exit_code')}. Check output file \"{args_d.get('output')}\"")
 
 		self.test_paths(args_d)
 
 		if coalesce(args_d.get('exit_code'), 0) == 0 and coalesce(backup_file, '') != '':
+			log.info(f'Creating backup file "{backup_file}" ...')
 			db = args_d['ydb_path'].split('#')[0]
 			command(f'tar -C "{db}" -cf {backup_file} .')
 
 	def before_run(self, args_d):
-		log.info('Removing old database directores ...')
-		command(f'rm -fr {args_d["data_path"]}/rocksdb_*')
-		
-		for db in args_d['ydb_path'].split('#'):
-			log.info(f'Creating database directory {db} ...')
-			command(f'mkdir "{db}"')
+		db = args_d['ydb_path'].split('#')[0]
+
+		log.info('Removing old database directory ...')
+		command(f'rm -fr "{db}"')
+
+		log.info(f'Creating database directory {db} ...')
+		command(f'mkdir "{db}"')
+
+experiment_list.register( Exp_create_ycsb )
 
 #=============================================================================
 class Exp_ycsb (GenericExperiment):
+	exp_name = 'ycsb'
+
 	@classmethod
 	def register_subcommand(cls, subparsers, load_args):
-		global experiment_list
-		experiment_list['ycsb'] = cls
-		
-		parser = subparsers.add_parser('ycsb', help='YCSB benchmark')
+		parser = subparsers.add_parser(cls.exp_name, help='YCSB benchmark')
 
-		parser.add_argument('--ydb_workload_list', type=str, default=coalesce(load_args.get('ydb_workload_list'), 'workloadb workloada'),
+		parser.add_argument('--ydb_workload_list', type=str, default=load_args.get('ydb_workload_list'),
 			help='list of YCSB workloads (space separated)')
-		
+
 		cls.filter_args(['docker_image', 'docker_params', 'duration', 'warm_period',
 		                 'num_ydbs', 'ydb_num_keys', 'ydb_path', 'ydb_threads',
 		                 'ydb_workload', 'perfmon', 'perfmon_port', 'params', 'output'])
-		
+
 		cls.exp_params['duration']['default']     = 90
 		cls.exp_params['warm_period']['default']  = 30
 		cls.exp_params['num_ydbs']['default']     = 1
-		cls.exp_params['ydb_threads']['default']  = 5
 
 		cls.set_args(parser, load_args)
-	
+
 	def run(self):
 		args_d = self.get_args_d()
-		
+
+		if coalesce(args_d.get('ydb_workload_list'), '').strip() == '':
+			args_d['ydb_workload_list'] = args_d.get('ydb_workload')
+
 		for ydb_workload in args_d['ydb_workload_list'].split(' '):
 			args_d['ydb_workload'] = ydb_workload
 			args_d['output'] = f'ycsb_{ydb_workload}.out'
-			
+
 			super(self.__class__, self).run(args_d)
+
+experiment_list.register( Exp_ycsb )
 
 #=============================================================================
 class Exp_ycsb_at3 (GenericExperiment):
+	exp_name = 'ycsb_at3'
+
 	@classmethod
 	def register_subcommand(cls, subparsers, load_args):
-		global experiment_list
-		experiment_list['ycsb_at3'] = cls
-		
-		parser = subparsers.add_parser('ycsb_at3', help='1x YCSB benchmark + 4x access_time3')
+		parser = subparsers.add_parser(cls.exp_name, help='1x YCSB benchmark + 4x access_time3')
 
-		parser.add_argument('--ydb_workload_list', type=str, default=coalesce(load_args.get('ydb_workload_list'), 'workloadb workloada'),
+		parser.add_argument('--ydb_workload_list', type=str, default=load_args.get('ydb_workload_list'),
 			help='list of YCSB workloads (space separated)')
-		parser.add_argument('--at_block_size_list', type=str, default=coalesce(load_args.get('at_block_size_list'), '512 4'),
+		parser.add_argument('--at_block_size_list', type=str, default=load_args.get('at_block_size_list'),
 			help='list of access_time3\'s block sizes (space separated)')
 		parser.add_argument('--at_interval', type=int, default=coalesce(load_args.get('at_interval'), 2),
 			help='interval between changes in the access_time3\' access pattern')
-		
+
 		cls.filter_args(['docker_image', 'docker_params', 'duration', 'warm_period', 'num_ydbs',
 		                 'ydb_num_keys', 'ydb_path', 'ydb_threads', 'ydb_workload', 'ydb_sleep',
 		                 'num_at', 'at_dir', 'at_file', 'at_block_size', 'at_params', 'at_script',
@@ -433,24 +434,149 @@ class Exp_ycsb_at3 (GenericExperiment):
 		cls.exp_params['duration']['default']     = 90
 		cls.exp_params['warm_period']['default']  = 30
 		cls.exp_params['num_ydbs']['default']     = 1
-		cls.exp_params['ydb_threads']['default']  = 5
 		cls.exp_params['num_at']['default']       = 4
 		cls.exp_params['at_params']['default']    = '--flush_blocks=0 --random_ratio=0.5 --wait --direct_io'
 
 		cls.set_args(parser, load_args)
-	
+
 	def run(self):
 		args_d = self.get_args_d()
-		
+
 		args_d['at_script'] = self.get_at3_script(int(args_d['warm_period'])+10, int(args_d['num_at']), int(args_d['at_interval']))
-		
+
+		if coalesce(args_d.get('ydb_workload_list'), '').strip() == '':
+			args_d['ydb_workload_list'] = args_d.get('ydb_workload')
+		if coalesce(args_d.get('at_block_size_list'), '').strip() == '':
+			args_d['at_block_size_list'] = args_d.get('at_block_size')
+
 		for at_bs in args_d['at_block_size_list'].split(' '):
 			args_d['at_block_size'] = at_bs
 			for ydb_workload in args_d['ydb_workload_list'].split(' '):
 				args_d['ydb_workload'] = ydb_workload
 				args_d['output'] = f'ycsb_{ydb_workload},at3_bs{at_bs}_directio.out'
-				
 				super(self.__class__, self).run(args_d)
+
+experiment_list.register( Exp_ycsb_at3 )
+
+#=============================================================================
+class Exp_create_dbbench (GenericExperiment):
+	exp_name = 'create_dbbench'
+
+	@classmethod
+	def register_subcommand(cls, subparsers, load_args):
+		parser = subparsers.add_parser(cls.exp_name, help='create the database used for db_bench benchmark')
+
+		cls.filter_args(['docker_image', 'docker_params', 'duration', 'warm_period', 'rocksdb_config_file',
+		                 'num_dbs', 'db_num_keys', 'db_path', 'db_benchmark', 'db_threads', 'db_cache_size',
+		                 'params', 'output'])
+
+		cls.exp_params['rocksdb_config_file']['default'] = '/workspace/rocksdb_test/files/rocksdb-6.8-db_bench.options'
+		cls.exp_params['duration']['default']     = 60
+		cls.exp_params['warm_period']['default']  = 0
+		cls.exp_params['num_dbs']['default']      = 1
+		cls.exp_params['db_threads']['default']   = 9
+		cls.exp_params['db_create'] = {'type':str,  'default':'true', 'help':None }
+		cls.exp_params.move_to_end('params')
+		cls.exp_params.move_to_end('output')
+
+		cls.set_args(parser, load_args)
+
+	def run(self):
+		args_d = self.get_args_d()
+		args_d['num_dbs'] = 1
+		args_d['output'] = f'dbbench_create.out'
+
+		backup_file = coalesce(args_d.get('backup_dbbench'), '').strip()
+		if backup_file != '' and os.path.exists(backup_file):
+			raise Exception(f'db_bench database backup file already exists: {backup_file}')
+
+		super(self.__class__, self).run(args_d)
+
+		if coalesce(args_d.get('exit_code'), 0) != 0:
+			raise Exception(f"Database creation returned error code {args_d.get('exit_code')}. Check output file \"{args_d.get('output')}\"")
+
+		self.test_paths(args_d)
+
+		if coalesce(args_d.get('exit_code'), 0) == 0 and backup_file != '':
+			log.info(f'Creating backup file "{backup_file}" ...')
+			db = args_d['db_path'].split('#')[0]
+			command(f'tar -C "{db}" -cf {backup_file} .')
+
+	def before_run(self, args_d):
+		db = args_d['db_path'].split('#')[0]
+
+		log.info('Removing old database directory ...')
+		command(f'rm -fr "{db}"')
+
+		log.info(f'Creating database directory {db} ...')
+		command(f'mkdir "{db}"')
+
+experiment_list.register( Exp_create_dbbench )
+
+#=============================================================================
+class Exp_dbbench (GenericExperiment):
+	exp_name = 'dbbench'
+
+	@classmethod
+	def register_subcommand(cls, subparsers, load_args):
+		parser = subparsers.add_parser(cls.exp_name, help='db_bench benchmark')
+
+		cls.filter_args(['docker_image', 'docker_params', 'duration', 'warm_period',
+		                 'num_dbs', 'db_num_keys', 'db_path', 'db_benchmark', 'db_threads', 'db_cache_size',
+		                 'perfmon', 'perfmon_port', 'params', 'output'])
+
+		cls.exp_params['duration']['default']     = 90
+		cls.exp_params['warm_period']['default']  = 30
+		cls.exp_params['num_dbs']['default']      = 1
+
+		cls.set_args(parser, load_args)
+
+	def run(self):
+		args_d = self.get_args_d()
+
+		args_d['output'] = f'dbbench_{args_d.get("db_benchmark")}.out'
+		super(self.__class__, self).run(args_d)
+
+experiment_list.register( Exp_dbbench )
+
+#=============================================================================
+class Exp_dbbench_at3 (GenericExperiment):
+	exp_name = 'dbbench_at3'
+
+	@classmethod
+	def register_subcommand(cls, subparsers, load_args):
+		parser = subparsers.add_parser(cls.exp_name, help='db_bench benchmark')
+
+		parser.add_argument('--at_block_size_list', type=str, default=load_args.get('at_block_size_list'),
+			help='list of access_time3\'s block sizes (space separated)')
+		parser.add_argument('--at_interval', type=int, default=coalesce(load_args.get('at_interval'), 2),
+			help='interval between changes in the access_time3\' access pattern')
+
+		cls.filter_args(['docker_image', 'docker_params', 'duration', 'warm_period',
+		                 'num_dbs', 'db_num_keys', 'db_path', 'db_benchmark', 'db_threads', 'db_cache_size',
+		                 'num_at', 'at_dir', 'at_file', 'at_block_size', 'at_params', 'at_script',
+						 'perfmon', 'perfmon_port', 'params', 'output'])
+
+		cls.exp_params['duration']['default']     = 90
+		cls.exp_params['warm_period']['default']  = 30
+		cls.exp_params['num_dbs']['default']      = 1
+		cls.exp_params['num_at']['default']       = 4
+		cls.exp_params['at_params']['default']    = '--flush_blocks=0 --random_ratio=0.5 --wait --direct_io'
+
+		cls.set_args(parser, load_args)
+
+	def run(self):
+		args_d = self.get_args_d()
+
+		if coalesce(args_d.get('at_block_size_list'), '').strip() == '':
+			args_d['at_block_size_list'] = args_d.get('at_block_size')
+
+		for at_bs in args_d['at_block_size_list'].split(' '):
+			args_d['at_block_size'] = at_bs
+			args_d['output'] = f'dbbench_{args_d.get("db_benchmark")},at3_bs{at_bs}_directio.out'
+			super(self.__class__, self).run(args_d)
+
+experiment_list.register( Exp_dbbench_at3 )
 
 #=============================================================================
 def command_output(cmd, raise_exception=True):
@@ -482,12 +608,12 @@ def command(cmd, raise_exception=True, cmd_args=None):
 			elif l in ['y', 'yes']:
 				break
 			sys.stdout.write(f'invalid option\n')
-	
+
 	log.debug(f'Executing command: {cmd}')
 	with subprocess.Popen(cmd, shell=True) as p:
 		exit_code = p.wait()
 	log.debug(f'Exit code: {exit_code}')
-	
+
 	if exit_code != 0:
 		msg = f'Exit code {exit_code} from command "{cmd}"'
 		if raise_exception:
@@ -519,7 +645,6 @@ def args_to_dir(args):
 			args_d[k] = getattr(args, k)
 	return args_d
 
-
 #=============================================================================
 class Test:
 	def __init__(self, name):
@@ -549,10 +674,18 @@ def signal_handler(signame, signumber, stack):
 	exit(1)
 
 #=============================================================================
+def main():
+	exp_class = experiment_list.get(args.experiment)
+	if exp_class is not None:
+		exp_class().run()
+
+	return 0
+
+#=============================================================================
 if __name__ == '__main__':
 	for i in ('SIGINT', 'SIGTERM'):
 		signal.signal(getattr(signal, i),  lambda signumber, stack, signame=i: signal_handler(signame,  signumber, stack) )
-		
+
 	try:
 		if args.test == '':
 			exit( main() )
