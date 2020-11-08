@@ -74,11 +74,6 @@ using std::function;
 		"Number of access_time3 instances",                       \
 		true,                                                     \
 		nullptr)                                                  \
-	_f(io_device, string, DEFINE_string,                          \
-		"",                                                       \
-		"I/O device monitored by iostat",                         \
-		value.length() > 0,                                       \
-		nullptr)                                                  \
 	_f(docker_image, string, DEFINE_string,                       \
 		"alange0001/rocksdb_test:1",                              \
 		"docker image used for each container",                   \
@@ -87,6 +82,11 @@ using std::function;
 	_f(docker_params, string, DEFINE_string,                      \
 		"",                                                       \
 		"additional docker parameters",                           \
+		true,                                                     \
+		nullptr)                                                  \
+	_f(perfmon, bool, DEFINE_bool,                                \
+		false,                                                    \
+		"Connect to performancemonitor",                          \
 		true,                                                     \
 		nullptr)                                                  \
 	_f(perfmon_port, uint32_t, DEFINE_uint32,                     \

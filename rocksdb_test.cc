@@ -624,14 +624,6 @@ class PerformanceMonitorClient {
 			if (clock_s > warm_period_s) {
 				regex_search(buffer, cm, regex("STATS: \\{(.+)"));
 				if (cm.size() > 0) {
-					std::cmatch cm2;
-					regex_search(buffer, cm2, regex("\"arg_device\": *\"([^\"]+)\""));
-					if (cm2.size() < 2)
-						throw runtime_error("failed to read arg_device from performance monitor");
-					string perf_device( cm2.str(1) );
-					if (perf_device != args->io_device)
-						throw runtime_error(format("performancemonitor is monitoring device {}, but rocksdb_test is using device {}", perf_device, args->io_device));
-
 					spdlog::info("Task performancemonitor, STATS: {{\"time\": {}, {}", clock_s, cm.str(1));
 				}
 			}
@@ -726,13 +718,14 @@ class Program {
 				at_list[i]->start();
 			}
 
-			perfmon.reset(new PerformanceMonitorClient(clock.get(), args.get()));
+			if (args->perfmon)
+				perfmon.reset(new PerformanceMonitorClient(clock.get(), args.get()));
 
 			bool stop = false;
 			while ( !stop && clock->s() <= (args->duration * 60) )
 			{
 				// performancemonitor
-				if (perfmon.get() == nullptr || ! perfmon->isActive()) {
+				if (args->perfmon && (perfmon.get() == nullptr || ! perfmon->isActive())) {
 					throw runtime_error("performancemonitor client is not active");
 				}
 
