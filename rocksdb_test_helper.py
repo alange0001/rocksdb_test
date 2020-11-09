@@ -18,6 +18,7 @@ import psutil
 import argparse
 import json
 import collections
+import re
 
 #=============================================================================
 import logging
@@ -74,10 +75,10 @@ class ArgsWrapper: # single global instance "args"
 			help='save arguments to a file')
 
 		parser.add_argument('--data_path', type=str,
-			default=coalesce(load_args.get('data_path'), '/media/auto/work'),
+			default=load_args.get('data_path'),
 			help='mount point used to store the databases')
 		parser.add_argument('--output_path', type=str,
-			default=coalesce(load_args.get('output_path'), ''),
+			default=coalesce(load_args.get('output_path'), '.'),
 			help='output directory of the experiments')
 
 		parser.add_argument('--rocksdb_test_path', type=str,
@@ -90,8 +91,7 @@ class ArgsWrapper: # single global instance "args"
 			default=load_args.get('ycsb_path'),
 			help='directory of YCSB')
 
-		log.debug(f"load_args.get('confirm_cmd') = {load_args.get('confirm_cmd')}")
-		parser.add_argument('--confirm_cmd', type=str, action=self.__class__.BoolAction, nargs='?', const='true',
+		parser.add_argument('--confirm_cmd', type=str, nargs='?', const=True,
 			default=coalesce(load_args.get('confirm_cmd'), False),
 			help='confirm before each command execution')
 
@@ -105,6 +105,14 @@ class ArgsWrapper: # single global instance "args"
 
 		args = parser.parse_args(remainargv)
 		log.debug(f'Arguments: {str(args)}')
+
+		argcheck_bool(args, 'confirm_cmd', required=True)
+
+		argcheck_path(args, 'data_path',         required=True,  absolute=True,  type='dir')
+		argcheck_path(args, 'output_path',       required=True,  absolute=False, type='dir')
+		argcheck_path(args, 'rocksdb_test_path', required=False, absolute=True,  type='dir')
+		argcheck_path(args, 'rocksdb_path',      required=False, absolute=True,  type='dir')
+		argcheck_path(args, 'ycsb_path',         required=False, absolute=True,  type='dir')
 
 		if preargs.save_args is not None:
 			args_d = collections.OrderedDict()
@@ -123,15 +131,35 @@ class ArgsWrapper: # single global instance "args"
 		args = self.get_args()
 		return getattr(args, name)
 
-	class BoolAction(argparse.Action):
-		def __call__(self, parser, namespace, values, option_string):
-			log.debug(f'BoolAction.__call__: {option_string}="{values}"')
-			if values.lower() in ['', 'true', 't', 'yes', 'y', '1']:
-				setattr(namespace, self.dest, True)
-			elif values.lower() in ['false', 'f', 'no', 'n', '0']:
-				setattr(namespace, self.dest, False)
-			else:
-				raise ValueError(f'invalid value for boolean argument {option_string}="{values}"')
+def argcheck_bool(args, arg_name, required=False):
+	log.debug(f'argcheck_bool: --{arg_name}, required={required}')
+	value, setf = value_setf(args, arg_name)
+	log.debug(f'argcheck_bool: --{arg_name}="{value}"')
+	if value is None and required:
+		raise ValueError(f'argument --{arg_name} is required')
+	elif isinstance(value, bool):
+		return
+	elif isinstance(value, str) and value.lower().strip() in ['true', 't', 'yes', 'y', '1']:
+		setf(True)
+	elif isinstance(value, str) and value.lower().strip() in ['false', 'f', 'no', 'n', '0']:
+		setf(False)
+	else:
+		raise ValueError(f'invalid value for boolean argument --{arg_name}="{value}"')
+
+def argcheck_path(args, arg_name, required=False, absolute=False, type='file'):
+	log.debug(f'argcheck_path: --{arg_name}, type="{type}", required={required}, absolute={absolute}')
+	check_f = getattr(os.path, f'is{type}')
+
+	value, setf = value_setf(args, arg_name)
+	log.debug(f'argcheck_path: --{arg_name}="{value}"')
+
+	if value is None and required:
+		raise ValueError(f'argument --{arg_name} is required')
+	if check_f(value):
+		if absolute:
+			setf( os.path.abspath(value) )
+	else:
+		raise ValueError(f'argument --{arg_name}="{value}" is not a directory')
 
 args = ArgsWrapper()
 
@@ -213,6 +241,7 @@ class GenericExperiment:
 
 		if coalesce(args_d.get('num_at'), 0) > 0:
 			args_d['at_dir']        = coalesce(args_d.get('at_dir'), f'{args_d["data_path"]}/tmp' )
+			argcheck_path(args_d, 'at_dir', required=True, absolute=True, type='dir')
 			args_d['at_file'] = '#'.join([ str(x) for x in range(0, args_d['num_at']) ])
 
 		docker_default_path = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
@@ -240,8 +269,6 @@ class GenericExperiment:
 		cmd += f'	--stats_interval=5  \\\n'
 
 		output_path = coalesce(args_d.get('output_path'), '')
-		if output_path != '':
-			output_path = f'{test_dir(output_path)}/'
 
 		def_p_func = lambda k, v: f'	--{k}="{args_d[k]}" \\\n'
 		if self.exp_params.get('ydb_workload') is not None:
@@ -249,7 +276,7 @@ class GenericExperiment:
 		if self.exp_params.get('params') is not None:
 			self.exp_params['params']['p_func'] = lambda k, v: f'	{args_d[k]}'
 		if self.exp_params.get('output') is not None:
-			self.exp_params['output']['p_func'] = lambda k, v: f' > "{output_path}{args_d[k]}"'
+			self.exp_params['output']['p_func'] = lambda k, v: f' > "{os.path.join(output_path, args_d[k])}"'
 
 		for k, v in self.exp_params.items():
 			if args_d.get(k) is not None:
@@ -285,26 +312,46 @@ class GenericExperiment:
 			for db in args_d['db_path'].split('#'):
 				test_path(f'{db}/CURRENT')
 
-	def restore_dbs(self, args_d):
-		def rm_old_dbs():
-			log.info('Removing old database directores before restoring backup...')
-			command(f'rm -fr {args_d["data_path"]}/rocksdb_*')
+	def remove_old_dbs(self, args_d):
+		data_path = args_d["data_path"]
+		log.info(f'Removing old database directores from data_path ({data_path}) ...')
+		rm_entries = []
+		for p in os.listdir(data_path):
+			entry = os.path.join(data_path, p)
+			log.debug(f'remove_old_dbs: entry = {entry}')
+			if os.path.isdir(entry):
+				r = re.findall(r'(rocksdb_(ycsb_){0,1}[0-9]+)', entry)
+				log.debug(f'remove_old_dbs: r = {r}')
+				if len(r) > 0:
+					rm_entries.append(entry)
+					log.info(f'\t{entry}')
+		log.debug(f'remove_old_dbs: rm_entries = {rm_entries}')
+		rm_entries = [f"'{x}'" for x in rm_entries]
+		if len(rm_entries) > 0:
+			command(f'rm -fr {" ".join(rm_entries)}')
 
+	def restore_dbs(self, args_d):
 		if coalesce(args_d.get('backup_ycsb'), '') != '' and coalesce(args_d.get('num_ydbs'), 0) > 0:
+			argcheck_path(args_d, 'backup_ycsb',    required=True, absolute=False, type='file')
 			log.info(f"Using database backup file: {args_d['backup_ycsb']}")
-			tarfile = test_path(args_d['backup_ycsb'])
-			rm_old_dbs()
+			tarfile = args_d['backup_ycsb']
+			self.remove_old_dbs(args_d)
 			for db in args_d['ydb_path'].split('#'):
 				log.info(f'Restoring backup on directory {db}..')
+				if os.path.exists(db):
+					raise Exception(f'cannot restore backup on an existing path: {db}')
 				command(f'mkdir -p "{db}"')
 				command(f'tar -xf "{tarfile}" -C "{db}"')
 
 		if coalesce(args_d.get('backup_dbbench'), '') != '' and coalesce(args_d.get('num_dbs'), 0) > 0:
+			argcheck_path(args_d, 'backup_dbbench', required=True, absolute=False, type='file')
 			log.info(f"Using database backup file: {args_d['backup_dbbench']}")
-			tarfile = test_path(args_d.get('backup_dbbench'))
-			rm_old_dbs()
+			tarfile = args_d['backup_dbbench']
+			self.remove_old_dbs(args_d)
 			for db in args_d['db_path'].split('#'):
 				log.info(f'Restoring backup on directory {db}..')
+				if os.path.exists(db):
+					raise Exception(f'cannot restore backup on an existing path: {db}')
 				command(f'mkdir -p "{db}"')
 				command(f'tar -xf "{tarfile}" -C "{db}"')
 
@@ -694,6 +741,18 @@ def args_to_dir(args):
 		if k[0] != '_' and k not in ['test', 'log_level', 'save_args', 'load_args']:
 			args_d[k] = getattr(args, k)
 	return args_d
+
+def value_setf(args, arg_name):
+	try:
+		value = getattr(args, arg_name)
+		setf  = lambda val: setattr(args, arg_name, val)
+	except:
+		try:
+			value = args[arg_name]
+			setf = lambda val: args.__setitem__(arg_name, val)
+		except:
+			raise KeyError(f'failed to get the value of attribute {arg_name}')
+	return value, setf
 
 #=============================================================================
 class Test:
