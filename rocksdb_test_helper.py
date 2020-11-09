@@ -146,28 +146,28 @@ class GenericExperiment:
 		('duration',              {'type':int,  'default':None,        'help':'duration of the experiment (minutes)' }),
 		('warm_period',           {'type':int,  'default':None,        'help':'warm period (minutes)' }),
 		('rocksdb_config_file',   {'type':str,  'default':None,        'help':None }),
-		('num_dbs',               {'type':int,  'default':0,           'help':None }),
+		('num_dbs',               {'type':int,  'default':0,           'help':'number of db_bench instances' }),
 		('db_num_keys',           {'type':str,  'default':'500000000', 'help':None }),
 		('db_path',               {'type':str,  'default':None,        'help':None }),
 		('db_benchmark',          {'type':str,  'default':'readwhilewriting', 'help':None }),
 		('db_threads',            {'type':str,  'default':'9',         'help':None }),
 		('db_cache_size',         {'type':str,  'default':'536870912', 'help':None }),
-		('num_ydbs',              {'type':int,  'default':0,           'help':None }),
+		('num_ydbs',              {'type':int,  'default':0,           'help':'number of YCSB instances' }),
 		('ydb_num_keys',          {'type':str,  'default':'50000000',  'help':None }),
 		('ydb_path',              {'type':str,  'default':None,        'help':None }),
 		('ydb_threads',           {'type':str,  'default':'5',         'help':None }),
 		('ydb_workload',          {'type':str,  'default':'workloadb', 'help':None }),
 		('ydb_sleep',             {'type':str,  'default':'0',         'help':None }),
-		('num_at',                {'type':int,  'default':0,           'help':None }),
-		('at_dir',                {'type':str,  'default':None,        'help':None }),
-		('at_file',               {'type':str,  'default':None,        'help':None }),
-		('at_block_size',         {'type':str,  'default':'512',       'help':None }),
-		('at_params',             {'type':str,  'default':None,        'help':None }),
+		('num_at',                {'type':int,  'default':0,           'help':'number of access_time3 instances' }),
+		('at_dir',                {'type':str,  'default':None,        'help':'access_time3 directory' }),
+		('at_file',               {'type':str,  'default':None,        'help':'access_time3 files (separated by #)' }),
+		('at_block_size',         {'type':str,  'default':'512',       'help':'block size used by access_time3' }),
+		('at_params',             {'type':str,  'default':None,        'help':'extra access_time3 arguments' }),
 		('at_script',             {'type':str,  'default':None,        'help':None }),
 		('perfmon',               {'type':str,  'default':None,        'help':'connect to performancemonitor' }),
 		('perfmon_port',          {'type':int,  'default':None,        'help':'performancemonitor port' }),
-		('params',                {'type':str,  'default':None,        'help':None }),
-		('output',                {'type':str,  'default':None,        'help':None }),
+		('params',                {'type':str,  'default':None,        'help':'extra rocksdb_test arguments' }),
+		('output',                {'type':str,  'default':None,        'help':'output file' }),
 		])
 
 	@classmethod
@@ -296,7 +296,7 @@ class GenericExperiment:
 			rm_old_dbs()
 			for db in args_d['ydb_path'].split('#'):
 				log.info(f'Restoring backup on directory {db}..')
-				command(f'mkdir "{db}"')
+				command(f'mkdir -p "{db}"')
 				command(f'tar -xf "{tarfile}" -C "{db}"')
 
 		if coalesce(args_d.get('backup_dbbench'), '') != '' and coalesce(args_d.get('num_dbs'), 0) > 0:
@@ -305,7 +305,7 @@ class GenericExperiment:
 			rm_old_dbs()
 			for db in args_d['db_path'].split('#'):
 				log.info(f'Restoring backup on directory {db}..')
-				command(f'mkdir "{db}"')
+				command(f'mkdir -p "{db}"')
 				command(f'tar -xf "{tarfile}" -C "{db}"')
 
 
@@ -372,7 +372,7 @@ class Exp_create_ycsb (GenericExperiment):
 		command(f'rm -fr "{db}"')
 
 		log.info(f'Creating database directory {db} ...')
-		command(f'mkdir "{db}"')
+		command(f'mkdir -p "{db}"')
 
 experiment_list.register( Exp_create_ycsb )
 
@@ -509,7 +509,7 @@ class Exp_create_dbbench (GenericExperiment):
 		command(f'rm -fr "{db}"')
 
 		log.info(f'Creating database directory {db} ...')
-		command(f'mkdir "{db}"')
+		command(f'mkdir -p "{db}"')
 
 experiment_list.register( Exp_create_dbbench )
 
@@ -577,6 +577,56 @@ class Exp_dbbench_at3 (GenericExperiment):
 			super(self.__class__, self).run(args_d)
 
 experiment_list.register( Exp_dbbench_at3 )
+
+#=============================================================================
+class Exp_create_at3 (GenericExperiment):
+	exp_name = 'create_at3'
+
+	@classmethod
+	def register_subcommand(cls, subparsers, load_args):
+		parser = subparsers.add_parser(cls.exp_name, help='create access_time3 data files')
+
+		cls.filter_args(['docker_image', 'docker_params',
+		                 'num_at', 'at_file', 'at_dir', 'at_params', 'output'])
+
+		cls.exp_params['num_at']['default'] = 4
+
+		cls.set_args(parser, load_args)
+
+	@classmethod
+	def set_args(cls, parser, load_args):
+		parser.add_argument('--before_run_cmd', type=str, default=load_args.get('before_run_cmd'),
+			help='command executed before file creation')
+		parser.add_argument('--after_run_cmd', type=str, default=load_args.get('after_run_cmd'),
+			help='command executed after file creation')
+
+		parser.add_argument('--at_file_size', type=int, default=coalesce(load_args.get('at_file_size'), 10000),
+			help='file size used by each instance of access_time3')
+
+		for k, v in cls.exp_params.items():
+			parser.add_argument(f'--{k}', type=v['type'], default=coalesce(load_args.get(k), v.get('default')),
+				help=v.get('help'))
+
+	def process_args_d(self, args_d):
+		args_d = super(self.__class__, self).process_args_d(args_d)
+		args_d['at_params'] = coalesce(args_d.get('at_params'), '') + \
+			f' --create_file --filesize={args_d.get("at_file_size")} --duration=1'
+		args_d['output'] = f'at3_create.out'
+		return args_d
+
+	def run(self):
+		#build/access_time3 --create_file --filesize=10000 --filename=/workdata/0 --duration=1
+		args_d = self.get_args_d()
+
+		super(self.__class__, self).run(args_d)
+
+		if coalesce(args_d.get('exit_code'), 0) != 0:
+			raise Exception(f"File creation returned error code {args_d.get('exit_code')}. Check output file \"{args_d.get('output')}\"")
+
+	def before_run(self, args_d):
+		pass
+
+experiment_list.register( Exp_create_at3 )
 
 #=============================================================================
 def command_output(cmd, raise_exception=True):
