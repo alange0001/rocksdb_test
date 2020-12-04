@@ -646,6 +646,7 @@ class PerformanceMonitorClient {
 
 class Program {
 	static Program*   this_;
+	bool              pgrp_ok = true;
 	unique_ptr<Args>  args;
 	unique_ptr<Clock> clock;
 
@@ -659,8 +660,8 @@ class Program {
 		DEBUG_MSG("constructor");
 		Program::this_ = this;
 		if (setpgrp() < 0) {
-			spdlog::error("failed to create process group");
-			exit(EXIT_FAILURE);
+			spdlog::warn("failed to create process group");
+			pgrp_ok = false;
 		}
 		std::signal(SIGTERM, Program::signalWrapper);
 		std::signal(SIGSEGV, Program::signalWrapper);
@@ -800,13 +801,18 @@ class Program {
 			Program::this_->signalHandler(signal);
 	}
 	void signalHandler(int signal) noexcept {
-		auto group = getpgrp();
-		spdlog::warn("received signal {}, process group = {}", signal, group);
+		spdlog::warn("received signal {}", signal);
 		std::signal(signal, SIG_DFL);
 
 		resetAll();
 
-		killpg(group, signal);
+		if (pgrp_ok) {
+			auto group = getpgrp();
+			spdlog::warn("sending signal {} to process group {}", signal, group);
+			killpg(group, signal);
+		} else {
+			kill(getpid(), signal);
+		}
 	}
 };
 Program* Program::this_;
