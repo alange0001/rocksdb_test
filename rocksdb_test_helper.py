@@ -68,6 +68,9 @@ class ArgsWrapper: # single global instance "args"
 		parser.add_argument('-l', '--log_level', type=str,
 			default='INFO', choices=[ 'debug', 'DEBUG', 'info', 'INFO' ],
 			help='Log level.')
+		parser.add_argument('--log_level_rocksdb_test', type=str,
+			default='info', choices=[ 'debug', 'DEBUG', 'info', 'INFO' ],
+			help='Log level used in rocksdb_test.')
 		parser.add_argument('--load_args', type=str,
 			default=None,
 			help='Load arguments from file (JSON).')
@@ -75,7 +78,7 @@ class ArgsWrapper: # single global instance "args"
 			default=None,
 			help='Save arguments to a file (JSON).')
 
-		parser.add_argument('--data_path', type=str, required=True,
+		parser.add_argument('--data_path', type=str,
 			default=load_args.get('data_path'),
 			help='Directory used to store both database and access_time3 files.')
 		parser.add_argument('--output_path', type=str,
@@ -109,7 +112,7 @@ class ArgsWrapper: # single global instance "args"
 
 		argcheck_bool(args, 'confirm_cmd', required=True)
 
-		argcheck_path(args, 'data_path',         required=True,  absolute=True,  type='dir')
+		argcheck_path(args, 'data_path',         required=(args.test == ''),  absolute=True,  type='dir')
 		argcheck_path(args, 'output_path',       required=True,  absolute=False, type='dir')
 		argcheck_path(args, 'rocksdb_test_path', required=False, absolute=True,  type='dir')
 		argcheck_path(args, 'rocksdb_path',      required=False, absolute=True,  type='dir')
@@ -267,8 +270,15 @@ class GenericExperiment:
 		log.info('==========================================')
 		args_d = coalesce( args_d, self.get_args_d() )
 
-		cmd = 'build/rocksdb_test \\\n'
-		cmd += f'	--log_level="info"  \\\n'
+		env_cmd = ''
+		if os.environ.get('ROCKSDB_TEST_RESET_VARS') is not None:
+			for v in os.environ.get('ROCKSDB_TEST_RESET_VARS').split(' '):
+				env_cmd += f"{v}='' "
+			env_cmd = f'env {env_cmd}'
+
+		bin_path = get_rocksdb_bin()
+		cmd =  f'{env_cmd}{bin_path} \\\n'
+		cmd += f'	--log_level="{args_d["log_level_rocksdb_test"].lower()}"  \\\n'
 		cmd += f'	--stats_interval=5  \\\n'
 
 		output_path = coalesce(args_d.get('output_path'), '')
@@ -382,7 +392,7 @@ class Exp_create_ycsb (GenericExperiment):
 		                 'num_ydbs', 'ydb_num_keys', 'ydb_path', 'ydb_threads', 'ydb_workload',
 		                 'params', 'output'])
 
-		cls.exp_params['rocksdb_config_file']['default'] = '/workspace/rocksdb_test/files/rocksdb-6.8-db_bench.options'
+		cls.exp_params['rocksdb_config_file']['default'] = get_default_rocksdb_options()
 		cls.exp_params['duration']['default']     = 60
 		cls.exp_params['warm_period']['default']  = 0
 		cls.exp_params['num_ydbs']['default']     = 1
@@ -520,7 +530,7 @@ class Exp_create_dbbench (GenericExperiment):
 		                 'num_dbs', 'db_num_keys', 'db_path', 'db_benchmark', 'db_threads', 'db_cache_size',
 		                 'params', 'output'])
 
-		cls.exp_params['rocksdb_config_file']['default'] = '/workspace/rocksdb_test/files/rocksdb-6.8-db_bench.options'
+		cls.exp_params['rocksdb_config_file']['default'] = get_default_rocksdb_options()
 		cls.exp_params['duration']['default']     = 60
 		cls.exp_params['warm_period']['default']  = 0
 		cls.exp_params['num_dbs']['default']      = 1
@@ -738,6 +748,20 @@ def coalesce(*args):
 			return v
 	return None
 
+def coalesce_file(*files, access=os.R_OK):
+	if not isinstance(access, list): access = [access]
+	def check_access(f, access):
+		for a in access:
+			if not os.access(f, a):
+				return False
+		return True
+	
+	for f in files:
+		if f is None: continue
+		if check_access(f, access):
+			return f
+	return None
+
 def args_to_dir(args):
 	args_d = collections.OrderedDict()
 	for k in dir(args):
@@ -757,6 +781,55 @@ def value_setf(args, arg_name):
 			raise KeyError(f'failed to get the value of attribute {arg_name}')
 	return value, setf
 
+def search_file(name):
+	pwd_path = os.environ.get('PWD')
+	if pwd_path is not None: 
+		f = os.path.join(pwd_path, name)
+		log.debug(f'search_file: {f} ...')
+		if os.path.isfile(f):
+			log.debug(f'search_file: {f} FOUND')
+			return f
+		f = os.path.join(pwd_path, 'build', name)
+		log.debug(f'search_file: {f} ...')
+		if os.path.isfile(f):
+			log.debug(f'search_file: {f} FOUND')
+			return f
+		f = os.path.join(pwd_path, 'release', name)
+		log.debug(f'search_file: {f} ...')
+		if os.path.isfile(f):
+			log.debug(f'search_file: {f} FOUND')
+			return f
+	appdir_path = os.environ.get('APPIMAGE')
+	if appdir_path is not None: 
+		f = os.path.join(os.path.dirname(appdir_path), name)
+		log.debug(f'search_file: {f} ...')
+		if os.path.isfile(f):
+			log.debug(f'search_file: {f} FOUND')
+			return f
+	try:
+		f = os.path.join(os.path.dirname(__file__), name)
+		log.debug(f'search_file: {f} ...')
+		if os.path.isfile(f):
+			log.debug(f'search_file: {f} FOUND')
+			return f
+	except Exception as e: pass
+	return None
+
+def get_default_rocksdb_options():
+	o = os.environ.get('ROCKSDB_OPTIONS_FILE')
+	f = coalesce_file(o, search_file('rocksdb.options'), access=os.R_OK)
+	if f is None:
+		f = ''
+	log.debug(f'get_default_rocksdb_options: {f}')
+	return f
+
+def get_rocksdb_bin():
+	f = coalesce_file(os.environ.get('ROCKSDB_TEST_PATH'), search_file('rocksdb_test'), access=os.X_OK)
+	if f is None:
+		f = 'rocksdb_test'
+	log.debug(f'get_rocksdb_bin: {f}')
+	return f
+
 #=============================================================================
 class Test:
 	def __init__(self, name):
@@ -769,7 +842,12 @@ class Test:
 		args_d = args_to_dir(args)
 		for k, v in args_d.items():
 			v2 = f'"{v}"' if v is not None else ''
-			log.info(f'Argument {k:<20} = {v2}')
+			log.info(f'Arg {k:<20} = {v2}')
+
+	def env(self):
+		e = os.environ
+		for k, v in e.items():
+			log.info(f'Env {k:<20} = {v}')
 
 #=============================================================================
 def signal_handler(signame, signumber, stack):
