@@ -2,9 +2,7 @@ version: 1
 script:
   - rm -fr AppDir || true
   - mkdir -p AppDir/bin
-  - mkdir -p AppDir/etc
   - cp ../rocksdb_test_helper.py AppDir/bin/
-  - cp ../files/rocksdb-6.8-db_bench.options AppDir/etc/rocksdb.options
   - python3 -m pip install --system --ignore-installed --prefix=/usr --root=AppDir -r ../python_requirements.txt
   - cp ../rocksdb_test_helper.py AppDir/usr/lib/python3.8/site-packages/
 
@@ -17,7 +15,7 @@ AppDir:
     icon: utilities-terminal
     version: '1.8'
     exec: usr/bin/python3
-    exec_args: "$APPDIR/bin/rocksdb_test_helper $@"
+    exec_args: "$APPDIR/bin/rocksdb_test_helper.py $@"
 
   apt:
     arch: amd64
@@ -34,7 +32,6 @@ AppDir:
 
   runtime:
     env:
-      ROCKSDB_OPTIONS_FILE: '${APPDIR}/etc/rocksdb.options'
       # Set python home
       # See https://docs.python.org/3/using/cmdline.html#envvar-PYTHONHOME
       PYTHONHOME: '${APPDIR}/usr'
