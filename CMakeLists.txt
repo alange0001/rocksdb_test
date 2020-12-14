@@ -2,6 +2,11 @@ cmake_minimum_required (VERSION 2.6)
 
 project (rocksdb_test)
 
+SET(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
+SET(BUILD_SHARED_LIBS OFF)
+SET(CMAKE_EXE_LINKER_FLAGS "-static -lrt -pthread -Wl,--whole-archive -lpthread -Wl,--no-whole-archive")
+list(APPEND THIRDPARTY_LIBS dl)
+
 #################################################################
 
 set(WORKSPACE "${CMAKE_CURRENT_SOURCE_DIR}/..")
@@ -37,9 +42,6 @@ list(APPEND THIRDPARTY_LIBS "${ALUTILS_DIR}/build/libalutils.a")
 #list(APPEND THIRDPARTY_LIBS "${ROCKSDB_DIR}/libz.a")
 #list(APPEND THIRDPARTY_LIBS "${ROCKSDB_DIR}/libzstd.a")
 #list(APPEND THIRDPARTY_LIBS "${ROCKSDB_DIR}/libsnappy.a")
-
-list(APPEND THIRDPARTY_LIBS pthread)
-list(APPEND THIRDPARTY_LIBS dl)
 
 #################################################################
 
