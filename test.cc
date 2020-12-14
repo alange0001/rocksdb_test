@@ -8,14 +8,17 @@
 #include <set>
 #include <algorithm>
 #include <regex>
+#include <filesystem>
 
 #include <csignal>
 #include <errno.h>
 
 #include <spdlog/spdlog.h>
+#include <alutils/process.h>
+/*
 #include <fmt/format.h>
 #include <gflags/gflags.h>
-#include <alutils/process.h>
+*/
 
 #include "util.h"
 
@@ -71,8 +74,8 @@ int main(int argc, char** argv) {
 	DEBUG_MSG("Initiating...");
 
 	try {
-#		define CODE
-#		ifdef CODE1
+#		define CODE3
+#		if defined CODE1
 
 		S test;
 		fmt::print(stdout, "{}\n", test.s);
@@ -80,6 +83,24 @@ int main(int argc, char** argv) {
 		fmt::print(stdout, "{}\n", test.s);
 		test.s = "test3";
 		fmt::print(stdout, "{}\n", F_s);
+
+#		elif defined CODE2
+
+		//std::this_thread::sleep_for(seconds(50));
+		auto ret_aux = std::system(nullptr);
+		spdlog::info("command NULL returned: {}", ret_aux);
+		
+		string cmd("bash -c 'echo $PATH'");
+		if (argc > 1)
+			cmd = argv[1];
+		spdlog::info("executing command: {}", cmd);
+		auto ret = alutils::command_output(cmd.c_str());
+		spdlog::info("command output: {}", ret);
+
+#		elif defined CODE3
+
+		TmpFileCopy t("/etc/hostname");
+		spdlog::info("temporary copy of file {}: {}", t.original_name(), t.name());
 
 #		else
 
