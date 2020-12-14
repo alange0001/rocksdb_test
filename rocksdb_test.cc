@@ -40,12 +40,26 @@ using fmt::format;
 
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
+#define __CLASS__ ""
+
+const char* getTmpOptions(Args* args, unique_ptr<TmpFileCopy>& tmp_options) {
+	if (args->rocksdb_config_file.length() == 0)
+		throw runtime_error("rocksdb_config_file required");
+	if (tmp_options.get() == nullptr) {
+		tmp_options.reset(new TmpFileCopy(args->rocksdb_config_file));
+	}
+	return tmp_options->name();
+}
+
+////////////////////////////////////////////////////////////////////////////////////
+#undef __CLASS__
 #define __CLASS__ "DBBench::"
 
 class DBBench : public ExperimentTask {
 	Args* args;
 	uint number;
 	string container_name;
+	unique_ptr<TmpFileCopy> tmp_options;
 
 	public:    //------------------------------------------------------------------
 	DBBench(Clock* clock_, Args* args_, uint number_) : ExperimentTask(format("db_bench[{}]", number_), clock_, args_->warm_period * 60), args(args_), number(number_) {
@@ -57,6 +71,7 @@ class DBBench : public ExperimentTask {
 		DEBUG_MSG("constructor");
 		try {
 			alutils::command_output(format("docker rm -f {}", container_name).c_str());
+			process.reset(nullptr);
 		} catch (const std::exception& e) {
 			spdlog::warn(e.what());
 		}
@@ -120,9 +135,13 @@ class DBBench : public ExperimentTask {
 	}
 
 	string get_docker_cmd() {
+		string config;
+		if (args->rocksdb_config_file.length() > 0)
+			config = fmt::format("  -v \"{}\":/rocksdb.options \\\n", getTmpOptions(args, tmp_options));
 		string ret =
 			format("docker run --name=\"{}\" -t --rm                  \\\n", container_name) +
 			format("  -v \"{}\":/workdata                             \\\n", args->db_path[number]) +
+			config +
 			format("  {}                                              \\\n", args->docker_params) +
 			format("  {}                                              \\\n", args->docker_image);
 		return ret;
@@ -131,7 +150,7 @@ class DBBench : public ExperimentTask {
 	string get_const_params() {
 		string config;
 		if (args->rocksdb_config_file.length() > 0)
-			config = fmt::format("	--options_file=\"{}\" \\\n", args->rocksdb_config_file);
+			config = fmt::format("    --options_file=\"/rocksdb.options\" \\\n");
 		string ret =
 			format("    --db=\"/workdata\"                            \\\n") +
 			format("    --wal_dir=\"/workdata\"                       \\\n") +
@@ -345,6 +364,7 @@ class YCSB : public ExperimentTask {
 	Args* args;
 	uint number;
 	string container_name;
+	unique_ptr<TmpFileCopy> tmp_options;
 
 	public:    //------------------------------------------------------------------
 	YCSB(Clock* clock_, Args* args_, uint number_) : ExperimentTask(format("ycsb[{}]", number_), clock_, args_->warm_period * 60), args(args_), number(number_) {
@@ -353,9 +373,10 @@ class YCSB : public ExperimentTask {
 	}
 
 	~YCSB() {
-		DEBUG_MSG("constructor");
+		DEBUG_MSG("destructor");
 		try {
 			alutils::command_output(format("docker rm -f {}", container_name).c_str());
+			process.reset(nullptr);
 		} catch (const std::exception& e) {
 			spdlog::warn(e.what());
 		}
@@ -381,7 +402,7 @@ class YCSB : public ExperimentTask {
 	void createDB() {
 		string config;
 		if (args->rocksdb_config_file.length() > 0)
-			config = format("    -p rocksdb.optionsfile=\"{}\"  \\\n", args->rocksdb_config_file);
+			config = format("    -p rocksdb.optionsfile=\"/rocksdb.options\" \\\n");
 		string cmd = get_docker_cmd(0) +
 			format("  ycsb.sh load rocksdb -s                         \\\n") +
 			get_const_params() +
@@ -391,13 +412,18 @@ class YCSB : public ExperimentTask {
 		spdlog::info("Bulkload {}. Command:\n{}", name, cmd);
 		auto ret = std::system(cmd.c_str());
 		if (ret != 0)
-			throw runtime_error("database bulkload error");
+			throw runtime_error(format("database bulkload error {}", ret).c_str());
 	}
 
 	string get_docker_cmd(uint32_t sleep) {
+		string config;
+		if (args->rocksdb_config_file.length() > 0)
+			config = fmt::format("  -v \"{}\":/rocksdb.options \\\n", getTmpOptions(args, tmp_options));
 		string ret =
 			format("docker run --name=\"{}\" -t --rm                  \\\n", container_name) +
-			format("  -v \"{}\":/workdata -e YCSB_SLEEP={}m           \\\n", args->ydb_path[number], sleep) +
+			format("  -v \"{}\":/workdata                             \\\n", args->ydb_path[number]) +
+			config +
+			format("  -e YCSB_SLEEP={}m                               \\\n", sleep) +
 			format("  {}                                              \\\n", args->docker_params) +
 			format("  {}                                              \\\n", args->docker_image);
 		return ret;
@@ -490,6 +516,7 @@ class AccessTime3 : public ExperimentTask {
 		DEBUG_MSG("destructor");
 		try {
 			alutils::command_output(format("docker rm -f {}", container_name).c_str());
+			process.reset(nullptr);
 		} catch (const std::exception& e) {
 			spdlog::warn(e.what());
 		}
@@ -646,9 +673,12 @@ class PerformanceMonitorClient {
 
 class Program {
 	static Program*   this_;
-	bool              pgrp_ok = true;
 	unique_ptr<Args>  args;
 	unique_ptr<Clock> clock;
+
+	bool      is_reseting = false;
+	int       ignore_signals = 10;
+	const int ignore_signals_max = 10;
 
 	unique_ptr<unique_ptr<DBBench>[]>     dbbench_list;
 	unique_ptr<unique_ptr<YCSB>[]>        ycsb_list;
@@ -658,11 +688,9 @@ class Program {
 	public: //---------------------------------------------------------------------
 	Program() {
 		DEBUG_MSG("constructor");
+		system_check();
+		
 		Program::this_ = this;
-		if (setpgrp() < 0) {
-			spdlog::warn("failed to create process group");
-			pgrp_ok = false;
-		}
 		std::signal(SIGTERM, Program::signalWrapper);
 		std::signal(SIGSEGV, Program::signalWrapper);
 		std::signal(SIGINT,  Program::signalWrapper);
@@ -683,7 +711,7 @@ class Program {
 
 	int main(int argc, char** argv) noexcept {
 		DEBUG_MSG("initialized");
-		spdlog::info("rocksdb_test version: 1.7");
+		spdlog::info("rocksdb_test version: 1.8");
 		try {
 			args.reset(new Args(argc, argv));
 			clock.reset(new Clock());
@@ -768,6 +796,7 @@ class Program {
 				std::this_thread::sleep_for(milliseconds(500));
 			}
 
+			spdlog::info("main loop finished");
 			resetAll();
 
 		} catch (const std::exception& e) {
@@ -782,17 +811,27 @@ class Program {
 
 	private: //--------------------------------------------------------------------
 	void resetAll() noexcept {
-		DEBUG_MSG("destroy tasks");
-		dbbench_list.reset(nullptr);
-		ycsb_list.reset(nullptr);
-		at_list.reset(nullptr);
-		perfmon.reset(nullptr);
+		DEBUG_MSG("destroy tasks begin");
+		if (! is_reseting) {
+			is_reseting = true;
+			ignore_signals = 0;
 
-		std::this_thread::sleep_for(milliseconds(300));
-		auto children = alutils::get_children(getpid());
-		for (auto i: children) {
-			spdlog::warn("child (pid {}) still active. kill it", i);
-			kill(i, SIGTERM);
+			dbbench_list.reset(nullptr);
+			ycsb_list.reset(nullptr);
+			at_list.reset(nullptr);
+			perfmon.reset(nullptr);
+			DEBUG_MSG("destroy tasks end");
+
+			std::this_thread::sleep_for(milliseconds(300));
+			DEBUG_MSG("kill children begin");
+			auto children = alutils::get_children(getpid());
+			for (auto i: children) {
+				spdlog::warn("child (pid {}) still active. kill it", i);
+				kill(i, SIGTERM);
+			}
+			DEBUG_MSG("kill children end");
+
+			ignore_signals = ignore_signals_max;
 		}
 	}
 
@@ -801,17 +840,37 @@ class Program {
 			Program::this_->signalHandler(signal);
 	}
 	void signalHandler(int signal) noexcept {
-		spdlog::warn("received signal {}", signal);
-		std::signal(signal, SIG_DFL);
-
-		resetAll();
-
-		if (pgrp_ok) {
-			auto group = getpgrp();
-			spdlog::warn("sending signal {} to process group {}", signal, group);
-			killpg(group, signal);
+		spdlog::warn("received signal {}: {}", signal, signalName(signal));
+		if (ignore_signals < ignore_signals_max) {
+			spdlog::warn("signal ignored");
+			ignore_signals++;
 		} else {
+			std::signal(signal, SIG_DFL);
+
+			resetAll();
 			kill(getpid(), signal);
+		}
+	}
+	const char* signalName(int signal) noexcept {
+#		define sigReturn(name) if (signal == name) return #name
+		sigReturn(SIGTERM);
+		sigReturn(SIGSEGV);
+		sigReturn(SIGINT);
+		sigReturn(SIGILL);
+		sigReturn(SIGABRT);
+		sigReturn(SIGFPE);
+#		undef sigReturn
+		return "undefined";
+	}
+	
+	void system_check() {
+		if (! std::system(nullptr)) {
+			fprintf(stderr, "ERROR: failed to initiate the command processor\n");
+			exit(1);
+		}
+		if (std::system("docker ps -a >/dev/null")) {
+			fprintf(stderr, "ERROR: failed to use docker command\n");
+			exit(1);
 		}
 	}
 };

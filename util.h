@@ -275,4 +275,18 @@ public:
 
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
+#define __CLASS__ "TmpFileCopy::"
+
+class TmpFileCopy {
+	string original_file;
+	string tmp_file;
+public:
+	TmpFileCopy(const string& original_file_);
+	~TmpFileCopy();
+	const char* original_name();
+	const char* name();
+};
+
+////////////////////////////////////////////////////////////////////////////////////
+#undef __CLASS__
 #define __CLASS__ ""

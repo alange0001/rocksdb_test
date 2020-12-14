@@ -5,9 +5,11 @@
 
 #include "util.h"
 
+#include <cstdlib>
 #include <stdexcept>
 #include <regex>
 #include <limits>
+#include <filesystem>
 
 #include <alutils/string.h>
 #include <alutils/process.h>
@@ -70,3 +72,36 @@ void LogLevel::set(const string& name) {
 	throw invalid_argument(aux);
 }
 
+////////////////////////////////////////////////////////////////////////////////////
+#undef __CLASS__
+#define __CLASS__ "TmpFileCopy::"
+
+TmpFileCopy::TmpFileCopy(const string& original_file_): original_file(original_file_) {
+	DEBUG_MSG("constructor");
+	{
+		char fname[100];
+		auto templ = std::filesystem::temp_directory_path() / "rocksdb_test.XXXXXX";
+		strcpy(fname, templ.c_str());
+		auto s = mktemp(fname);
+		if (strlen(s) == 0)
+			throw std::runtime_error("failed to create the temporary file");
+		DEBUG_MSG("tmp_file: {}", fname);
+		tmp_file = fname;
+	}
+	std::filesystem::copy_file(original_file, tmp_file);
+	DEBUG_MSG("file {} copied to {}", original_file, tmp_file);
+}
+
+TmpFileCopy::~TmpFileCopy() {
+	DEBUG_MSG("destructor");
+	std::filesystem::remove(tmp_file);
+	DEBUG_MSG("tmp_file removed: {}", tmp_file);
+}
+
+const char* TmpFileCopy::original_name() {
+	return original_file.c_str();
+}
+
+const char* TmpFileCopy::name() {
+	return tmp_file.c_str();
+}

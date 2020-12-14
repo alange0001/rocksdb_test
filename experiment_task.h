@@ -42,6 +42,7 @@ class ExperimentTask {
 	virtual ~ExperimentTask() {
 		DEBUG_MSG("destructor of task {}", name);
 		process.reset(nullptr);
+		DEBUG_MSG("destructor finished");
 	}
 	bool isActive() {
 		return (process.get() != nullptr && process->isActive(true));
