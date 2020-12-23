@@ -43,6 +43,7 @@ class Options:
 	plot_io_norm = False
 	plot_at3_write_ratio = False
 	plot_pressure = False
+	pressure_decreased = True
 	use_at3_counters = True
 	fio_folder = None
 	def __init__(self, **kargs):
@@ -948,7 +949,7 @@ class File:
 
 		#fig = plt.gcf()
 		fig = plt.figure()
-		fig.set_figheight(3.5)
+		fig.set_figheight(2.8)
 		fig.set_figwidth(9)
 
 		ax = fig.add_axes([0,1,1,1])
@@ -981,23 +982,24 @@ class File:
 				Y3.append(Y2[i])
 			else:
 				min_p = Y2[i]
-		ax2.plot(X3, Y3, '*', label='decreased', color='red')
+		if self._options.pressure_decreased:
+			ax2.plot(X3, Y3, '*', label='decreased', color='red')
 		ax2.legend(loc='upper right', ncol=2, frameon=False)
-		ax2.set(ylabel="$(\\rho(w_0)-\\rho(w_i)) / \\rho(w_0)$")
+		ax2.set(ylabel="normalized pressure")
 
 		ax.set_ylim([0, 1.1*w0])
 		ax2.set_ylim([min(0, min(Y2)), 1.1])
 
 
 		######################################################
-		ax = fig.add_axes([0,0.55,1,0.25])
+		ax = fig.add_axes([0,0.62,1,0.16])
 
 		X = [ (w0 - i[0])/w0  for i in pd2.values ]
 		Y = [ 0  for i in pd2.values ]
 		ax.plot(X, Y, 'o', label='pressure')
 
 		ax.set_xlim([min(0, min(X))-0.05, 1.05])
-		ax.set_ylim([-0.1, 0.1])
+		ax.set_ylim([-0.02, 0.1])
 		ax.yaxis.set_ticklabels([])
 
 		for i in range(len(X)):
@@ -1327,6 +1329,11 @@ if __name__ == '__main__':
 	#graph_at3_script('at3_script25.pdf', 4, 25)
 	#graph_at3_script('at3_script28.pdf', 4, 28)
 
+	#plotFiles(getFiles('exp_db'), Options(plot_nothing=True, plot_pressure=True, db_mean_interval=2, pressure_decreased=False))
+
+	#plotFiles(getFiles('exp_at3'), Options(plot_at3_write_ratio=True))
+	#plotFiles(getFiles('exp_at3_rww'), Options(graphTickMajor=2, graphTickMinor=4, plot_io_norm=True))
+
 	#options = Options(graphTickMajor=10, graphTickMinor=4)
 	#plotFiles(["dbbench_mw2.out"], options)
 
@@ -1344,27 +1351,22 @@ if __name__ == '__main__':
 
 	#plotFiles(getFiles('exp_dbbench/rrwr'), Options(plot_nothing=True, plot_db=True, db_mean_interval=5))
 
-	#plotFiles(getFiles('exp_db5min'), Options(plot_pressure=True, graphTickMajor=10, graphTickMinor=4, db_mean_interval=5))
-
-	#plotFiles(getFiles('exp_at3'), Options(plot_at3_write_ratio=True))
-	#plotFiles(getFiles('exp_at3_rww'), Options(graphTickMajor=2, graphTickMinor=4, plot_io_norm=True))
-
 	#f = File('exp_db/dbbench_wwr,at3_bs512_directio.out', Options(use_at3_counters=True))
 	#f = File('dbbench_wwr.out', Options(plot_pressure=True, db_mean_interval=2)); f.graph_all()
-	#f = File('exp_db/ycsb_wa,at3_bs32_directio.out', Options(plot_pressure=True, db_mean_interval=2)); f.graph_all()
+	#f = File('exp_db/ycsb_wa,at3_bs32_directio.out', Options(plot_nothing=True, plot_pressure=True, db_mean_interval=2, pressure_decreased=False)); f.graph_all()
 	#f = File('exp_db/ycsb_wb,at3_bs32_directio.out', Options(plot_pressure=True, db_mean_interval=2)); f.graph_all()
 	#f = File('ycsb_wb,at3_bs32_directio.out', Options(plot_pressure=True, db_mean_interval=2)); f.graph_all()
 	#f = File('ycsb_workloadb_threads5.out', Options(plot_pressure=True, db_mean_interval=2)); f.graph_all()
 	#f = File('ycsb_workloada_threads5.out', Options(plot_pressure=True, db_mean_interval=2)); f.graph_all()
 
 	#f = File('exp_db5min/ycsb_workloadb.out', Options(plot_pressure=True, graphTickMajor=10, graphTickMinor=4, plot_db_mean_interval=5))
-	f = File('ycsb_workloadb_threads5.out', Options())
+	#f = File('ycsb_workloadb_threads5.out', Options())
 	#f = File('ycsb_workloadb_threads8.out', Options())
 	#p = f.getPressureData()
 	#f.graph_pressure()
 	#f.graph_at3_script()
 	#f.graph_db()
-	f.graph_all()
+	#f.graph_all()
 
 	#fiofiles = FioFiles(getFiles('exp_fio'), Options(fio_folder='exp_fio'))
 	#fiofiles.graph_bw()
