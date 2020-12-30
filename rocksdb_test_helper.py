@@ -628,6 +628,8 @@ class Exp_dbbench_at3 (GenericExperiment):
 	def run(self):
 		args_d = self.get_args_d()
 
+		args_d['at_script'] = self.get_at3_script(int(args_d['warm_period'])+10, int(args_d['num_at']), int(args_d['at_interval']))
+
 		if coalesce(args_d.get('at_block_size_list'), '').strip() == '':
 			args_d['at_block_size_list'] = args_d.get('at_block_size')
 
@@ -755,7 +757,7 @@ def coalesce_file(*files, access=os.R_OK):
 			if not os.access(f, a):
 				return False
 		return True
-	
+
 	for f in files:
 		if f is None: continue
 		if check_access(f, access):
@@ -783,7 +785,7 @@ def value_setf(args, arg_name):
 
 def search_file(name):
 	pwd_path = os.environ.get('PWD')
-	if pwd_path is not None: 
+	if pwd_path is not None:
 		f = os.path.join(pwd_path, name)
 		log.debug(f'search_file: {f} ...')
 		if os.path.isfile(f):
@@ -800,7 +802,7 @@ def search_file(name):
 			log.debug(f'search_file: {f} FOUND')
 			return f
 	appdir_path = os.environ.get('APPIMAGE')
-	if appdir_path is not None: 
+	if appdir_path is not None:
 		f = os.path.join(os.path.dirname(appdir_path), name)
 		log.debug(f'search_file: {f} ...')
 		if os.path.isfile(f):
