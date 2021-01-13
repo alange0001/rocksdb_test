@@ -43,6 +43,7 @@ class Options:
 	plot_io_norm = False
 	plot_at3_write_ratio = False
 	plot_pressure = False
+	plot_containers_io = True
 	pressure_decreased = True
 	use_at3_counters = True
 	fio_folder = None
@@ -739,7 +740,7 @@ class File:
 	def graph_at3(self):
 		if self._num_at == 0 or self._num_at is None:
 			return
-		print(f'graph_at3() filename: {self._filename}')
+		#print(f'graph_at3() filename: {self._filename}')
 
 		fig, axs = plt.subplots(self._num_at, 1)
 		fig.set_figheight(5)
@@ -1022,6 +1023,89 @@ class File:
 				fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
 
+	def getContainerNames(self):
+		perfmon_data = self._data.get('performancemonitor')
+		if perfmon_data is None: return
+
+		container_names = []
+		for d in perfmon_data:
+			containers_data = d.get('containers')
+			if containers_data is None: continue
+			for k in containers_data.keys():
+				if k not in container_names:
+					container_names.append(k)
+		return container_names
+
+	def mapContainerNames(self):
+		names = self.getContainerNames()
+		stats_keys = self._data.keys()
+		#print(f'stats_keys: {stats_keys}')
+
+		ret = {'container_names':names, 'stats2container':{}, 'container2stats':{}}
+		for n in names:
+			r = re.findall(r'^([^_]+)_([0-9]+)$', n)
+			if len(r) > 0:
+				if r[0][0] == 'at3':
+					name_stats = f'access_time3[{r[0][1]}]'
+				else:
+					name_stats = f'{r[0][0]}[{r[0][1]}]'
+				if name_stats in stats_keys:
+					ret['stats2container'][name_stats] = n
+					ret['container2stats'][n] = name_stats
+				else:
+					print(f'WARNING: container name "{n}" without corresponding stats')
+			else:
+				print(f'WARNING: container name "{n}" without pattern')
+		return ret
+
+	def graph_containers_io(self):
+		perfmon_data = self._data.get('performancemonitor')
+		if perfmon_data is None: return
+
+		containers_map = self.mapContainerNames()
+		#print(f'containers_map: {containers_map}')
+		if len(containers_map['container_names']) == 0: return
+		containers_map['container_names'].sort()
+
+		colors = plt.get_cmap('tab10').colors
+
+		fig, axs = plt.subplots(2, 1)
+		fig.set_figheight(8)
+		fig.set_figwidth(8)
+		axs[0].grid()
+		axs[1].grid()
+
+		ci = 0
+		X = [x['time']/60.0 for x in self._data['performancemonitor']]
+		for c_name in containers_map['container_names']:
+			Y1r = [scale(coalesceDict(x, 'containers',c_name,'blkio.service_bytes/s','Read'), 1024**2) for x in self._data['performancemonitor']]
+			Y1w = [scale(coalesceDict(x, 'containers',c_name,'blkio.service_bytes/s','Write'), 1024**2) for x in self._data['performancemonitor']]
+			axs[0].plot(X, Y1r, '-', lw=1, label=f'{containers_map["container2stats"][c_name]} read', color=colors[ci])
+			axs[0].plot(X, Y1w, '-.', lw=1, label=f'{containers_map["container2stats"][c_name]} write', color=colors[ci])
+
+			Y1r = [coalesceDict(x, 'containers',c_name,'blkio.serviced/s','Read') for x in self._data['performancemonitor']]
+			Y1w = [coalesceDict(x, 'containers',c_name,'blkio.serviced/s','Write') for x in self._data['performancemonitor']]
+			axs[1].plot(X, Y1r, '-', lw=1, label=f'{containers_map["container2stats"][c_name]} read', color=colors[ci])
+			axs[1].plot(X, Y1w, '-.', lw=1, label=f'{containers_map["container2stats"][c_name]} write', color=colors[ci])
+
+			ci += 1
+
+		aux = (X[-1] - X[0]) * 0.01
+		for ax in axs:
+			ax.set_xlim([X[0]-aux,X[-1]+aux])
+			self.setXticks(ax)
+
+		axs[0].set(title="containers I/O", ylabel="MiB/s")
+		axs[1].set(xlabel="time (min)", ylabel="IOPS")
+
+		axs[0].legend(loc='upper right', ncol=2, frameon=True)
+
+		if self._options.save:
+			for f in self._options.formats:
+				save_name = '{}_graph_containers_io.{}'.format(self._filename.replace('.out', ''), f)
+				fig.savefig(save_name, bbox_inches="tight")
+		plt.show()
+
 	def setXticks(self, ax):
 		if self._options.graphTickMajor is not None:
 			ax.xaxis.set_major_locator(MultipleLocator(self._options.graphTickMajor))
@@ -1039,6 +1123,7 @@ class File:
 		if self._options.plot_at3:        self.graph_at3()
 		if self._options.plot_at3_script: self.graph_at3_script()
 		if self._options.plot_pressure:   self.graph_pressure()
+		if self._options.plot_containers_io: self.graph_containers_io()
 
 		## Special case graphs:
 		# exp_at3_rww:
@@ -1120,6 +1205,23 @@ def coalesce(*values):
 		if v is not None:
 			return v;
 	return None
+
+def coalesceDict(dict_v, *names):
+	cur_d = dict_v
+	for n in names:
+		if cur_d.get(n) is not None:
+			cur_d = cur_d.get(n)
+		else:
+			return None
+	return cur_d
+
+def scale(value, divisor):
+	if value is not None:
+		return value / divisor
+	return None
+
+def scaleList(values, divisor):
+	return [scale(x, divisor) for x in values]
 
 def tryConvert(value, *types):
 	for t in types:
@@ -1351,6 +1453,7 @@ if __name__ == '__main__':
 
 	#plotFiles(getFiles('exp_dbbench/rrwr'), Options(plot_nothing=True, plot_db=True, db_mean_interval=5))
 
+	#f = File('../ycsb_workloadb,at3_bs512_directio.out', Options(plot_nothing=True, plot_containers_io=True, plot_io=True, plot_db=True, db_mean_interval=2)); f.graph_all()
 	#f = File('exp_db/dbbench_wwr,at3_bs512_directio.out', Options(use_at3_counters=True))
 	#f = File('dbbench_wwr.out', Options(plot_pressure=True, db_mean_interval=2)); f.graph_all()
 	#f = File('exp_db/ycsb_wa,at3_bs32_directio.out', Options(plot_nothing=True, plot_pressure=True, db_mean_interval=2, pressure_decreased=False)); f.graph_all()
@@ -1371,4 +1474,3 @@ if __name__ == '__main__':
 	#fiofiles = FioFiles(getFiles('exp_fio'), Options(fio_folder='exp_fio'))
 	#fiofiles.graph_bw()
 	#fiofiles.graph_iops()
-
