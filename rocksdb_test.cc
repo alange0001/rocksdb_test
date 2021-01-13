@@ -657,7 +657,7 @@ class PerformanceMonitorClient {
 			if (clock_s > warm_period_s) {
 				regex_search(buffer, cm, regex("STATS: \\{(.+)"));
 				if (cm.size() > 0) {
-					spdlog::info("Task performancemonitor, STATS: {{\"time\": {}, {}", clock_s, cm.str(1));
+					spdlog::info("Task performancemonitor, STATS: {{\"time\": {}, {}", clock_s - warm_period_s, cm.str(1));
 				}
 			}
 		}
