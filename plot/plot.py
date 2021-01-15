@@ -948,7 +948,6 @@ class File:
 		else:
 			pd2 = pd.groupby(['w', 'w_counter']).agg({'ops_per_s':'mean'}).sort_values('ops_per_s', ascending=False)
 
-		#fig = plt.gcf()
 		fig = plt.figure()
 		fig.set_figheight(2.8)
 		fig.set_figwidth(9)
@@ -1069,36 +1068,59 @@ class File:
 
 		colors = plt.get_cmap('tab10').colors
 
-		fig, axs = plt.subplots(2, 1)
-		fig.set_figheight(8)
-		fig.set_figwidth(8)
-		axs[0].grid()
-		axs[1].grid()
+		fig, axs = plt.subplots(len(containers_map['container_names'])+1, 1)
+		fig.set_figheight(10)
+		fig.set_figwidth(9)
 
-		ci = 0
 		X = [x['time']/60.0 for x in self._data['performancemonitor']]
-		for c_name in containers_map['container_names']:
-			Y1r = [scale(coalesceDict(x, 'containers',c_name,'blkio.service_bytes/s','Read'), 1024**2) for x in self._data['performancemonitor']]
-			Y1w = [scale(coalesceDict(x, 'containers',c_name,'blkio.service_bytes/s','Write'), 1024**2) for x in self._data['performancemonitor']]
-			axs[0].plot(X, Y1r, '-', lw=1, label=f'{containers_map["container2stats"][c_name]} read', color=colors[ci])
-			axs[0].plot(X, Y1w, '-.', lw=1, label=f'{containers_map["container2stats"][c_name]} write', color=colors[ci])
+		sum_Y1r = numpy.array([0. for x in X])
+		sum_Y1w, sum_Y2r, sum_Y2w = sum_Y1r.copy(), sum_Y1r.copy(), sum_Y1r.copy()
 
-			Y1r = [coalesceDict(x, 'containers',c_name,'blkio.serviced/s','Read') for x in self._data['performancemonitor']]
-			Y1w = [coalesceDict(x, 'containers',c_name,'blkio.serviced/s','Write') for x in self._data['performancemonitor']]
-			axs[1].plot(X, Y1r, '-', lw=1, label=f'{containers_map["container2stats"][c_name]} read', color=colors[ci])
-			axs[1].plot(X, Y1w, '-.', lw=1, label=f'{containers_map["container2stats"][c_name]} write', color=colors[ci])
+		for i in range(len(axs)):
+			ax = axs[i]
+			ax.grid()
 
-			ci += 1
+			if i == (len(axs)-1):
+				c_name = 'ALL'
+				Y1r, Y1w = sum_Y1r, sum_Y1w
+			else:
+				c_name = containers_map['container_names'][i]
+				Y1r = [scale(coalesceDict(x, 'containers',c_name,'blkio.service_bytes/s','Read'), 1024**2) for x in self._data['performancemonitor']]
+				sum_Y1r += [coalesce(y,0.) for y in Y1r]
+				Y1w = [scale(coalesceDict(x, 'containers',c_name,'blkio.service_bytes/s','Write'), 1024**2) for x in self._data['performancemonitor']]
+				sum_Y1w += [coalesce(y,0.) for y in Y1w]
+			ax.plot(X, Y1r, '-', lw=1, label=f'MiB read', color=colors[0])
+			ax.plot(X, Y1w, '-.', lw=1, label=f'MiB write', color=colors[1])
+
+			ax.set(ylabel=f"{c_name}\nMiB/s")
+
+			ax2 = ax.twinx()
+
+			if i == (len(axs)-1):
+				Y2r, Y2w = sum_Y2r, sum_Y2w
+			else:
+				Y2r = [coalesceDict(x, 'containers',c_name,'blkio.serviced/s','Read') for x in self._data['performancemonitor']]
+				sum_Y2r += [coalesce(y,0.) for y in Y2r]
+				Y2w = [coalesceDict(x, 'containers',c_name,'blkio.serviced/s','Write') for x in self._data['performancemonitor']]
+				sum_Y2w += [coalesce(y,0.) for y in Y2w]
+			ax2.plot(X, Y2r, ':', lw=1, label=f'IO read', color=colors[2])
+			ax2.plot(X, Y2w, ':', lw=1, label=f'IO write', color=colors[3])
+
+			ax2.set(ylabel="IOPS")
+
+			if i == (len(axs)-1):
+				ax.legend(bbox_to_anchor=(0., -.8, .48, .102), loc='lower left',
+					ncol=2, mode="expand", borderaxespad=0.)
+				ax2.legend(bbox_to_anchor=(.52, -.8, .48, .102), loc='lower right',
+					ncol=2, mode="expand", borderaxespad=0.)
 
 		aux = (X[-1] - X[0]) * 0.01
 		for ax in axs:
 			ax.set_xlim([X[0]-aux,X[-1]+aux])
 			self.setXticks(ax)
 
-		axs[0].set(title="containers I/O", ylabel="MiB/s")
-		axs[1].set(xlabel="time (min)", ylabel="IOPS")
-
-		axs[0].legend(loc='upper right', ncol=2, frameon=True)
+		axs[0].set(title="containers I/O")
+		axs[-1].set(xlabel="time (min)")
 
 		if self._options.save:
 			for f in self._options.formats:
@@ -1453,7 +1475,7 @@ if __name__ == '__main__':
 
 	#plotFiles(getFiles('exp_dbbench/rrwr'), Options(plot_nothing=True, plot_db=True, db_mean_interval=5))
 
-	#f = File('../ycsb_workloadb,at3_bs512_directio.out', Options(plot_nothing=True, plot_containers_io=True, plot_io=True, plot_db=True, db_mean_interval=2)); f.graph_all()
+	#f = File('../ycsb_workloadb,at3_bs512_directio.out', Options(plot_nothing=True, plot_containers_io=True, plot_io=True, plot_db=False, db_mean_interval=2)); f.graph_all()
 	#f = File('exp_db/dbbench_wwr,at3_bs512_directio.out', Options(use_at3_counters=True))
 	#f = File('dbbench_wwr.out', Options(plot_pressure=True, db_mean_interval=2)); f.graph_all()
 	#f = File('exp_db/ycsb_wa,at3_bs32_directio.out', Options(plot_nothing=True, plot_pressure=True, db_mean_interval=2, pressure_decreased=False)); f.graph_all()
