@@ -496,8 +496,15 @@ class File:
 		for ax_i in range(0,3):
 			ax = axs[ax_i]
 			if ax_i == 0:
-				Yr = numpy.array([i['disk']['iostat']['rkB/s']/1024  for i in self._data['performancemonitor']])
-				Yw = numpy.array([i['disk']['iostat']['wkB/s']/1024  for i in self._data['performancemonitor']])
+				Yr, Yw = None, None
+				try: # due to a iostat bug when exporting kB/s in the JSON format. Using /proc/diskstats:
+					Yr = numpy.array([i['disk']['diskstats']['rkB/s']/1024  for i in self._data['performancemonitor']])
+					Yw = numpy.array([i['disk']['diskstats']['wkB/s']/1024  for i in self._data['performancemonitor']])
+					#print('using /proc/diskstats')
+				except: pass
+				if Yr is None or Yw is None:
+					Yr = numpy.array([i['disk']['iostat']['rkB/s']/1024  for i in self._data['performancemonitor']])
+					Yw = numpy.array([i['disk']['iostat']['wkB/s']/1024  for i in self._data['performancemonitor']])
 				Yt = Yr + Yw
 				ax.plot(X, Yr, '-', lw=1, label='read', color='green')
 				ax.plot(X, Yw, '-', lw=1, label='write', color='orange')
@@ -1475,7 +1482,7 @@ if __name__ == '__main__':
 
 	#plotFiles(getFiles('exp_dbbench/rrwr'), Options(plot_nothing=True, plot_db=True, db_mean_interval=5))
 
-	#f = File('../ycsb_workloadb,at3_bs512_directio.out', Options(plot_nothing=True, plot_containers_io=True, plot_io=True, plot_db=False, db_mean_interval=2)); f.graph_all()
+	#f = File('exp_db_perfmon/ycsb_workloadb,at3_bs512_directio.out', Options(plot_nothing=True, plot_containers_io=True, plot_io=True, plot_db=False, db_mean_interval=2)); f.graph_all()
 	#f = File('exp_db/dbbench_wwr,at3_bs512_directio.out', Options(use_at3_counters=True))
 	#f = File('dbbench_wwr.out', Options(plot_pressure=True, db_mean_interval=2)); f.graph_all()
 	#f = File('exp_db/ycsb_wa,at3_bs32_directio.out', Options(plot_nothing=True, plot_pressure=True, db_mean_interval=2, pressure_decreased=False)); f.graph_all()
