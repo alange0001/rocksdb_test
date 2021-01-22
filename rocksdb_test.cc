@@ -711,7 +711,7 @@ class Program {
 
 	int main(int argc, char** argv) noexcept {
 		DEBUG_MSG("initialized");
-		spdlog::info("rocksdb_test version: 1.8");
+		spdlog::info("rocksdb_test version: 1.9");
 		try {
 			args.reset(new Args(argc, argv));
 			clock.reset(new Clock());
