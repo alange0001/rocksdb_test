@@ -75,7 +75,7 @@ using std::function;
 		true,                                                     \
 		nullptr)                                                  \
 	_f(docker_image, string, DEFINE_string,                       \
-		"alange0001/rocksdb_test:1",                              \
+		"alange0001/rocksdb_test:2",                              \
 		"docker image used for each container",                   \
 		value.length() > 0,                                       \
 		nullptr)                                                  \

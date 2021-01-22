@@ -174,7 +174,7 @@ class GenericExperiment:
 	exp_name = 'generic'
 
 	exp_params = collections.OrderedDict([
-		#Name,                   Type       Def   Help
+		#Name,                            Type            Default             Help
 		('docker_image',          {'type':str,  'default':None,        'help':'Docker image (optional). Use rocksdb_test\'s default if not informed.' }),
 		('docker_params',         {'type':str,  'default':None,        'help':'Additional docker arguments.' }),
 		('duration',              {'type':int,  'default':None,        'help':'Duration of the experiment (in minutes).' }),
@@ -250,16 +250,12 @@ class GenericExperiment:
 			argcheck_path(args_d, 'at_dir', required=True, absolute=True, type='dir')
 			args_d['at_file'] = '#'.join([ str(x) for x in range(0, args_d['num_at']) ])
 
-		docker_default_path = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-		docker_add_path = "/workspace/rocksdb_test/build:/workspace/YCSB/bin:/workspace/rocksdb"
-
 		docker_params = [coalesce(args_d.get('docker_params'), '')]
-		for k, v in [('rocksdb_test_path', '/workspace/rocksdb_test'),
-		             ('rocksdb_path', '/workspace/rocksdb'),
-		             ('ycsb_path', '/workspace/YCSB')]:
+		for k, v in [('rocksdb_test_path', '/opt/rocksdb_test'),
+		             ('rocksdb_path', '/opt/rocksdb'),
+		             ('ycsb_path', '/opt/YCSB')]:
 			if args_d.get(k) is not None:
 				docker_params.append(f'-v {args_d[k]}:{v}')
-		docker_params.append(f"-e PATH={docker_default_path}:{docker_add_path}")
 		docker_params.append(f'--user={os.getuid()}')
 		args_d['docker_params'] = ' '.join(docker_params)
 
@@ -270,14 +266,8 @@ class GenericExperiment:
 		log.info('==========================================')
 		args_d = coalesce( args_d, self.get_args_d() )
 
-		env_cmd = ''
-		if os.environ.get('ROCKSDB_TEST_RESET_VARS') is not None:
-			for v in os.environ.get('ROCKSDB_TEST_RESET_VARS').split(' '):
-				env_cmd += f"{v}='' "
-			env_cmd = f'env {env_cmd}'
-
 		bin_path = get_rocksdb_bin()
-		cmd =  f'{env_cmd}{bin_path} \\\n'
+		cmd =  f'{bin_path} \\\n'
 		cmd += f'	--log_level="{args_d["log_level_rocksdb_test"].lower()}"  \\\n'
 		cmd += f'	--stats_interval=5  \\\n'
 
@@ -285,7 +275,7 @@ class GenericExperiment:
 
 		def_p_func = lambda k, v: f'	--{k}="{args_d[k]}" \\\n'
 		if self.exp_params.get('ydb_workload') is not None:
-			self.exp_params['ydb_workload']['p_func'] = lambda k, v: f'	--{k}="/workspace/YCSB/workloads/{args_d[k]}" \\\n'
+			self.exp_params['ydb_workload']['p_func'] = lambda k, v: f'	--{k}="/opt/YCSB/workloads/{args_d[k]}" \\\n'
 		if self.exp_params.get('params') is not None:
 			self.exp_params['params']['p_func'] = lambda k, v: f'	{args_d[k]}'
 		if self.exp_params.get('output') is not None:
