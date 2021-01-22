@@ -7,7 +7,8 @@ ROCKSDB_TEST_SRC ?= $(WORKSPACE)/..
 YCSB_SRC ?= $(WORKSPACE)/../../YCSB
 YCSB_DST = $(WORKSPACE)/opt/YCSB
 
-DOCKER_TAG ?= "alange0001/rocksdb_test:latest"
+DOCKER_IMG ?= "alange0001/rocksdb_test"
+DOCKER_TAG ?= "latest"
 
 all: opt docker
 
@@ -48,7 +49,7 @@ ycsb:
 
 docker: opt
 	@echo "Creating docker image"
-	@docker build -t "$(DOCKER_TAG)" --compress .
+	@docker build -t "$(DOCKER_IMG):$(DOCKER_TAG)" --compress .
 
 clean:
 	rm -fr opt
