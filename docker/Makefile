@@ -25,7 +25,6 @@ rocksdb:
 	@find "$(ROCKSDB_SRC)/tools" -maxdepth 1 -type f -perm /u=x -exec cp {} "$(ROCKSDB_DST)/bin" \;
 	@find "$(ROCKSDB_DST)/bin" -maxdepth 1 -type f -name 'lib*' -delete
 	@find "$(ROCKSDB_SRC)" -maxdepth 1 -type f -name 'librocksdb_*.so' -exec cp {} "$(ROCKSDB_DST)/lib" \;
-	@find "$(ROCKSDB_SRC)/java/target" -maxdepth 1 -type f -name 'rocksdbjni-*.jar' -exec cp {} "$(ROCKSDB_DST)/lib" \;
 	@rm -f "$(ROCKSDB_DST)/lib/librocksdb.a"
 
 rocksdb_test:
@@ -44,7 +43,7 @@ ycsb:
 	@rsync -ax "$(YCSB_SRC)/workloads/" "$(YCSB_DST)/workloads/"
 	@rsync -ax "$(YCSB_SRC)/rocksdb-binding/" "$(YCSB_DST)/rocksdb-binding/"
 	@cd "$(YCSB_DST)/rocksdb-binding/lib" && rm -f rocksdbjni-*.jar 
-	@find "$(ROCKSDB_DST)/lib" -maxdepth 1 -type f -name 'rocksdbjni-*.jar' -exec cp {} "$(YCSB_DST)/rocksdb-binding/lib" \;
+	@find "$(ROCKSDB_SRC)/java/target" -maxdepth 1 -type f -name 'rocksdbjni-*.jar' -exec cp {} "$(YCSB_DST)/rocksdb-binding/lib" \;
 	@test -z `fgrep YCSB_SLEEP $(YCSB_DST)/bin/ycsb.sh` && sed -i '17 a YCSB_SLEEP=$${YCSB_SLEEP:-0}; sleep "$$YCSB_SLEEP"' "$(YCSB_DST)/bin/ycsb.sh"
 
 docker: opt
