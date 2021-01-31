@@ -44,7 +44,7 @@ ycsb:
 	@rsync -ax "$(YCSB_SRC)/workloads/" "$(YCSB_DST)/workloads/"
 	@rsync -ax "$(YCSB_SRC)/rocksdb-binding/" "$(YCSB_DST)/rocksdb-binding/"
 	@cd "$(YCSB_DST)/rocksdb-binding/lib" && rm -f rocksdbjni-*.jar 
-	@find "$(ROCKSDB_SRC)/java/target" -maxdepth 1 -type f -name 'rocksdbjni-*.jar' -exec cp {} "$(YCSB_DST)/rocksdb-binding/lib" \;
+	@find "$(ROCKSDB_SRC)/java/target" -maxdepth 1 -type f -name 'rocksdbjni-*.jar' -exec cp {} "$(YCSB_DST)/rocksdb-binding/lib/rocksdbjni-linux64.jar" \;
 	@test -z `fgrep YCSB_SLEEP $(YCSB_DST)/bin/ycsb.sh` && sed -i '17 a YCSB_SLEEP=$${YCSB_SLEEP:-0}; sleep "$$YCSB_SLEEP"' "$(YCSB_DST)/bin/ycsb.sh"
 
 docker: opt
