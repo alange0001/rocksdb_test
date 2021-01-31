@@ -43,6 +43,9 @@ list(APPEND THIRDPARTY_LIBS "${ALUTILS_DIR}/build/libalutils.a")
 #list(APPEND THIRDPARTY_LIBS "${ROCKSDB_DIR}/libzstd.a")
 #list(APPEND THIRDPARTY_LIBS "${ROCKSDB_DIR}/libsnappy.a")
 
+# https://github.com/nlohmann/json
+include_directories("include")
+
 #################################################################
 
 add_executable(rocksdb_test rocksdb_test.cc util.cc args.cc)
