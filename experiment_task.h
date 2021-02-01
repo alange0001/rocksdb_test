@@ -13,6 +13,8 @@
 
 #include "util.h"
 
+#include "nlohmann/json.hpp"
+
 using std::string;
 using std::runtime_error;
 using fmt::format;
@@ -27,7 +29,7 @@ class ExperimentTask {
 	protected: //------------------------------------------------------------------
 	string name = "";
 	Clock* clock = nullptr;
-	OrderedDict data;
+	nlohmann::ordered_json data;
 	std::unique_ptr<alutils::ProcessController> process;
 	uint64_t warm_period_s;
 
@@ -38,6 +40,7 @@ class ExperimentTask {
 		DEBUG_MSG("constructor of task {}", name);
 		if (clock == nullptr)
 			throw runtime_error("invalid clock");
+		data["time"] = "";
 	}
 	virtual ~ExperimentTask() {
 		DEBUG_MSG("destructor of task {}", name);
@@ -51,21 +54,27 @@ class ExperimentTask {
 		process.reset(nullptr);
 	}
 
-	string str() {
-		string s;
-		for (auto i : data)
-			s += format("{}{}={}", (s.length() > 0) ? ", " : "", i.first, i.second);
-		return s;
+	void print() {
+		print(data);
 	}
 
-	void print() {
-		if (data.size() == 0)
+	void print(nlohmann::ordered_json& j) {
+		if (j.size() == 0)
 			spdlog::warn("no data in task {}", name);
 		auto clock_s = clock->s();
 		if (clock_s > warm_period_s) {
-			data.push_front("time", format("{}", clock_s - warm_period_s));
-			spdlog::info("Task {}, STATS: {}", name, data.json());
+			j["time"] = format("{}", clock_s - warm_period_s);
+			spdlog::info(stat_format, name, j.dump());
 		}
+		j.clear();
+		j["time"] = "";
+	}
+
+	nlohmann::ordered_json get_data_and_clear() {
+		nlohmann::ordered_json j = data;
+		data.clear();
+		data["time"] = "";
+		return j;
 	}
 
 	void default_stderr_handler (const char* buffer) {

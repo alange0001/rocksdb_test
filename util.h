@@ -11,6 +11,8 @@
 #include <chrono>
 #include <type_traits>
 
+#include <filesystem>
+
 #include <spdlog/spdlog.h>
 #include <fmt/format.h>
 #include <alutils/print.h>
@@ -87,103 +89,6 @@ struct Defer {
 	~Defer() noexcept(false) {method();}
 };
 
-////////////////////////////////////////////////////////////////////////////////////
-#undef __CLASS__
-#define __CLASS__ "OrderedDict::"
-
-class OrderedDict {
-public:
-	typedef string                  strType;
-	typedef string                  keyType;
-	typedef string                  valueType;
-	typedef std::deque<keyType>          orderType;
-	typedef std::map<keyType, valueType> dataType;
-
-private:
-	orderType order;
-	dataType  data;
-
-public:
-	OrderedDict() {}
-	OrderedDict(const OrderedDict& src) {*this = src;}
-	OrderedDict& operator=(const OrderedDict& src) {
-		order = src.order;
-		data = src.data;
-		return *this;
-	}
-	valueType& operator[](const keyType& key) {
-		if (data.find(key) == data.end())
-			order.push_back(key);
-		return data[key];
-	}
-	int size() {
-		return data.size();
-	}
-	void clear() {
-		data.clear();
-		order.clear();
-	}
-	void push_front(const keyType& key) {
-		orderType::iterator aux;
-		while ((aux = std::find(order.begin(), order.end(), key)) != order.end())
-			order.erase(aux);
-		order.push_front(key);
-		valueType& s = data[key];
-	}
-	void push_front(const keyType& key, const valueType& value) {
-		orderType::iterator aux;
-		while ((aux = std::find(order.begin(), order.end(), key)) != order.end())
-			order.erase(aux);
-		order.push_front(key);
-		data[key] = value;
-	}
-
-	strType str() {
-		strType ret;
-		for (auto i : *this)
-			ret += format("{}{}={}", (ret.length() > 0) ? ", " : "", i.first, i.second);
-		return ret;
-	}
-	strType json() {
-		strType ret;
-		for (auto i : *this)
-			ret += format("{}\"{}\":\"{}\"", (ret.length() > 0) ? ", " : "", i.first, i.second);
-		return format("{} {} {}", '{', ret, '}');
-	}
-
-	struct iterator_item {
-		keyType& first;
-		valueType& second;
-		iterator_item(keyType& first, valueType& second) : first(first), second(second) {}
-	};
-	class iterator : public std::iterator<std::input_iterator_tag, iterator_item>
-	{
-		valueType _none_;
-		dataType& data;
-		orderType& order;
-		orderType::iterator order_it;
-	public:
-		iterator(OrderedDict& src) : data(src.data), order(src.order), order_it(src.order.begin()) {}
-		iterator(const iterator& src) : data(src.data), order(src.order), order_it(src.order_it) {}
-		iterator& operator++() {++order_it; return *this;}
-		iterator operator++(int) {iterator tmp(*this); operator++(); return tmp;}
-		bool operator==(const iterator& src) const {return order_it==src.order_it;}
-		bool operator!=(const iterator& src) const {return order_it!=src.order_it;}
-		void set_end() {order_it = order.end();}
-		iterator_item operator*() {
-			if (order_it != order.end() && data.find(*order_it) != data.end())
-				return iterator_item(*order_it, data[*order_it]);
-			else
-				return iterator_item(_none_, _none_);
-		}
-	};
-	iterator begin() {return iterator(*this);}
-	iterator end() {
-		iterator ret(*this);
-		ret.set_end();
-		return ret;
-	}
-};
 
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
@@ -275,16 +180,16 @@ public:
 
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
-#define __CLASS__ "TmpFileCopy::"
+#define __CLASS__ "TmpDir::"
 
-class TmpFileCopy {
-	string original_file;
-	string tmp_file;
+class TmpDir {
+	std::filesystem::path base;
+
 public:
-	TmpFileCopy(const string& original_file_);
-	~TmpFileCopy();
-	const char* original_name();
-	const char* name();
+	TmpDir();
+	~TmpDir();
+	std::filesystem::path getContainerDir(const string& container_name);
+	std::filesystem::path getFileCopy(const std::filesystem::path& original_file);
 };
 
 ////////////////////////////////////////////////////////////////////////////////////

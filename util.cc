@@ -5,14 +5,15 @@
 
 #include "util.h"
 
+#include <alutils/string.h>
+#include <alutils/process.h>
+
 #include <cstdlib>
 #include <stdexcept>
 #include <regex>
 #include <limits>
-#include <filesystem>
-
-#include <alutils/string.h>
-#include <alutils/process.h>
+#include <atomic>
+#include <system_error>
 
 using std::string;
 using std::vector;
@@ -74,34 +75,51 @@ void LogLevel::set(const string& name) {
 
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
-#define __CLASS__ "TmpFileCopy::"
+#define __CLASS__ "TmpDir::"
 
-TmpFileCopy::TmpFileCopy(const string& original_file_): original_file(original_file_) {
+static std::atomic<int> tmpdir_filecount = 1;
+
+TmpDir::TmpDir() {
 	DEBUG_MSG("constructor");
-	{
-		char fname[100];
-		auto templ = std::filesystem::temp_directory_path() / "rocksdb_test.XXXXXX";
-		strcpy(fname, templ.c_str());
-		auto s = mktemp(fname);
-		if (strlen(s) == 0)
-			throw std::runtime_error("failed to create the temporary file");
-		DEBUG_MSG("tmp_file: {}", fname);
-		tmp_file = fname;
+	base = std::filesystem::temp_directory_path() / ( string("rocksdb_test-") + std::to_string(getpid()) );
+	DEBUG_MSG("base directory: {}", base.c_str());
+	if (! std::filesystem::create_directories(base) ){
+		throw runtime_error(format("failed to create temporary directory: {}", base.c_str()).c_str());
 	}
-	std::filesystem::copy_file(original_file, tmp_file);
-	DEBUG_MSG("file {} copied to {}", original_file, tmp_file);
+	DEBUG_MSG("constructor finished");
 }
 
-TmpFileCopy::~TmpFileCopy() {
+TmpDir::~TmpDir() {
 	DEBUG_MSG("destructor");
-	std::filesystem::remove(tmp_file);
-	DEBUG_MSG("tmp_file removed: {}", tmp_file);
+	if (! std::filesystem::remove_all(base) ) {
+		spdlog::error("failed to delete temorary directory \"{}\"", base.c_str());
+	}
 }
 
-const char* TmpFileCopy::original_name() {
-	return original_file.c_str();
+std::filesystem::path TmpDir::getContainerDir(const string& container_name) {
+	std::filesystem::path ret = base / container_name;
+	std::error_code ec;
+	if ( std::filesystem::is_directory(ret, ec) ) {
+		DEBUG_MSG("temporary container directory already exists: {}", ret.c_str());
+		return ret;
+	}
+	DEBUG_MSG("creating temporary container directory: {}", ret.c_str());
+	if (! std::filesystem::create_directories(ret, ec) ){
+		throw runtime_error(format("failed to create temporary directory \"{}\": {}", ret.c_str(), ec.message()).c_str());
+	}
+	return ret;
 }
 
-const char* TmpFileCopy::name() {
-	return tmp_file.c_str();
+std::filesystem::path TmpDir::getFileCopy(const std::filesystem::path& original_file) {
+	std::error_code ec;
+	if (! std::filesystem::is_regular_file(original_file) ) {
+		throw runtime_error(format("file \"{}\" is not a regular file", original_file.c_str()).c_str());
+	}
+	string tmpfile = original_file.filename().string() + std::to_string(tmpdir_filecount++);
+	std::filesystem::path ret = base / tmpfile;
+	DEBUG_MSG("creating temporary file copy: {}", ret.c_str());
+	if (! std::filesystem::copy_file(original_file, ret, ec) ) {
+		throw runtime_error(format("failed to copy file \"{}\" to \"{}\": {}", original_file.c_str(), ret.c_str(), ec.message()).c_str());
+	}
+	return ret;
 }

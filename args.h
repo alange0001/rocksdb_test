@@ -64,6 +64,16 @@ using std::function;
 		"Create YCSB database",                                   \
 		true,                                                     \
 		nullptr)                                                  \
+	_f(ydb_rocksdb_jni, string, DEFINE_string,                    \
+		"",                                                       \
+		"Rocksdb binding used by YCSB.",                          \
+		true,                                                     \
+		nullptr)                                                  \
+	_f(ydb_socket, bool, DEFINE_bool,                             \
+		false,                                                    \
+		"Active the socket server for RocksDB's internal statistics. Modified version of YCSB.", \
+		true,                                                     \
+		nullptr)                                                  \
 	_f(rocksdb_config_file, string, DEFINE_string,                \
 		"",                                                       \
 		"Rocksdb Configuration File",                             \

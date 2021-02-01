@@ -12,6 +12,7 @@
 #include <chrono>
 
 #include <stdexcept>
+#include <filesystem>
 
 #include <csignal>
 #include <sys/stat.h>
@@ -21,8 +22,10 @@
 
 #include <spdlog/spdlog.h>
 #include <fmt/format.h>
+
 #include <alutils/string.h>
 #include <alutils/process.h>
+#include <alutils/socket.h>
 
 #include "args.h"
 #include "util.h"
@@ -42,14 +45,7 @@ using fmt::format;
 #undef __CLASS__
 #define __CLASS__ ""
 
-const char* getTmpOptions(Args* args, unique_ptr<TmpFileCopy>& tmp_options) {
-	if (args->rocksdb_config_file.length() == 0)
-		throw runtime_error("rocksdb_config_file required");
-	if (tmp_options.get() == nullptr) {
-		tmp_options.reset(new TmpFileCopy(args->rocksdb_config_file));
-	}
-	return tmp_options->name();
-}
+unique_ptr<TmpDir> tmpdir;
 
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
@@ -59,7 +55,6 @@ class DBBench : public ExperimentTask {
 	Args* args;
 	uint number;
 	string container_name;
-	unique_ptr<TmpFileCopy> tmp_options;
 
 	public:    //------------------------------------------------------------------
 	DBBench(Clock* clock_, Args* args_, uint number_) : ExperimentTask(format("db_bench[{}]", number_), clock_, args_->warm_period * 60), args(args_), number(number_) {
@@ -137,10 +132,12 @@ class DBBench : public ExperimentTask {
 	string get_docker_cmd() {
 		string config;
 		if (args->rocksdb_config_file.length() > 0)
-			config = fmt::format("  -v \"{}\":/rocksdb.options \\\n", getTmpOptions(args, tmp_options));
+			config = fmt::format("  -v \"{}\":/rocksdb.options \\\n", tmpdir->getFileCopy(args->rocksdb_config_file).c_str());
 		string ret =
 			format("docker run --name=\"{}\" -t --rm                  \\\n", container_name) +
+			format("  --user=\"{}\"                                   \\\n", getuid()) +
 			format("  -v \"{}\":/workdata                             \\\n", args->db_path[number]) +
+			format("  -v {}:/tmp/host                                 \\\n", tmpdir->getContainerDir(container_name).c_str())+
 			config +
 			format("  {}                                              \\\n", args->docker_params) +
 			format("  {}                                              \\\n", args->docker_image);
@@ -349,7 +346,6 @@ class DBBench : public ExperimentTask {
 			//DEBUG_OUT("line parsed    : {}", buffer);
 
 			print();
-			data.clear();
 			ops = 0;
 			ops_per_s = 0;
 		}
@@ -364,12 +360,19 @@ class YCSB : public ExperimentTask {
 	Args* args;
 	uint number;
 	string container_name;
-	unique_ptr<TmpFileCopy> tmp_options;
+
+	unique_ptr<alutils::Socket> socket_client;
+	nlohmann::ordered_json data2;
+
+	string workload_docker;
+	string workload_ycsb;
 
 	public:    //------------------------------------------------------------------
 	YCSB(Clock* clock_, Args* args_, uint number_) : ExperimentTask(format("ycsb[{}]", number_), clock_, args_->warm_period * 60), args(args_), number(number_) {
 		DEBUG_MSG("constructor");
 		container_name = format("ycsb_{}", number_);
+
+		set_workload_params();
 	}
 
 	~YCSB() {
@@ -416,22 +419,59 @@ class YCSB : public ExperimentTask {
 	}
 
 	string get_docker_cmd(uint32_t sleep) {
-		string config;
-		if (args->rocksdb_config_file.length() > 0)
-			config = fmt::format("  -v \"{}\":/rocksdb.options \\\n", getTmpOptions(args, tmp_options));
 		string ret =
 			format("docker run --name=\"{}\" -t --rm                  \\\n", container_name) +
+			format("  --user=\"{}\"                                   \\\n", getuid()) +
 			format("  -v \"{}\":/workdata                             \\\n", args->ydb_path[number]) +
-			config +
-			format("  -e YCSB_SLEEP={}m                               \\\n", sleep) +
-			format("  {}                                              \\\n", args->docker_params) +
+			format("  -v {}:/tmp/host                                 \\\n", tmpdir->getContainerDir(container_name).c_str());
+		if (args->rocksdb_config_file.length() > 0) { ret +=
+			format("  -v \"{}\":/rocksdb.options                      \\\n", tmpdir->getFileCopy(args->rocksdb_config_file).c_str());
+		}
+		ret += get_jni_param();
+		ret += workload_docker;
+		if (loglevel.level == LogLevel::LOG_DEBUG_OUT || loglevel.level == LogLevel::LOG_DEBUG) { ret +=
+			format("  -e ROCKSDB_TR_DEBUG=1                           \\\n");
+		}
+		if (args->ydb_socket) { ret +=
+			format("  -e ROCKSDB_TR_SOCKET=/tmp/host/rocksdb.sock     \\\n");
+		}
+		if (sleep > 0) { ret +=
+			format("  -e YCSB_SLEEP={}m                               \\\n", sleep);
+		}
+		if (args->docker_params.length() > 0) { ret +=
+			format("  {}                                              \\\n", args->docker_params);
+		}
+		ret +=
 			format("  {}                                              \\\n", args->docker_image);
 		return ret;
 	}
 
+	string get_jni_param() {
+		string ret;
+		if (args->ydb_rocksdb_jni != "") {
+			std::filesystem::path p = args->ydb_rocksdb_jni;
+			std::error_code ec;
+			if (! std::filesystem::is_regular_file(p, ec) ) {
+				throw runtime_error(format("parameter ydb_rocksdb_jni=\"{}\" is not a regular file: {}", args->ydb_rocksdb_jni, ec.message()).c_str());
+			}
+			ret += format("  -v {}:/opt/YCSB/rocksdb-binding/lib/rocksdbjni-linux64.jar:ro \\\n", std::filesystem::absolute(p).string());
+		}
+		return ret;
+	}
+
+	void set_workload_params() {
+		if (std::filesystem::is_regular_file(args->ydb_workload[number])) {
+			workload_docker = format("  -v {}:/ycsb_workloadfile                        \\\n", args->ydb_workload[number]);
+			workload_ycsb   = "/ycsb_workloadfile";
+		} else {
+			workload_ycsb   = format("/opt/YCSB/workloads/{}", args->ydb_workload[number]);
+		}
+		DEBUG_MSG("workload_ycsb = {}", workload_ycsb);
+	}
+
 	string get_const_params() {
 		string ret =
-			format("    -P \"{}\"                                     \\\n", args->ydb_workload[number]) +
+			format("    -P \"{}\"                                     \\\n", workload_ycsb) +
 			format("    -p rocksdb.dir=\"/workdata\"                  \\\n") +
 			format("    -p recordcount={}                             \\\n", args->ydb_num_keys[number]);
 		return ret;
@@ -443,8 +483,10 @@ class YCSB : public ExperimentTask {
 			get_const_params() +
 			format("    -p operationcount={}                          \\\n", 0) +
 			format("    -p status.interval={}                         \\\n", args->stats_interval) +
-			format("    -threads {}                                   \\\n", args->ydb_threads[number]) +
-			format("    {}                                            \\\n", args->ydb_params[number]) +
+			format("    -threads {}                                   \\\n", args->ydb_threads[number]);
+			if (args->ydb_params[number].length() > 0) cmd +=
+			format("    {}                                            \\\n", args->ydb_params[number]);
+			cmd +=
 			format("    2>&1 ");
 
 		return cmd;
@@ -492,10 +534,40 @@ class YCSB : public ExperimentTask {
 				}
 			}
 
-			print();
-			data.clear();
+			if (args->ydb_socket) {
+				if (socket_client.get() == nullptr) {
+					auto socket_path = (tmpdir->getContainerDir(container_name) / "rocksdb.sock");
+					spdlog::info("initiating socket client: {}", socket_path.string());
+					socket_client.reset(new alutils::Socket(
+							alutils::Socket::tClient,
+							socket_path.string(),
+							[this](alutils::Socket::HandlerData* data)->void{ socket_handler(data);},
+							alutils::Socket::Params{.buffer_size=4096}
+					));
+				}
+
+				data2 = get_data_and_clear();
+				socket_client->send_msg("report column_family=usertable output=socket", true);
+
+			} else {
+				print();
+			}
 		}
 	}
+
+	void socket_handler(alutils::Socket::HandlerData* data) {
+		auto flags = std::regex_constants::match_any;
+		std::cmatch cm;
+		std::regex_search(data->msg.c_str(), cm, std::regex("socket_server.json: (.*)"), flags);
+		if (cm.size() >= 2) {
+			DEBUG_MSG("add socket_report json to data2: {}", cm.str(1));
+			data2["socket_report"] = nlohmann::ordered_json::parse(cm.str(1));
+			print(data2);
+		} else {
+			spdlog::error("invalid message received by socket_handler: {}", data->msg);
+		}
+	}
+
 };
 
 ////////////////////////////////////////////////////////////////////////////////////
@@ -537,7 +609,9 @@ class AccessTime3 : public ExperimentTask {
 	string getCmd() {
 		string ret =
 			format("docker run --name=\"{}\" -t --rm                  \\\n", container_name) +
+			format("  --user=\"{}\"                                   \\\n", getuid()) +
 			format("  -v \"{}\":/workdata                             \\\n", args->at_dir[number]) +
+			format("  -v {}:/tmp/host                                 \\\n", tmpdir->getContainerDir(container_name).c_str())+
 			format("  {}                                              \\\n", args->docker_params) +
 			format("  {}                                              \\\n", args->docker_image) +
 			format("  access_time3                                    \\\n") +
@@ -671,6 +745,14 @@ class PerformanceMonitorClient {
 #undef __CLASS__
 #define __CLASS__ "Program::"
 
+#define ALL_Signals_F( _f ) \
+		_f(SIGTERM) \
+		_f(SIGSEGV) \
+		_f(SIGINT)  \
+		_f(SIGILL)  \
+		_f(SIGABRT) \
+		_f(SIGFPE)
+
 class Program {
 	static Program*   this_;
 	unique_ptr<Args>  args;
@@ -691,21 +773,15 @@ class Program {
 		system_check();
 		
 		Program::this_ = this;
-		std::signal(SIGTERM, Program::signalWrapper);
-		std::signal(SIGSEGV, Program::signalWrapper);
-		std::signal(SIGINT,  Program::signalWrapper);
-		std::signal(SIGILL,  Program::signalWrapper);
-		std::signal(SIGABRT, Program::signalWrapper);
-		std::signal(SIGFPE,  Program::signalWrapper);
+#		define setSignalHandler(name) std::signal(name, Program::signalWrapper);
+		ALL_Signals_F( setSignalHandler );
+#		undef setSignalHandler
 	}
 	~Program() {
 		DEBUG_MSG("destructor");
-		std::signal(SIGTERM, SIG_DFL);
-		std::signal(SIGSEGV, SIG_DFL);
-		std::signal(SIGINT,  SIG_DFL);
-		std::signal(SIGILL,  SIG_DFL);
-		std::signal(SIGABRT, SIG_DFL);
-		std::signal(SIGFPE,  SIG_DFL);
+#		define unsetSignalHandler(name) std::signal(name, SIG_DFL);
+		ALL_Signals_F( unsetSignalHandler );
+#		undef unsetSignalHandler
 		Program::this_ = nullptr;
 	}
 
@@ -715,6 +791,7 @@ class Program {
 		try {
 			args.reset(new Args(argc, argv));
 			clock.reset(new Clock());
+			tmpdir.reset(new TmpDir());
 
 			auto num_dbs = args->num_dbs;
 			auto num_ydbs = args->num_ydbs;
@@ -831,6 +908,8 @@ class Program {
 			}
 			DEBUG_MSG("kill children end");
 
+			tmpdir.reset(nullptr);
+
 			ignore_signals = ignore_signals_max;
 		}
 	}
@@ -851,14 +930,9 @@ class Program {
 			kill(getpid(), signal);
 		}
 	}
-	const char* signalName(int signal) noexcept {
-#		define sigReturn(name) if (signal == name) return #name
-		sigReturn(SIGTERM);
-		sigReturn(SIGSEGV);
-		sigReturn(SIGINT);
-		sigReturn(SIGILL);
-		sigReturn(SIGABRT);
-		sigReturn(SIGFPE);
+	const char* signalName(int signal) const noexcept {
+#		define sigReturn(name) if (signal == name) return #name;
+		ALL_Signals_F( sigReturn );
 #		undef sigReturn
 		return "undefined";
 	}
