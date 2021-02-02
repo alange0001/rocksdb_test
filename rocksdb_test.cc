@@ -556,15 +556,22 @@ class YCSB : public ExperimentTask {
 	}
 
 	void socket_handler(alutils::Socket::HandlerData* data) {
-		auto flags = std::regex_constants::match_any;
-		std::cmatch cm;
-		std::regex_search(data->msg.c_str(), cm, std::regex("socket_server.json: (.*)"), flags);
-		if (cm.size() >= 2) {
-			DEBUG_MSG("add socket_report json to data2: {}", cm.str(1));
-			data2["socket_report"] = nlohmann::ordered_json::parse(cm.str(1));
-			print(data2);
-		} else {
-			spdlog::error("invalid message received by socket_handler: {}", data->msg);
+		try {
+			DEBUG_MSG("msg = {}", data->msg);
+			DEBUG_MSG("more_data = {}", data->more_data);
+
+			auto flags = std::regex_constants::match_any;
+			std::cmatch cm;
+			std::regex_search(data->msg.c_str(), cm, std::regex("socket_server.json: (.*)"), flags);
+			if (cm.size() >= 2) {
+				DEBUG_MSG("add socket_report json to data2: {}", cm.str(1));
+				data2["socket_report"] = nlohmann::ordered_json::parse(cm.str(1));
+				print(data2);
+			} else {
+				throw std::runtime_error(format("invalid message: {}", data->msg).c_str());
+			}
+		} catch (std::exception& e) {
+			spdlog::error("exception received in the socket handler of task {}: {}", name, e.what());
 		}
 	}
 
