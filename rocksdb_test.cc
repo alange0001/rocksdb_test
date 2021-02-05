@@ -63,7 +63,7 @@ class DBBench : public ExperimentTask {
 	}
 
 	~DBBench() {
-		DEBUG_MSG("constructor");
+		DEBUG_MSG("destructor");
 		try {
 			alutils::command_output(format("docker rm -f {}", container_name).c_str());
 			process.reset(nullptr);
