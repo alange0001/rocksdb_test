@@ -71,7 +71,7 @@ using std::function;
 		nullptr)                                                  \
 	_f(ydb_socket, bool, DEFINE_bool,                             \
 		false,                                                    \
-		"Active the socket server for RocksDB's internal statistics. Modified version of YCSB.", \
+		"Activates the socket server for RocksDB's internal statistics. Modified version of YCSB.", \
 		true,                                                     \
 		nullptr)                                                  \
 	_f(rocksdb_config_file, string, DEFINE_string,                \
