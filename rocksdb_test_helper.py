@@ -208,7 +208,7 @@ class GenericExperiment:
 		('ydb_num_keys',          {'group':'ydb', 'type':str,  'default':'10000',    'register':True, 'help':'Number of keys used by YCSB (default=10000). Use a greater value for realistic experiments (e.g., 50000000).' }),
 		('ydb_path',              {'group':'ydb', 'type':str,  'default':None,       'register':False,'help':'One database directory for each instance of YCSB separated by "#". This argument is configured automatically (<DATA_PATH>/rocksdb_ycsb_0#<DATA_PATH>/rocksdb_ycsb_1#...).' }),
 		('ydb_threads',           {'group':'ydb', 'type':str,  'default':'5',        'register':True, 'help':'Number of threads used by YCSB workload (default=5).' }),
-		('ydb_workload',          {'group':'ydb', 'type':str,  'default':None,       'register':False, 'help':'YCSB workload (default=workloadb).' }),
+		('ydb_workload',          {'group':'ydb', 'type':str,  'default':None,       'register':False,'help':'YCSB workload (default=workloadb).' }),
 	#	('ydb_sleep',             {'group':'ydb', 'type':str,  'default':'0',        'register':True, 'help':'Sleep before executing each YCSB instance (in minutes, separated by "#").' }),
 	#	('ydb_rocksdb_jni',       {'group':'ydb', 'type':str,  'default':None,       'register':True, 'help':'Rocksdb binding used by YCSB.' }),
 	#	('ydb_socket',            {'group':'ydb', 'type':str,  'default':'0',        'register':True, 'help':'Activates the socket server for RocksDB''s internal statistics. Modified version of YCSB.' }),
@@ -230,10 +230,11 @@ class GenericExperiment:
 		
 	@classmethod
 	def change_args(cls, load_args): #override if necessary
-		log.debug(f'{cls.__name__}.change_args()')
+		log.debug(f'GenericExperiment.change_args()')
 		
 	@classmethod
 	def register_args(cls, parser, load_args):
+		log.debug(f'GenericExperiment.register_args()')
 		groups = cls.arg_groups
 
 		# copy and filter helper_params:
@@ -265,9 +266,11 @@ class GenericExperiment:
 					help=v.get('help'))
 
 	def get_args_d(self):
+		log.debug(f'GenericExperiment.get_args_d()')
 		return self.process_args_d( args_to_dir(args) )
 
 	def process_args_d(self, args_d):
+		log.debug(f'GenericExperiment.process_args_d()')
 		if coalesce(args_d.get('num_dbs'), 0) > 0:
 			args_d['db_path'] = '#'.join([ f'{args_d["data_path"]}/rocksdb_{x}' for x in range(0, args_d['num_dbs']) ])
 
@@ -290,6 +293,7 @@ class GenericExperiment:
 		return args_d
 
 	def run(self, args_d=None):
+		log.debug(f'GenericExperiment.run()')
 		log.info('')
 		log.info('==========================================')
 		args_d = coalesce( args_d, self.get_args_d() )
@@ -637,14 +641,25 @@ class Exp_create_at3 (GenericExperiment):
 
 	@classmethod
 	def change_args(cls, load_args):
-		log.debug(f'{cls.__name__}.change_args()')
+		log.debug(f'Exp_create_at3.change_args()')
 		cls.helper_params['at_file_size']['register'] = True
 
+		cls.exp_params['duration']['register'] = False
 		cls.exp_params['warm_period']['register'] = False
 		cls.exp_params['num_at']['default'] = 4
 
+	def process_args_d(self, args_d):
+		log.debug(f'Exp_create_at3.process_args_d()')
+		args_d['at_dir'] = coalesce(args_d.get('at_dir'), f'{args_d["data_path"]}/tmp' )
+		if not os.path.isdir(args_d['at_dir']):
+			os.mkdir(args_d['at_dir'])
+		return super(self.__class__, self).process_args_d(args_d)
+
 	def run(self):
+		log.debug(f'Exp_create_at3.run()')
 		args_d = self.get_args_d()
+		args_d['duration'] = 1
+		args_d['warm_period'] = 0
 		args_d['at_params'] = f' --create_file --filesize={args_d.get("at_file_size")} {coalesce(args_d.get("at_params"), "")}'
 		self.output_filename = f'at3_create.out'
 
