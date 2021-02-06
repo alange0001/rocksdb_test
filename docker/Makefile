@@ -25,7 +25,7 @@ rocksdb:
 	@find "$(ROCKSDB_SRC)" -maxdepth 1 -type f -perm /u=x -exec cp {} "$(ROCKSDB_DST)/bin" \;
 	@find "$(ROCKSDB_SRC)/tools" -maxdepth 1 -type f -perm /u=x -exec cp {} "$(ROCKSDB_DST)/bin" \;
 	@find "$(ROCKSDB_DST)/bin" -maxdepth 1 -type f -name 'lib*' -delete
-	@find "$(ROCKSDB_SRC)" -maxdepth 1 -type f -name 'librocksdb_*.so' -exec cp {} "$(ROCKSDB_DST)/lib" \;
+	@find "$(ROCKSDB_SRC)" -maxdepth 1 -type f -name 'librocksdb*' -exec cp {} "$(ROCKSDB_DST)/lib" \;
 	@rm -f "$(ROCKSDB_DST)/lib/librocksdb.a"
 
 rocksdb_test:
