@@ -68,9 +68,6 @@ class ArgsWrapper: # single global instance "args"
 		parser.add_argument('-l', '--log_level', type=str,
 			default='INFO', choices=[ 'debug', 'DEBUG', 'info', 'INFO' ],
 			help='Log level.')
-		parser.add_argument('--log_level_rocksdb_test', type=str,
-			default='info', choices=[ 'debug', 'DEBUG', 'info', 'INFO' ],
-			help='Log level used in rocksdb_test.')
 		parser.add_argument('--load_args', type=str,
 			default=None,
 			help='Load arguments from file (JSON).')
@@ -300,7 +297,6 @@ class GenericExperiment:
 
 		bin_path = get_rocksdb_bin()
 		cmd =  f'{bin_path} \\\n'
-		cmd += f'	--log_level="{args_d["log_level_rocksdb_test"].lower()}"  \\\n'
 		cmd += f'	--stats_interval=5  \\\n'
 
 		output_path = coalesce(args_d.get('output_path'), '')
@@ -315,15 +311,20 @@ class GenericExperiment:
 				log.info(f'{k:<20} = {arg_v}')
 				p_func = coalesce(v.get('p_func'), def_p_func)
 				cmd += p_func(k, v)
-		
-		self.before_run(args_d)
 
 		if self.output_filename is None:
 			raise Exception('output file not defined')
-		cmd += f' > "{os.path.join(output_path, self.output_filename)}"'
+		args_d['output_filename'] = self.output_filename
+		args_d['output'] = f'{os.path.join(output_path, self.output_filename)}'
+		cmd += f' > "{args_d["output"]}"'
+		
+		self.before_run(args_d)
 
-		if args_d.get('before_run_cmd') is not None:
-			command(args_d.get('before_run_cmd'), cmd_args=args_d)
+		try:
+			if args_d.get('before_run_cmd') is not None:
+				command(args_d.get('before_run_cmd'), cmd_args=args_d)
+		except Exception as e:
+			log.error(f'before_run_cmd = "{args_d.get("before_run_cmd")}" returned exception: {str(e)}')
 
 		log.info(f'Executing rocksdb_test experiment {args_d.get("experiment")} ...')
 		args_d['exit_code'] = command(cmd, raise_exception=False)
@@ -332,8 +333,11 @@ class GenericExperiment:
 		if coalesce(args_d.get('exit_code'), 0) != 0:
 			log.error(f"rocksdb_test returned error code {args_d.get('exit_code')}. Check output file \"{self.output_filename}\"")
 
-		if args_d.get('after_run_cmd') is not None:
-			command(args_d.get('after_run_cmd'), cmd_args=args_d)
+		try:
+			if args_d.get('after_run_cmd') is not None:
+				command(args_d.get('after_run_cmd'), cmd_args=args_d)
+		except Exception as e:
+			log.error(f'after_run_cmd = "{args_d.get("after_run_cmd")}" returned exception: {str(e)}')
 
 	def before_run(self, args_d):
 		self.restore_dbs(args_d)
@@ -412,7 +416,7 @@ class Exp_create_ycsb (GenericExperiment):
 
 	@classmethod
 	def change_args(cls, load_args):
-		log.debug(f'{cls.__name__}.change_args()')
+		log.debug(f'create_ycsb.change_args()')
 		
 		cls.exp_params['duration']['default']     = 60
 		cls.exp_params['warm_period']['default']  = 0
@@ -424,6 +428,7 @@ class Exp_create_ycsb (GenericExperiment):
 		cls.exp_params['ydb_workload']['default']  = 'workloada'
 
 	def run(self):
+		log.debug(f'create_ycsb.run()')
 		args_d = self.get_args_d()
 		args_d['num_ydbs'] = 1
 		args_d['ydb_create'] = 'true'
@@ -467,7 +472,7 @@ class Exp_ycsb (GenericExperiment):
 
 	@classmethod
 	def change_args(cls, load_args):
-		log.debug(f'{cls.__name__}.change_args()')
+		log.debug(f'Exp_ycsb.change_args()')
 		cls.helper_params['ydb_workload_list']['register'] = True
 
 		cls.exp_params['duration']['default']     = 90
@@ -475,6 +480,7 @@ class Exp_ycsb (GenericExperiment):
 		cls.exp_params['num_ydbs']['default']     = 1
 
 	def run(self):
+		log.debug(f'Exp_ycsb.run()')
 		args_d = self.get_args_d()
 
 		for ydb_workload in args_d['ydb_workload_list'].split(' '):
@@ -496,7 +502,7 @@ class Exp_ycsb_at3 (GenericExperiment):
 
 	@classmethod
 	def change_args(cls, load_args):
-		log.debug(f'{cls.__name__}.change_args()')
+		log.debug(f'Exp_ycsb_at3.change_args()')
 		cls.helper_params['ydb_workload_list']['register']  = True
 		cls.helper_params['at_block_size_list']['register'] = True
 		cls.helper_params['at_interval']['register']        = True
@@ -508,6 +514,7 @@ class Exp_ycsb_at3 (GenericExperiment):
 		cls.exp_params['at_params']['default']    = '--flush_blocks=0 --random_ratio=0.5 --wait --direct_io'
 
 	def run(self):
+		log.debug(f'Exp_ycsb_at3.run()')
 		args_d = self.get_args_d()
 
 		args_d['at_script'] = self.get_at3_script(int(args_d['warm_period'])+10, int(args_d['num_at']), int(args_d['at_interval']))
@@ -532,7 +539,7 @@ class Exp_create_dbbench (GenericExperiment):
 
 	@classmethod
 	def change_args(cls, load_args):
-		log.debug(f'{cls.__name__}.change_args()')
+		log.debug(f'Exp_create_dbbench.change_args()')
 		cls.exp_params['duration']['default']      = 60
 		cls.exp_params['warm_period']['default']   = 0
 		cls.exp_params['num_dbs']['default']       = 1
@@ -541,6 +548,7 @@ class Exp_create_dbbench (GenericExperiment):
 		cls.exp_params['rocksdb_config_file']['register'] = True
 
 	def run(self):
+		log.debug(f'Exp_create_dbbench.run()')
 		args_d = self.get_args_d()
 		args_d['num_dbs']   = 1
 		args_d['db_create'] = True
@@ -563,6 +571,7 @@ class Exp_create_dbbench (GenericExperiment):
 			command(f'tar -C "{db}" -cf {backup_file} .')
 
 	def before_run(self, args_d):
+		log.debug(f'Exp_create_dbbench.before_run()')
 		db = args_d['db_path'].split('#')[0]
 
 		log.info('Removing old database directory ...')
@@ -584,12 +593,13 @@ class Exp_dbbench (GenericExperiment):
 
 	@classmethod
 	def change_args(cls, load_args):
-		log.debug(f'{cls.__name__}.change_args()')
+		log.debug(f'Exp_dbbench.change_args()')
 		cls.exp_params['duration']['default']     = 90
 		cls.exp_params['warm_period']['default']  = 30
 		cls.exp_params['num_dbs']['default']      = 1
 
 	def run(self):
+		log.debug(f'Exp_dbbench.run()')
 		args_d = self.get_args_d()
 
 		self.output_filename = f'dbbench_{args_d.get("db_benchmark")}.out'
@@ -608,7 +618,7 @@ class Exp_dbbench_at3 (GenericExperiment):
 
 	@classmethod
 	def change_args(cls, load_args):
-		log.debug(f'{cls.__name__}.change_args()')
+		log.debug(f'Exp_dbbench_at3.change_args()')
 		cls.helper_params['at_block_size_list']['register'] = True
 		cls.helper_params['at_interval']['register']        = True
 
@@ -619,6 +629,7 @@ class Exp_dbbench_at3 (GenericExperiment):
 		cls.exp_params['at_params']['default']    = '--flush_blocks=0 --random_ratio=0.5 --wait --direct_io'
 
 	def run(self):
+		log.debug(f'Exp_dbbench_at3.run()')
 		args_d = self.get_args_d()
 
 		args_d['at_script'] = self.get_at3_script(int(args_d['warm_period'])+10, int(args_d['num_at']), int(args_d['at_interval']))
