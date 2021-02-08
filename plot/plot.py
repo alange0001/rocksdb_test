@@ -43,7 +43,9 @@ class Options:
 	plot_io_norm = False
 	plot_at3_write_ratio = False
 	plot_pressure = False
+	print_pressure_values = False
 	plot_containers_io = True
+	plot_ycsb_lsm_size = True
 	pressure_decreased = True
 	use_at3_counters = True
 	fio_folder = None
@@ -1005,6 +1007,9 @@ class File:
 		Y = [ 0  for i in pd2.values ]
 		ax.plot(X, Y, 'o', label='pressure')
 
+		if self._options.print_pressure_values:
+			print(f'Pressure values: {", ".join([f"w{i}={X[i]:.3f}" for i in range(0,len(X))])}\n')
+
 		ax.set_xlim([min(0, min(X))-0.05, 1.05])
 		ax.set_ylim([-0.02, 0.1])
 		ax.yaxis.set_ticklabels([])
@@ -1092,9 +1097,9 @@ class File:
 				Y1r, Y1w = sum_Y1r, sum_Y1w
 			else:
 				c_name = containers_map['container_names'][i]
-				Y1r = [scale(coalesceDict(x, 'containers',c_name,'blkio.service_bytes/s','Read'), 1024**2) for x in self._data['performancemonitor']]
+				Y1r = [scale(getRecursive(x, 'containers',c_name,'blkio.service_bytes/s','Read'), 1024**2) for x in self._data['performancemonitor']]
 				sum_Y1r += [coalesce(y,0.) for y in Y1r]
-				Y1w = [scale(coalesceDict(x, 'containers',c_name,'blkio.service_bytes/s','Write'), 1024**2) for x in self._data['performancemonitor']]
+				Y1w = [scale(getRecursive(x, 'containers',c_name,'blkio.service_bytes/s','Write'), 1024**2) for x in self._data['performancemonitor']]
 				sum_Y1w += [coalesce(y,0.) for y in Y1w]
 			ax.plot(X, Y1r, '-', lw=1, label=f'MiB read', color=colors[0])
 			ax.plot(X, Y1w, '-.', lw=1, label=f'MiB write', color=colors[1])
@@ -1106,9 +1111,9 @@ class File:
 			if i == (len(axs)-1):
 				Y2r, Y2w = sum_Y2r, sum_Y2w
 			else:
-				Y2r = [coalesceDict(x, 'containers',c_name,'blkio.serviced/s','Read') for x in self._data['performancemonitor']]
+				Y2r = [getRecursive(x, 'containers',c_name,'blkio.serviced/s','Read') for x in self._data['performancemonitor']]
 				sum_Y2r += [coalesce(y,0.) for y in Y2r]
-				Y2w = [coalesceDict(x, 'containers',c_name,'blkio.serviced/s','Write') for x in self._data['performancemonitor']]
+				Y2w = [getRecursive(x, 'containers',c_name,'blkio.serviced/s','Write') for x in self._data['performancemonitor']]
 				sum_Y2w += [coalesce(y,0.) for y in Y2w]
 			ax2.plot(X, Y2r, ':', lw=1, label=f'IO read', color=colors[2])
 			ax2.plot(X, Y2w, ':', lw=1, label=f'IO write', color=colors[3])
@@ -1135,6 +1140,43 @@ class File:
 				fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
 
+	def graph_ycsb_lsm_size(self):
+		ycsb_data = getRecursive(self._data, 'ycsb[0]')
+		if ycsb_data == None:
+			return
+		if getRecursive(ycsb_data, 0, 'socket_report', 'rocksdb.cfstats') == None:
+			return
+
+		fig, axs = plt.subplots(1, 1)
+		fig.set_figheight(6)
+		fig.set_figwidth(9)
+
+		ax = axs
+
+		X = [x['time']/60.0 for x in self._data['ycsb[0]']]
+		l = 0
+		while True:
+			if getRecursive(ycsb_data, 0, 'socket_report', 'rocksdb.cfstats', f'compaction.L{l}.SizeBytes') == None:
+				break
+			Y = [float(coalesce(getRecursive(y, 'socket_report', 'rocksdb.cfstats', f'compaction.L{l}.SizeBytes'), 0))/(1024**2) for y in ycsb_data]
+			ax.plot(X, Y, '-', lw=2, label=f'L{l}')
+			l += 1
+
+		ax.set(title="LSM-tree level sizes")
+		ax.set(xlabel="time (min)")
+		ax.set(ylabel=f"MiB")
+		ax.legend(loc='upper right', ncol=2, frameon=False)
+
+		aux = (X[-1] - X[0]) * 0.01
+		ax.set_xlim([X[0]-aux,X[-1]+aux])
+		self.setXticks(ax)
+
+		if self._options.save:
+			for f in self._options.formats:
+				save_name = '{}_graph_lsm_size.{}'.format(self._filename.replace('.out', ''), f)
+				fig.savefig(save_name, bbox_inches="tight")
+		plt.show()
+
 	def setXticks(self, ax):
 		if self._options.graphTickMajor is not None:
 			ax.xaxis.set_major_locator(MultipleLocator(self._options.graphTickMajor))
@@ -1153,6 +1195,7 @@ class File:
 		if self._options.plot_at3_script: self.graph_at3_script()
 		if self._options.plot_pressure:   self.graph_pressure()
 		if self._options.plot_containers_io: self.graph_containers_io()
+		if self._options.plot_ycsb_lsm_size: self.graph_ycsb_lsm_size()
 
 		## Special case graphs:
 		# exp_at3_rww:
@@ -1235,14 +1278,14 @@ def coalesce(*values):
 			return v;
 	return None
 
-def coalesceDict(dict_v, *names):
-	cur_d = dict_v
-	for n in names:
-		if cur_d.get(n) is not None:
-			cur_d = cur_d.get(n)
-		else:
+def getRecursive(value, *attributes):
+	cur_v = value
+	for i in attributes:
+		try:
+			cur_v = cur_v[i]
+		except:
 			return None
-	return cur_d
+	return cur_v
 
 def scale(value, divisor):
 	if value is not None:
@@ -1482,6 +1525,7 @@ if __name__ == '__main__':
 
 	#plotFiles(getFiles('exp_dbbench/rrwr'), Options(plot_nothing=True, plot_db=True, db_mean_interval=5))
 
+	f = File('exp_db_levels/ycsb_workloada.out', Options(plot_nothing=True, plot_ycsb_lsm_size=True, plot_db=True, db_mean_interval=2)); f.graph_all()
 	#f = File('exp_db_perfmon/ycsb_workloadb,at3_bs512_directio.out', Options(plot_nothing=True, plot_containers_io=True, plot_io=True, plot_db=False, db_mean_interval=2)); f.graph_all()
 	#f = File('exp_db/dbbench_wwr,at3_bs512_directio.out', Options(use_at3_counters=True))
 	#f = File('dbbench_wwr.out', Options(plot_pressure=True, db_mean_interval=2)); f.graph_all()
