@@ -104,7 +104,9 @@ class ArgsWrapper: # single global instance "args"
 			default='',
 			help='Test routines.')
 
-		subparsers = parser.add_subparsers(dest='experiment', title='Experiments available', description='Use "./rocksdb_test_helper <experiment_name> -h" to list the arguments of each experiment.')
+		subparsers = parser.add_subparsers(dest='experiment', title='Experiments available',
+		                                   description='Use "./rocksdb_test_helper <experiment_name> -h" to list ' +
+		                                               'the arguments of each experiment.')
 		for eclass in experiment_list.values():
 			eclass.register_subcommand(subparsers, load_args)
 
@@ -178,8 +180,8 @@ args = ArgsWrapper()
 class GenericExperiment:
 	exp_name = 'generic'
 	parser_args = {
-		'help':"experiment help (override)",
-		'description':'experiment description (override)'
+		'help':        'experiment help (override)',
+		'description': 'experiment description (override)'
 		}
 	arg_groups = ['gen']
 	output_filename = None
@@ -341,7 +343,8 @@ class GenericExperiment:
 		log.info(f'Experiment {args_d.get("experiment")} finished.')
 
 		if coalesce(args_d.get('exit_code'), 0) != 0:
-			log.error(f"rocksdb_test returned error code {args_d.get('exit_code')}. Check output file \"{self.output_filename}\"")
+			log.error(f"rocksdb_test returned error code {args_d.get('exit_code')}. " +
+			          f"Check output file \"{self.output_filename}\"")
 
 		try:
 			if args_d.get('after_run_cmd') is not None:
@@ -409,8 +412,10 @@ class GenericExperiment:
 class ExpCreateYcsb (GenericExperiment):
 	exp_name = 'create_ycsb'
 	parser_args = {
-		'help':"Creates the database used by the experiments with YCSB benchmark.",
-		'description':'This subcommand creates the database used by the experiments with YCSB benchmark. After database creation, it executes <YDB_WORKLOAD> for <DURATION> minutes and then creates a backup into the file <BACKUP_YCSB>, if informed.'
+		'help':        'Creates the database used by the experiments with YCSB benchmark.',
+		'description': 'This subcommand creates the database used by the experiments with YCSB benchmark. ' +
+		               'After database creation, it executes <YDB_WORKLOAD> for <DURATION> minutes and then ' +
+		               'creates a backup into the file <BACKUP_YCSB>, if informed.'
 		}
 	arg_groups = ['gen', 'ydb']
 
@@ -441,7 +446,8 @@ class ExpCreateYcsb (GenericExperiment):
 		super(self.__class__, self).run(args_d)
 
 		if coalesce(args_d.get('exit_code'), 0) != 0:
-			raise Exception(f"Database creation returned error code {args_d.get('exit_code')}. Check output file \"{self.output_filename}\"")
+			raise Exception(f"Database creation returned error code {args_d.get('exit_code')}. " +
+			                f"Check output file \"{self.output_filename}\"")
 
 		self.test_paths(args_d)
 
@@ -467,8 +473,11 @@ experiment_list.register(ExpCreateYcsb)
 class ExpYcsb (GenericExperiment):
 	exp_name = 'ycsb'
 	parser_args = {
-		'help':'Executes the YCSB benchmark.',
-		'description':'This experiment executes <NUM_YDBS> simultaneous instances of the YCSB benchmark for <DURATION> minutes, including <WARM_PERIOD> minutes of warmup. If <BACKUP_YCSB> is informed, it removes the old database directories and restores the backup before the experiment.',
+		'help':        'Executes the YCSB benchmark.',
+		'description': 'This experiment executes <NUM_YDBS> simultaneous instances of the YCSB benchmark ' +
+		               'for <DURATION> minutes, including <WARM_PERIOD> minutes of warmup. ' +
+		               'If <BACKUP_YCSB> is informed, it removes the old database directories and restores the ' +
+		               'backup before the experiment.',
 		}
 	arg_groups = ['gen', 'ydb']
 
@@ -499,8 +508,11 @@ experiment_list.register(ExpYcsb)
 class ExpYcsbAt3 (GenericExperiment):
 	exp_name = 'ycsb_at3'
 	parser_args = {
-		'help':'YCSB benchmark + access_time3.',
-		'description':'This experiment executes, simultaneously, <NUM_YDBS> YCSB and <NUM_AT> access_time3 instances for <DURATION> minutes, including <WARM_PERIOD> minutes of warmup. If <BACKUP_YCSB> is informed, it removes the old database directories and restores the backup before the experiment.',
+		'help':        'YCSB benchmark + access_time3.',
+		'description': 'This experiment executes, simultaneously, <NUM_YDBS> YCSB and <NUM_AT> access_time3 ' +
+		               'instances for <DURATION> minutes, including <WARM_PERIOD> minutes of warmup. ' +
+		               'If <BACKUP_YCSB> is informed, it removes the old database directories and restores the ' +
+		               'backup before the experiment.',
 		}
 	arg_groups = ['gen', 'ydb', 'at3']
 
@@ -521,7 +533,8 @@ class ExpYcsbAt3 (GenericExperiment):
 		log.debug(f'Exp_ycsb_at3.run()')
 		args_d = self.get_args_d()
 
-		args_d['at_script'] = get_at3_script(int(args_d['warm_period'])+10, int(args_d['num_at']), int(args_d['at_interval']))
+		args_d['at_script'] = get_at3_script(int(args_d['warm_period'])+10, int(args_d['num_at']),
+		                                     int(args_d['at_interval']))
 
 		for at_bs in args_d['at_block_size_list'].split(' '):
 			args_d['at_block_size'] = at_bs
@@ -538,8 +551,10 @@ experiment_list.register(ExpYcsbAt3)
 class ExpCreateDbbench (GenericExperiment):
 	exp_name = 'create_dbbench'
 	parser_args = {
-		'help':'Creates the database used by the experiments with db_bench.',
-		'description':'This subcommand creates the database used by the experiments with db_bench. After database creation, it executes <DB_BENCHMARK> for <DURATION> minutes and then creates a backup into the file <BACKUP_DBBENCH>, if informed.',
+		'help':        'Creates the database used by the experiments with db_bench.',
+		'description': 'This subcommand creates the database used by the experiments with db_bench. ' +
+		               'After database creation, it executes <DB_BENCHMARK> for <DURATION> minutes and then ' +
+		               'creates a backup into the file <BACKUP_DBBENCH>, if informed.',
 		}
 	arg_groups = ['gen', 'dbb']
 
@@ -567,7 +582,8 @@ class ExpCreateDbbench (GenericExperiment):
 		super(self.__class__, self).run(args_d)
 
 		if coalesce(args_d.get('exit_code'), 0) != 0:
-			raise Exception(f"Database creation returned error code {args_d.get('exit_code')}. Check output file \"{self.output_filename}\"")
+			raise Exception(f"Database creation returned error code {args_d.get('exit_code')}. " +
+			                f"Check output file \"{self.output_filename}\"")
 
 		self.test_paths(args_d)
 
@@ -594,8 +610,10 @@ experiment_list.register(ExpCreateDbbench)
 class ExpDbbench (GenericExperiment):
 	exp_name = 'dbbench'
 	parser_args = {
-		'help':'Executes the db_bench benchmark.',
-		'description':'This experiment executes <NUM_DBS> simultaneous instances of db_bench for <DURATION> minutes, including <WARM_PERIOD> minutes of warmup. If <BACKUP_DBBENCH> is informed, it also removes the old database directories and restores the backup before the experiment.',
+		'help':        'Executes the db_bench benchmark.',
+		'description': 'This experiment executes <NUM_DBS> simultaneous instances of db_bench for <DURATION> ' +
+		               'minutes, including <WARM_PERIOD> minutes of warmup. If <BACKUP_DBBENCH> is informed, ' +
+		               'it also removes the old database directories and restores the backup before the experiment.',
 		}
 	arg_groups = ['gen', 'dbb']
 
@@ -621,8 +639,11 @@ experiment_list.register(ExpDbbench)
 class ExpDbbenchAt3 (GenericExperiment):
 	exp_name = 'dbbench_at3'
 	parser_args = {
-		'help':'db_bench + access_time3.',
-		'description':'This experiment executes, simultaneously, <NUM_DBS> db_bench and <NUM_AT> access_time3 instances for <DURATION> minutes, including <WARM_PERIOD> minutes of warmup. If <BACKUP_DBBENCH> is informed, it removes the old database directories and restores the backup before the experiment.',
+		'help':        'db_bench + access_time3.',
+		'description': 'This experiment executes, simultaneously, <NUM_DBS> db_bench and <NUM_AT> access_time3 ' +
+		               'instances for <DURATION> minutes, including <WARM_PERIOD> minutes of warmup. ' +
+		               'If <BACKUP_DBBENCH> is informed, it removes the old database directories and restores ' +
+		               'the backup before the experiment.',
 		}
 	arg_groups = ['gen', 'dbb', 'at3']
 
@@ -642,7 +663,8 @@ class ExpDbbenchAt3 (GenericExperiment):
 		log.debug(f'Exp_dbbench_at3.run()')
 		args_d = self.get_args_d()
 
-		args_d['at_script'] = get_at3_script(int(args_d['warm_period'])+10, int(args_d['num_at']), int(args_d['at_interval']))
+		args_d['at_script'] = get_at3_script(int(args_d['warm_period'])+10, int(args_d['num_at']),
+		                                     int(args_d['at_interval']))
 
 		for at_bs in args_d['at_block_size_list'].split(' '):
 			args_d['at_block_size'] = at_bs
@@ -657,8 +679,9 @@ experiment_list.register(ExpDbbenchAt3)
 class ExpCreateAt3 (GenericExperiment):
 	exp_name = 'create_at3'
 	parser_args = {
-		'help':'Creates the data files used by the access_time3 instances.',
-		'description':'This subcommand creates the data files used by the <NUM_AT> access_time3 instances. These files will be stored in <AT_DIR> and have <AT_FILE_SIZE> MiB each.'
+		'help':        'Creates the data files used by the access_time3 instances.',
+		'description': 'This subcommand creates the data files used by the <NUM_AT> access_time3 instances. ' +
+		               'These files will be stored in <AT_DIR> and have <AT_FILE_SIZE> MiB each.'
 		}
 	arg_groups = ['gen', 'at3']
 
@@ -683,13 +706,15 @@ class ExpCreateAt3 (GenericExperiment):
 		args_d = self.get_args_d()
 		args_d['duration'] = 1
 		args_d['warm_period'] = 0
-		args_d['at_params'] = f' --create_file --filesize={args_d.get("at_file_size")} {coalesce(args_d.get("at_params"), "")}'
+		args_d['at_params'] = f' --create_file --filesize={args_d.get("at_file_size")} ' +\
+		                      f'{coalesce(args_d.get("at_params"), "")}'
 		self.output_filename = f'at3_create'
 
 		super(self.__class__, self).run(args_d)
 
 		if coalesce(args_d.get('exit_code'), 0) != 0:
-			raise Exception(f"File creation returned error code {args_d.get('exit_code')}. Check output file \"{self.output_filename}\"")
+			raise Exception(f"File creation returned error code {args_d.get('exit_code')}. " +
+			                f"Check output file \"{self.output_filename}\"")
 
 	def before_run(self, args_d):
 		pass
@@ -902,7 +927,8 @@ def signal_handler(signame, signumber, stack):
 # =============================================================================
 def main() -> int:
 	for i in ('SIGINT', 'SIGTERM'):
-		signal.signal(getattr(signal, i),  lambda signumber, stack, signame=i: signal_handler(signame,  signumber, stack) )
+		signal.signal(getattr(signal, i),
+		              lambda signumber, stack, signame=i: signal_handler(signame,  signumber, stack))
 
 	try:
 		if args.test == '':
@@ -917,7 +943,8 @@ def main() -> int:
 	except Exception as e:
 		if log.level == logging.DEBUG:
 			exc_type, exc_value, exc_traceback = sys.exc_info()
-			sys.stderr.write('main exception:\n' + ''.join(traceback.format_exception(exc_type, exc_value, exc_traceback)) + '\n')
+			sys.stderr.write('main exception:\n' +
+			                 ''.join(traceback.format_exception(exc_type, exc_value, exc_traceback)) + '\n')
 		else:
 			sys.stderr.write(str(e) + '\n')
 		return 1
