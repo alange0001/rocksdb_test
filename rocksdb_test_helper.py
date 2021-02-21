@@ -20,18 +20,22 @@ import json
 import collections
 import re
 
-#=============================================================================
+# =============================================================================
 import logging
 log = logging.getLogger('rocksdb_test_helper')
 log.setLevel(logging.INFO)
 
-#=============================================================================
+
+# =============================================================================
 class ExperimentList (collections.OrderedDict):
 	def register(self, cls):
 		self[cls.exp_name] = cls
+
+
 experiment_list = ExperimentList()
 
-#=============================================================================
+
+# =============================================================================
 class ArgsWrapper: # single global instance "args"
 	def get_args(self):
 		preparser = argparse.ArgumentParser("rocksdb_test helper", add_help=False)
@@ -47,7 +51,7 @@ class ArgsWrapper: # single global instance "args"
 		preargs, remainargv = preparser.parse_known_args()
 
 		log_h = logging.StreamHandler()
-		#log_h.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s: %(message)s'))
+		# log_h.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s: %(message)s'))
 		log_h.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
 		log.addHandler(log_h)
 		log.setLevel(getattr(logging, preargs.log_level.upper()))
@@ -132,6 +136,7 @@ class ArgsWrapper: # single global instance "args"
 		args = self.get_args()
 		return getattr(args, name)
 
+
 def argcheck_bool(args, arg_name, required=False):
 	log.debug(f'argcheck_bool: --{arg_name}, required={required}')
 	value, setf = value_setf(args, arg_name)
@@ -147,6 +152,7 @@ def argcheck_bool(args, arg_name, required=False):
 		setf(False)
 	else:
 		raise ValueError(f'invalid value for boolean argument --{arg_name}="{value}"')
+
 
 def argcheck_path(args, arg_name, required=False, absolute=False, type='file'):
 	log.debug(f'argcheck_path: --{arg_name}, type="{type}", required={required}, absolute={absolute}')
@@ -164,9 +170,11 @@ def argcheck_path(args, arg_name, required=False, absolute=False, type='file'):
 	else:
 		raise ValueError(f'argument --{arg_name}="{value}" is not a directory')
 
+
 args = ArgsWrapper()
 
-#=============================================================================
+
+# =============================================================================
 class GenericExperiment:
 	exp_name = 'generic'
 	parser_args = {
@@ -394,19 +402,9 @@ class GenericExperiment:
 				command(f'mkdir -p "{db}"')
 				command(f'tar -xf "{tarfile}" -C "{db}"')
 
-	def get_at3_script(self, wait, instances, interval):
-		ret = []
-		for i in range(0, instances):
-			jc = wait + i * interval
-			ret_l = f"0:wait;0:write_ratio=0;{jc}m:wait=false"
-			for j in [0.1, 0.2, 0.3, 0.5, 0.7, 1]:
-				jc += interval * instances
-				ret_l += f";{jc}m:write_ratio={j}"
-			ret.append(ret_l)
-		return '#'.join(ret)
 
-#=============================================================================
-class Exp_create_ycsb (GenericExperiment):
+# =============================================================================
+class ExpCreateYcsb (GenericExperiment):
 	exp_name = 'create_ycsb'
 	parser_args = {
 		'help':"Creates the database used by the experiments with YCSB benchmark.",
@@ -422,7 +420,7 @@ class Exp_create_ycsb (GenericExperiment):
 		cls.exp_params['warm_period']['default']  = 0
 		cls.exp_params['num_ydbs']['default']     = 1
 		cls.exp_params['ydb_threads']['default']  = 4
-		cls.exp_params['rocksdb_config_file']['register'] = True;
+		cls.exp_params['rocksdb_config_file']['register'] = True
 		cls.exp_params['rocksdb_config_file']['default']  = get_default_rocksdb_options()
 		cls.exp_params['ydb_workload']['register'] = True
 		cls.exp_params['ydb_workload']['default']  = 'workloada'
@@ -459,10 +457,12 @@ class Exp_create_ycsb (GenericExperiment):
 		log.info(f'Creating database directory {db} ...')
 		command(f'mkdir -p "{db}"')
 
-experiment_list.register( Exp_create_ycsb )
 
-#=============================================================================
-class Exp_ycsb (GenericExperiment):
+experiment_list.register(ExpCreateYcsb)
+
+
+# =============================================================================
+class ExpYcsb (GenericExperiment):
 	exp_name = 'ycsb'
 	parser_args = {
 		'help':'Executes the YCSB benchmark.',
@@ -489,10 +489,12 @@ class Exp_ycsb (GenericExperiment):
 
 			super(self.__class__, self).run(args_d)
 
-experiment_list.register( Exp_ycsb )
 
-#=============================================================================
-class Exp_ycsb_at3 (GenericExperiment):
+experiment_list.register(ExpYcsb)
+
+
+# =============================================================================
+class ExpYcsbAt3 (GenericExperiment):
 	exp_name = 'ycsb_at3'
 	parser_args = {
 		'help':'YCSB benchmark + access_time3.',
@@ -517,7 +519,7 @@ class Exp_ycsb_at3 (GenericExperiment):
 		log.debug(f'Exp_ycsb_at3.run()')
 		args_d = self.get_args_d()
 
-		args_d['at_script'] = self.get_at3_script(int(args_d['warm_period'])+10, int(args_d['num_at']), int(args_d['at_interval']))
+		args_d['at_script'] = get_at3_script(int(args_d['warm_period'])+10, int(args_d['num_at']), int(args_d['at_interval']))
 
 		for at_bs in args_d['at_block_size_list'].split(' '):
 			args_d['at_block_size'] = at_bs
@@ -526,10 +528,12 @@ class Exp_ycsb_at3 (GenericExperiment):
 				self.output_filename = f'ycsb_{ydb_workload},at3_bs{at_bs}_directio.out'
 				super(self.__class__, self).run(args_d)
 
-experiment_list.register( Exp_ycsb_at3 )
 
-#=============================================================================
-class Exp_create_dbbench (GenericExperiment):
+experiment_list.register(ExpYcsbAt3)
+
+
+# =============================================================================
+class ExpCreateDbbench (GenericExperiment):
 	exp_name = 'create_dbbench'
 	parser_args = {
 		'help':'Creates the database used by the experiments with db_bench.',
@@ -580,10 +584,12 @@ class Exp_create_dbbench (GenericExperiment):
 		log.info(f'Creating database directory {db} ...')
 		command(f'mkdir -p "{db}"')
 
-experiment_list.register( Exp_create_dbbench )
 
-#=============================================================================
-class Exp_dbbench (GenericExperiment):
+experiment_list.register(ExpCreateDbbench)
+
+
+# =============================================================================
+class ExpDbbench (GenericExperiment):
 	exp_name = 'dbbench'
 	parser_args = {
 		'help':'Executes the db_bench benchmark.',
@@ -605,10 +611,12 @@ class Exp_dbbench (GenericExperiment):
 		self.output_filename = f'dbbench_{args_d.get("db_benchmark")}.out'
 		super(self.__class__, self).run(args_d)
 
-experiment_list.register( Exp_dbbench )
 
-#=============================================================================
-class Exp_dbbench_at3 (GenericExperiment):
+experiment_list.register(ExpDbbench)
+
+
+# =============================================================================
+class ExpDbbenchAt3 (GenericExperiment):
 	exp_name = 'dbbench_at3'
 	parser_args = {
 		'help':'db_bench + access_time3.',
@@ -632,17 +640,19 @@ class Exp_dbbench_at3 (GenericExperiment):
 		log.debug(f'Exp_dbbench_at3.run()')
 		args_d = self.get_args_d()
 
-		args_d['at_script'] = self.get_at3_script(int(args_d['warm_period'])+10, int(args_d['num_at']), int(args_d['at_interval']))
+		args_d['at_script'] = get_at3_script(int(args_d['warm_period'])+10, int(args_d['num_at']), int(args_d['at_interval']))
 
 		for at_bs in args_d['at_block_size_list'].split(' '):
 			args_d['at_block_size'] = at_bs
 			self.output_filename = f'dbbench_{args_d.get("db_benchmark")},at3_bs{at_bs}_directio.out'
 			super(self.__class__, self).run(args_d)
 
-experiment_list.register( Exp_dbbench_at3 )
 
-#=============================================================================
-class Exp_create_at3 (GenericExperiment):
+experiment_list.register(ExpDbbenchAt3)
+
+
+# =============================================================================
+class ExpCreateAt3 (GenericExperiment):
 	exp_name = 'create_at3'
 	parser_args = {
 		'help':'Creates the data files used by the access_time3 instances.',
@@ -682,9 +692,11 @@ class Exp_create_at3 (GenericExperiment):
 	def before_run(self, args_d):
 		pass
 
-experiment_list.register( Exp_create_at3 )
 
-#=============================================================================
+experiment_list.register(ExpCreateAt3)
+
+
+# =============================================================================
 def command_output(cmd, raise_exception=True):
 	log.debug(f'Executing command: {cmd}')
 	err, out = subprocess.getstatusoutput(cmd)
@@ -695,6 +707,7 @@ def command_output(cmd, raise_exception=True):
 		else:
 			log.error(msg)
 	return out
+
 
 def command(cmd, raise_exception=True, cmd_args=None):
 	if cmd_args is not None:
@@ -728,21 +741,25 @@ def command(cmd, raise_exception=True, cmd_args=None):
 			log.error(msg)
 	return exit_code
 
+
 def test_dir(d):
 	if not os.path.isdir(d):
 		raise Exception(f'directory "{d}" does not exist')
 	return d
+
 
 def test_path(f):
 	if not os.path.exists(f):
 		raise Exception(f'path "{f}" does not exist')
 	return f
 
+
 def coalesce(*args):
 	for v in args:
 		if v is not None:
 			return v
 	return None
+
 
 def coalesce_file(*files, access=os.R_OK):
 	if not isinstance(access, list): access = [access]
@@ -758,12 +775,14 @@ def coalesce_file(*files, access=os.R_OK):
 			return f
 	return None
 
+
 def args_to_dir(args):
 	args_d = collections.OrderedDict()
 	for k in dir(args):
 		if k[0] != '_' and k not in ['test', 'log_level', 'save_args', 'load_args']:
 			args_d[k] = getattr(args, k)
 	return args_d
+
 
 def value_setf(args, arg_name):
 	try:
@@ -776,6 +795,7 @@ def value_setf(args, arg_name):
 		except:
 			raise KeyError(f'failed to get the value of attribute {arg_name}')
 	return value, setf
+
 
 def search_file(name):
 	pwd_path = os.environ.get('PWD')
@@ -808,8 +828,22 @@ def search_file(name):
 		if os.path.isfile(f):
 			log.debug(f'search_file: {f} FOUND')
 			return f
-	except Exception as e: pass
+	finally:
+		pass
 	return None
+
+
+def get_at3_script(wait, instances, interval):
+	ret = []
+	for i in range(0, instances):
+		jc = wait + i * interval
+		ret_l = f"0:wait;0:write_ratio=0;{jc}m:wait=false"
+		for j in [0.1, 0.2, 0.3, 0.5, 0.7, 1]:
+			jc += interval * instances
+			ret_l += f";{jc}m:write_ratio={j}"
+		ret.append(ret_l)
+	return '#'.join(ret)
+
 
 def get_default_rocksdb_options():
 	o = os.environ.get('ROCKSDB_OPTIONS_FILE')
@@ -819,6 +853,7 @@ def get_default_rocksdb_options():
 	log.debug(f'get_default_rocksdb_options: {f}')
 	return f
 
+
 def get_rocksdb_bin():
 	f = coalesce_file(os.environ.get('ROCKSDB_TEST_PATH'), search_file('rocksdb_test'), access=os.X_OK)
 	if f is None:
@@ -826,7 +861,8 @@ def get_rocksdb_bin():
 	log.debug(f'get_rocksdb_bin: {f}')
 	return f
 
-#=============================================================================
+
+# =============================================================================
 class Test:
 	def __init__(self, name):
 		f = getattr(self, name)
@@ -845,7 +881,8 @@ class Test:
 		for k, v in e.items():
 			log.info(f'Env {k:<20} = {v}')
 
-#=============================================================================
+
+# =============================================================================
 def signal_handler(signame, signumber, stack):
 	try:
 		log.warning("signal {} received".format(signame))
@@ -859,25 +896,21 @@ def signal_handler(signame, signumber, stack):
 		sys.stderr.write(f'signal_handler exception2: {str(e)}\n')
 	exit(1)
 
-#=============================================================================
-def main():
-	exp_class = experiment_list.get(args.experiment)
-	if exp_class is not None:
-		exp_class().run()
 
-	return 0
-
-#=============================================================================
-if __name__ == '__main__':
+# =============================================================================
+def main() -> int:
 	for i in ('SIGINT', 'SIGTERM'):
 		signal.signal(getattr(signal, i),  lambda signumber, stack, signame=i: signal_handler(signame,  signumber, stack) )
 
 	try:
 		if args.test == '':
-			exit( main() )
+			exp_class = experiment_list.get(args.experiment)
+			if exp_class is not None:
+				exp_class().run()
+			else:
+				raise Exception(f'experiment {args.experiment} not found')
 		else:
 			Test(args.test)
-			exit(0)
 
 	except Exception as e:
 		if log.level == logging.DEBUG:
@@ -885,4 +918,10 @@ if __name__ == '__main__':
 			sys.stderr.write('main exception:\n' + ''.join(traceback.format_exception(exc_type, exc_value, exc_traceback)) + '\n')
 		else:
 			sys.stderr.write(str(e) + '\n')
-		exit(1)
+		return 1
+	return 0
+
+
+# =============================================================================
+if __name__ == '__main__':
+	exit(main())
