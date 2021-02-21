@@ -312,6 +312,11 @@ class GenericExperiment:
 		cmd += f'	--stats_interval=5  \\\n'
 
 		output_path = coalesce(args_d.get('output_path'), '')
+		if self.output_filename is None:
+			raise Exception('output file not defined')
+		args_d['output_filename'] = f'{args_d["output_prefix"]}{self.output_filename}{args_d["output_suffix"]}.out'
+		args_d['output'] = str(os.path.join(output_path, args_d['output_filename']))
+		log.info(f'rocksdb_test output file              = {args_d["output"]}')
 
 		def_p_func = lambda k, v: f'	--{k}="{args_d[k]}" \\\n'
 		if self.exp_params.get('params') is not None:
@@ -320,14 +325,10 @@ class GenericExperiment:
 		for k, v in self.exp_params.items():
 			arg_v = args_d.get(k)
 			if arg_v is not None:
-				log.info(f'{k:<20} = {arg_v}')
+				log.info(f'rocksdb_test arg {k:<20} = {arg_v}')
 				p_func = coalesce(v.get('p_func'), def_p_func)
 				cmd += p_func(k, v)
 
-		if self.output_filename is None:
-			raise Exception('output file not defined')
-		args_d['output_filename'] = f'{args_d["output_prefix"]}{self.output_filename}{args_d["output_suffix"]}.out'
-		args_d['output'] = str(os.path.join(output_path, args_d['output_filename']))
 		cmd += f' > "{args_d["output"]}"'
 		
 		self.before_run(args_d)
