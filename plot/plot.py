@@ -23,6 +23,7 @@ from matplotlib.ticker import (AutoMinorLocator, MultipleLocator)
 from mpl_toolkits.axes_grid1 import host_subplot
 import pandas as pd
 
+
 class Options:
 	formats = ['png', 'pdf']
 	print_params = False
@@ -43,10 +44,11 @@ class Options:
 	plot_io_norm = False
 	plot_at3_write_ratio = False
 	plot_pressure = False
+	pressure_decreased = True
 	print_pressure_values = False
 	plot_containers_io = True
 	plot_ycsb_lsm_size = True
-	pressure_decreased = True
+	plot_smart_utilization = True
 	use_at3_counters = True
 	fio_folder = None
 	def __init__(self, **kargs):
@@ -95,17 +97,22 @@ class DBClass:
 	def commit(self):
 		self.conn.commit()
 
+
 DB = DBClass()
+
 
 class AllFiles:
 	_options = None
 	_dbmean = None
 	_filename = None
+
 	def __init__(self, filename):
 		self._dbmean = []
 		self._filename = filename
+
 	def setOptions(self, options):
 		self._options = options
+
 	def add_dbmean_data(self, label, X, Y, W_ticks, W_labels):
 		ret = {
 			'label':label,
@@ -115,15 +122,17 @@ class AllFiles:
 			'W_labels':W_labels}
 		self._dbmean.append(ret)
 		return ret
+
 	def set_dblim(self, X, Y):
 		self._xlim = X
 		self._ylim = Y
+
 	def plot_dbmean(self):
 		if len(self._dbmean) == 0:
 			return
 
 		fig = plt.gcf()
-		#fig, ax = plt.subplots()
+		# fig, ax = plt.subplots()
 		ax = host_subplot(111, figure=fig)
 		fig.set_figheight(3)
 		fig.set_figwidth(8)
@@ -160,6 +169,7 @@ class AllFiles:
 				save_name = '{}_graph_db.{}'.format(self._filename.replace('.out', ''), f)
 				fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
+
 
 class File:
 	_filename = None
@@ -1177,6 +1187,40 @@ class File:
 				fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
 
+	def graph_smart_utilization(self):
+		perfmon_data = getRecursive(self._data, 'performancemonitor')
+		if perfmon_data == None:
+			return
+		if getRecursive(perfmon_data, 0, 'smart', 'capacity') == None or getRecursive(perfmon_data, 0, 'smart', 'utilization') == None:
+			return
+
+		fig, axs = plt.subplots(1, 1)
+		fig.set_figheight(4)
+		fig.set_figwidth(9)
+
+		ax = axs
+
+		capacity = float(getRecursive(perfmon_data, 0, 'smart', 'capacity'))
+		X = [x['time']/60.0 for x in perfmon_data]
+		Y = [100. * float(coalesce(getRecursive(y, 'smart', 'utilization'), 0))/capacity for y in perfmon_data]
+		ax.plot(X, Y, '-', lw=2)
+
+		ax.set(title="Flash Pages Utilization")
+		ax.set(xlabel="time (min)")
+		ax.set(ylabel=f"percent")
+		#ax.legend(loc='upper right', ncol=2, frameon=False)
+
+		aux = (X[-1] - X[0]) * 0.01
+		ax.set_xlim([X[0]-aux,X[-1]+aux])
+		self.setXticks(ax)
+		ax.set_ylim([-1, 105])
+
+		if self._options.save:
+			for f in self._options.formats:
+				save_name = '{}_graph_smart_utilization.{}'.format(self._filename.replace('.out', ''), f)
+				fig.savefig(save_name, bbox_inches="tight")
+		plt.show()
+
 	def setXticks(self, ax):
 		if self._options.graphTickMajor is not None:
 			ax.xaxis.set_major_locator(MultipleLocator(self._options.graphTickMajor))
@@ -1196,12 +1240,14 @@ class File:
 		if self._options.plot_pressure:   self.graph_pressure()
 		if self._options.plot_containers_io: self.graph_containers_io()
 		if self._options.plot_ycsb_lsm_size: self.graph_ycsb_lsm_size()
+		if self._options.plot_smart_utilization: self.graph_smart_utilization()
 
 		## Special case graphs:
 		# exp_at3_rww:
 		if self._options.plot_io_norm: self.graph_io_norm()
 		# exp_at3:
 		if self._options.plot_at3_write_ratio: self.graph_at3_write_ratio()
+
 
 def graph_at3_script(filename, num_at3, max_w):
 	fig = plt.gcf()
@@ -1272,11 +1318,13 @@ def graph_at3_script(filename, num_at3, max_w):
 	fig.savefig(save_name, bbox_inches="tight")
 	plt.show()
 
+
 def coalesce(*values):
 	for v in values:
 		if v is not None:
 			return v;
 	return None
+
 
 def getRecursive(value, *attributes):
 	cur_v = value
@@ -1287,13 +1335,16 @@ def getRecursive(value, *attributes):
 			return None
 	return cur_v
 
+
 def scale(value, divisor):
 	if value is not None:
 		return value / divisor
 	return None
 
+
 def scaleList(values, divisor):
 	return [scale(x, divisor) for x in values]
+
 
 def tryConvert(value, *types):
 	for t in types:
@@ -1303,6 +1354,7 @@ def tryConvert(value, *types):
 		except:
 			pass
 	return value
+
 
 def decimalSuffix(value):
 	r = re.findall(r' *([0-9.]+) *([TBMK]) *', value)
@@ -1316,6 +1368,7 @@ def decimalSuffix(value):
 		return number
 	else:
 		raise Exception("invalid number")
+
 
 def binarySuffix(value):
 	r = re.findall(r' *([0-9.]+) *([PTGMKptgmk])i{0,1}[Bb]{0,1} *', value)
@@ -1331,6 +1384,7 @@ def binarySuffix(value):
 	else:
 		raise Exception("invalid number")
 
+
 def getFiles(dirname):
 	try:
 		from natsort import natsorted
@@ -1344,6 +1398,7 @@ def getFiles(dirname):
 			files.append('{}/{}'.format(dirname, fn))
 	return sort_method(files)
 
+
 def plotFiles(filenames, options, allfiles=None):
 	for name in filenames:
 		print(
@@ -1353,6 +1408,7 @@ def plotFiles(filenames, options, allfiles=None):
 		f = File(name, options, allfiles)
 		f.graph_all()
 		del f
+
 
 class FioFiles:
 	_options = None
@@ -1495,6 +1551,7 @@ class FioFiles:
 					fig.savefig(save_name, bbox_inches="tight")
 			plt.show()
 
+
 ##############################################################################
 if __name__ == '__main__':
 	pass
@@ -1525,7 +1582,8 @@ if __name__ == '__main__':
 
 	#plotFiles(getFiles('exp_dbbench/rrwr'), Options(plot_nothing=True, plot_db=True, db_mean_interval=5))
 
-	f = File('exp_db_levels/ycsb_workloada.out', Options(plot_nothing=True, plot_ycsb_lsm_size=True, plot_db=True, db_mean_interval=2)); f.graph_all()
+	#f = File('exp_op/ycsb_workloada,at3_bs4_directio,op17.out', Options(plot_nothing=True, plot_smart_utilization=True, db_mean_interval=2)); f.graph_all()
+	#f = File('exp_db_levels/ycsb_workloada.out', Options(plot_nothing=True, plot_ycsb_lsm_size=True, plot_db=True, db_mean_interval=2)); f.graph_all()
 	#f = File('exp_db_perfmon/ycsb_workloadb,at3_bs512_directio.out', Options(plot_nothing=True, plot_containers_io=True, plot_io=True, plot_db=False, db_mean_interval=2)); f.graph_all()
 	#f = File('exp_db/dbbench_wwr,at3_bs512_directio.out', Options(use_at3_counters=True))
 	#f = File('dbbench_wwr.out', Options(plot_pressure=True, db_mean_interval=2)); f.graph_all()
