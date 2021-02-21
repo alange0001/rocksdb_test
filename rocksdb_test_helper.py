@@ -185,6 +185,8 @@ class GenericExperiment:
 	output_filename = None
 
 	helper_params = collections.OrderedDict([
+		('output_prefix',         {'group':'gen', 'type':str,  'default':'',         'register':True, 'help':'Output prefix.' }),
+		('output_suffix',         {'group':'gen', 'type':str,  'default':'',         'register':True, 'help':'Output suffix.' }),
 		('before_run_cmd',        {'group':'gen', 'type':str,  'default':None,       'register':True, 'help':'Execute this command before running the rocksdb_test.' }),
 		('after_run_cmd',         {'group':'gen', 'type':str,  'default':None,       'register':True, 'help':'Execute this command after running the rocksdb_test.' }),
 		('backup_dbbench',        {'group':'dbb', 'type':str,  'default':None,       'register':True, 'help':'Restore the database backup used by the db_bench instances from this .tar file (don\'t use subdir).' }),
@@ -234,7 +236,7 @@ class GenericExperiment:
 		cls.register_args(parser, load_args)
 		
 	@classmethod
-	def change_args(cls, load_args): #override if necessary
+	def change_args(cls, load_args):  # override if necessary
 		log.debug(f'GenericExperiment.change_args()')
 		
 	@classmethod
@@ -322,8 +324,8 @@ class GenericExperiment:
 
 		if self.output_filename is None:
 			raise Exception('output file not defined')
-		args_d['output_filename'] = self.output_filename
-		args_d['output'] = f'{os.path.join(output_path, self.output_filename)}'
+		args_d['output_filename'] = f'{args_d["output_prefix"]}{self.output_filename}{args_d["output_suffix"]}.out'
+		args_d['output'] = str(os.path.join(output_path, args_d['output_filename']))
 		cmd += f' > "{args_d["output"]}"'
 		
 		self.before_run(args_d)
@@ -430,7 +432,7 @@ class ExpCreateYcsb (GenericExperiment):
 		args_d = self.get_args_d()
 		args_d['num_ydbs'] = 1
 		args_d['ydb_create'] = 'true'
-		self.output_filename = f'ycsb_create.out'
+		self.output_filename = f'ycsb_create'
 
 		backup_file = coalesce(args_d.get('backup_ycsb'), '').strip()
 		if backup_file != '' and os.path.exists(backup_file):
@@ -485,7 +487,7 @@ class ExpYcsb (GenericExperiment):
 
 		for ydb_workload in args_d['ydb_workload_list'].split(' '):
 			args_d['ydb_workload'] = ydb_workload
-			self.output_filename = f'ycsb_{ydb_workload}.out'
+			self.output_filename = f'ycsb_{ydb_workload}'
 
 			super(self.__class__, self).run(args_d)
 
@@ -525,7 +527,7 @@ class ExpYcsbAt3 (GenericExperiment):
 			args_d['at_block_size'] = at_bs
 			for ydb_workload in args_d['ydb_workload_list'].split(' '):
 				args_d['ydb_workload'] = ydb_workload
-				self.output_filename = f'ycsb_{ydb_workload},at3_bs{at_bs}_directio.out'
+				self.output_filename = f'ycsb_{ydb_workload},at3_bs{at_bs}_directio'
 				super(self.__class__, self).run(args_d)
 
 
@@ -556,7 +558,7 @@ class ExpCreateDbbench (GenericExperiment):
 		args_d = self.get_args_d()
 		args_d['num_dbs']   = 1
 		args_d['db_create'] = True
-		self.output_filename = f'dbbench_create.out'
+		self.output_filename = f'dbbench_create'
 
 		backup_file = coalesce(args_d.get('backup_dbbench'), '').strip()
 		if backup_file != '' and os.path.exists(backup_file):
@@ -608,7 +610,7 @@ class ExpDbbench (GenericExperiment):
 		log.debug(f'Exp_dbbench.run()')
 		args_d = self.get_args_d()
 
-		self.output_filename = f'dbbench_{args_d.get("db_benchmark")}.out'
+		self.output_filename = f'dbbench_{args_d.get("db_benchmark")}'
 		super(self.__class__, self).run(args_d)
 
 
@@ -644,7 +646,7 @@ class ExpDbbenchAt3 (GenericExperiment):
 
 		for at_bs in args_d['at_block_size_list'].split(' '):
 			args_d['at_block_size'] = at_bs
-			self.output_filename = f'dbbench_{args_d.get("db_benchmark")},at3_bs{at_bs}_directio.out'
+			self.output_filename = f'dbbench_{args_d.get("db_benchmark")},at3_bs{at_bs}_directio'
 			super(self.__class__, self).run(args_d)
 
 
@@ -682,7 +684,7 @@ class ExpCreateAt3 (GenericExperiment):
 		args_d['duration'] = 1
 		args_d['warm_period'] = 0
 		args_d['at_params'] = f' --create_file --filesize={args_d.get("at_file_size")} {coalesce(args_d.get("at_params"), "")}'
-		self.output_filename = f'at3_create.out'
+		self.output_filename = f'at3_create'
 
 		super(self.__class__, self).run(args_d)
 
