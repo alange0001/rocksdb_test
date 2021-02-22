@@ -187,49 +187,49 @@ class GenericExperiment:
 	output_filename = None
 
 	helper_params = collections.OrderedDict([
-		('output_prefix',         {'group':'gen', 'type':str,  'default':'',         'register':True, 'help':'Output prefix.' }),
-		('output_suffix',         {'group':'gen', 'type':str,  'default':'',         'register':True, 'help':'Output suffix.' }),
-		('before_run_cmd',        {'group':'gen', 'type':str,  'default':None,       'register':True, 'help':'Execute this command before running the rocksdb_test.' }),
-		('after_run_cmd',         {'group':'gen', 'type':str,  'default':None,       'register':True, 'help':'Execute this command after running the rocksdb_test.' }),
-		('backup_dbbench',        {'group':'dbb', 'type':str,  'default':None,       'register':True, 'help':'Restore the database backup used by the db_bench instances from this .tar file (don\'t use subdir).' }),
-		('backup_ycsb',           {'group':'ydb', 'type':str,  'default':None,       'register':True, 'help':'Restore the database backup used by the YCSB instances from this .tar file (don\'t use subdirs).' }),
-		('ydb_workload_list',     {'group':'ydb', 'type':str,  'default':'workloadb','register':False,'help':'List of YCSB workloads (space separated).' }),
-		('at_block_size_list',    {'group':'at3', 'type':str,  'default':'512',      'register':False,'help':'List of block sizes used in the experiments with access_time3 (space separated).' }),
-		('at_interval',           {'group':'at3', 'type':int,  'default':2,          'register':False,'help':'Interval between changes in the access pattern of the access_time3 instances.' }),
-		('at_file_size',          {'group':'at3', 'type':int,  'default':10000,      'register':False,'help':'Interval between changes in the access pattern of the access_time3 instances.' }),
+		('output_prefix',       {'group': 'gen', 'type': str,  'default': '',          'register': True,  'help': 'Output prefix.' }),
+		('output_suffix',       {'group': 'gen', 'type': str,  'default': '',          'register': True,  'help': 'Output suffix.' }),
+		('before_run_cmd',      {'group': 'gen', 'type': str,  'default': None,        'register': True,  'help': 'Execute this command before running the rocksdb_test.' }),
+		('after_run_cmd',       {'group': 'gen', 'type': str,  'default': None,        'register': True,  'help': 'Execute this command after running the rocksdb_test.' }),
+		('backup_dbbench',      {'group': 'dbb', 'type': str,  'default': None,        'register': True,  'help': 'Restore the database backup used by the db_bench instances from this .tar file (don\'t use subdir).' }),
+		('backup_ycsb',         {'group': 'ydb', 'type': str,  'default': None,        'register': True,  'help': 'Restore the database backup used by the YCSB instances from this .tar file (don\'t use subdirs).' }),
+		('ydb_workload_list',   {'group': 'ydb', 'type': str,  'default': 'workloadb', 'register': False, 'help': 'List of YCSB workloads (space separated).' }),
+		('at_block_size_list',  {'group': 'at3', 'type': str,  'default': '512',       'register': False, 'help': 'List of block sizes used in the experiments with access_time3 (space separated).' }),
+		('at_interval',         {'group': 'at3', 'type': int,  'default': 2,           'register': False, 'help': 'Interval between changes in the access pattern of the access_time3 instances.' }),
+		('at_file_size',        {'group': 'at3', 'type': int,  'default': 10000,       'register': False, 'help': 'Interval between changes in the access pattern of the access_time3 instances.' }),
 		])
 
 	exp_params = collections.OrderedDict([
-	#	('docker_image',          {'group':'gen', 'type':str,  'default':None,       'register':True, 'help':'Docker image (optional). Use rocksdb_test\'s default if not informed.' }),
-		('docker_params',         {'group':'gen', 'type':str,  'default':None,       'register':True, 'help':'Additional docker arguments.' }),
-		('duration',              {'group':'gen', 'type':int,  'default':None,       'register':True, 'help':'Duration of the experiment (in minutes).' }),
-		('warm_period',           {'group':'gen', 'type':int,  'default':None,       'register':True, 'help':'Warm period (in minutes).' }),
-		('rocksdb_config_file',   {'group':'gen', 'type':str,  'default':None,       'register':False,'help':'Rocksdb config file used to create the database.' }),
-		('num_dbs',               {'group':'dbb', 'type':int,  'default':0,          'register':True, 'help':'Number of db_bench instances.' }),
-		('db_create',             {'group':'dbb', 'type':str,  'default':'true',     'register':False,'help':None }),
-		('db_num_keys',           {'group':'dbb', 'type':str,  'default':'10000',    'register':True, 'help':'Number of keys used by db_bench (default=10000). Use a greater value for realistic experiments (e.g., 500000000).' }),
-		('db_path',               {'group':'dbb', 'type':str,  'default':None,       'register':False,'help':'One database directory for each instance of db_bench separated by "#". This argument is configured automatically (<DATA_PATH>/rocksdb_0#<DATA_PATH>/rocksdb_1#...).' }),
-		('db_benchmark',          {'group':'dbb', 'type':str,  'default':'readwhilewriting', 'register':True,'help':'db_bench workload (default=readwhilewriting).' }),
-		('db_threads',            {'group':'dbb', 'type':str,  'default':'9',        'register':True, 'help':'Number of threads used by the db_bench workload (default=9).' }),
-	#	('db_cache_size',         {'group':'dbb', 'type':str,  'default':'536870912','register':True, 'help':'Cache size used by db_bench (default=512MiB).' }),
-		('num_ydbs',              {'group':'ydb', 'type':int,  'default':0,          'register':True, 'help':'Number of YCSB instances.' }),
-		('ydb_create',            {'group':'ydb', 'type':str,  'default':None,       'register':False,'help':None }),
-		('ydb_num_keys',          {'group':'ydb', 'type':str,  'default':'10000',    'register':True, 'help':'Number of keys used by YCSB (default=10000). Use a greater value for realistic experiments (e.g., 50000000).' }),
-		('ydb_path',              {'group':'ydb', 'type':str,  'default':None,       'register':False,'help':'One database directory for each instance of YCSB separated by "#". This argument is configured automatically (<DATA_PATH>/rocksdb_ycsb_0#<DATA_PATH>/rocksdb_ycsb_1#...).' }),
-		('ydb_threads',           {'group':'ydb', 'type':str,  'default':'5',        'register':True, 'help':'Number of threads used by YCSB workload (default=5).' }),
-		('ydb_workload',          {'group':'ydb', 'type':str,  'default':None,       'register':False,'help':'YCSB workload (default=workloadb).' }),
-	#	('ydb_sleep',             {'group':'ydb', 'type':str,  'default':'0',        'register':True, 'help':'Sleep before executing each YCSB instance (in minutes, separated by "#").' }),
-	#	('ydb_rocksdb_jni',       {'group':'ydb', 'type':str,  'default':None,       'register':True, 'help':'Rocksdb binding used by YCSB.' }),
-	#	('ydb_socket',            {'group':'ydb', 'type':str,  'default':'0',        'register':True, 'help':'Activates the socket server for RocksDB''s internal statistics. Modified version of YCSB.' }),
-		('num_at',                {'group':'at3', 'type':int,  'default':0,          'register':True, 'help':'Number of access_time3 instances.' }),
-		('at_dir',                {'group':'at3', 'type':str,  'default':None,       'register':False,'help':'Directory containing the files used by the access_time3 instances. By default, this argument is configured automatically (<DATA_PATH>/tmp).' }),
-		('at_file',               {'group':'at3', 'type':str,  'default':None,       'register':False,'help':'Files used by the access_time3 instances (separated by #). Also configured automatically.' }),
-		('at_block_size',         {'group':'at3', 'type':str,  'default':None,       'register':False,'help':'Block size used by the access_time3 instances (default=512).' }),
-		('at_params',             {'group':'at3', 'type':str,  'default':None,       'register':True, 'help':'Extra access_time3 arguments, if necessary.' }),
-		('at_script',             {'group':'at3', 'type':str,  'default':None,       'register':False,'help':'Access_time3 script (separated by "#"). Generated automatically by experiments ycsb_at3 and dbbench_at3.' }),
-	#	('perfmon',               {'group':'gen', 'type':str,  'default':None,       'register':True, 'help':'Connect to performancemonitor.' }),
-	#	('perfmon_port',          {'group':'gen', 'type':int,  'default':None,       'register':True, 'help':'performancemonitor port' }),
-		('params',                {'group':'gen', 'type':str,  'default':None,       'register':True, 'help':'Extra rocksdb_test arguments.' }),
+	#	('docker_image',        {'group': 'gen', 'type': str,  'default': None,         'register':True,  'help': 'Docker image (optional). Use rocksdb_test\'s default if not informed.' }),
+		('docker_params',       {'group': 'gen', 'type': str,  'default': None,         'register':True,  'help': 'Additional docker arguments.' }),
+		('duration',            {'group': 'gen', 'type': int,  'default': None,         'register':True,  'help': 'Duration of the experiment (in minutes).' }),
+		('warm_period',         {'group': 'gen', 'type': int,  'default': None,         'register':True,  'help': 'Warm period (in minutes).' }),
+		('rocksdb_config_file', {'group': 'gen', 'type': str,  'default': None,         'register':False, 'help': 'Rocksdb config file used to create the database.' }),
+		('num_dbs',             {'group': 'dbb', 'type': int,  'default': 0,            'register':True,  'help': 'Number of db_bench instances.' }),
+		('db_create',           {'group': 'dbb', 'type': str,  'default': 'true',       'register':False, 'help': None }),
+		('db_num_keys',         {'group': 'dbb', 'type': str,  'default': '10000',      'register':True,  'help': 'Number of keys used by db_bench (default=10000). Use a greater value for realistic experiments (e.g., 500000000).' }),
+		('db_path',             {'group': 'dbb', 'type': str,  'default': None,         'register':False, 'help': 'One database directory for each instance of db_bench separated by "#". This argument is configured automatically (<DATA_PATH>/rocksdb_0#<DATA_PATH>/rocksdb_1#...).' }),
+		('db_benchmark',        {'group': 'dbb', 'type': str,  'default': 'readwhilewriting', 'register': True, 'help': 'db_bench workload (default=readwhilewriting).' }),
+		('db_threads',          {'group': 'dbb', 'type': str,  'default': '9',          'register':True,  'help': 'Number of threads used by the db_bench workload (default=9).' }),
+	#	('db_cache_size',       {'group': 'dbb', 'type': str,  'default': '536870912',  'register':True,  'help': 'Cache size used by db_bench (default=512MiB).' }),
+		('num_ydbs',            {'group': 'ydb', 'type': int,  'default': 0,            'register':True,  'help': 'Number of YCSB instances.' }),
+		('ydb_create',          {'group': 'ydb', 'type': str,  'default': None,         'register':False, 'help': None }),
+		('ydb_num_keys',        {'group': 'ydb', 'type': str,  'default': '10000',      'register':True,  'help': 'Number of keys used by YCSB (default=10000). Use a greater value for realistic experiments (e.g., 50000000).' }),
+		('ydb_path',            {'group': 'ydb', 'type': str,  'default': None,         'register':False, 'help': 'One database directory for each instance of YCSB separated by "#". This argument is configured automatically (<DATA_PATH>/rocksdb_ycsb_0#<DATA_PATH>/rocksdb_ycsb_1#...).' }),
+		('ydb_threads',         {'group': 'ydb', 'type': str,  'default': '5',          'register':True,  'help': 'Number of threads used by YCSB workload (default=5).' }),
+		('ydb_workload',        {'group': 'ydb', 'type': str,  'default': None,         'register':False, 'help': 'YCSB workload (default=workloadb).' }),
+	#	('ydb_sleep',           {'group': 'ydb', 'type': str,  'default': '0',          'register':True,  'help': 'Sleep before executing each YCSB instance (in minutes, separated by "#").' }),
+	#	('ydb_rocksdb_jni',     {'group': 'ydb', 'type': str,  'default': None,         'register':True,  'help': 'Rocksdb binding used by YCSB.' }),
+	#	('ydb_socket',          {'group': 'ydb', 'type': str,  'default': '0',          'register':True,  'help': 'Activates the socket server for RocksDB''s internal statistics. Modified version of YCSB.' }),
+		('num_at',              {'group': 'at3', 'type': int,  'default': 0,            'register':True,  'help': 'Number of access_time3 instances.' }),
+		('at_dir',              {'group': 'at3', 'type': str,  'default': None,         'register':False, 'help': 'Directory containing the files used by the access_time3 instances. By default, this argument is configured automatically (<DATA_PATH>/tmp).' }),
+		('at_file',             {'group': 'at3', 'type': str,  'default': None,         'register':False, 'help': 'Files used by the access_time3 instances (separated by #). Also configured automatically.' }),
+		('at_block_size',       {'group': 'at3', 'type': str,  'default': None,         'register':False, 'help': 'Block size used by the access_time3 instances (default=512).' }),
+		('at_params',           {'group': 'at3', 'type': str,  'default': None,         'register':True,  'help': 'Extra access_time3 arguments, if necessary.' }),
+		('at_script',           {'group': 'at3', 'type': str,  'default': None,         'register':False, 'help': 'Access_time3 script (separated by "#"). Generated automatically by experiments ycsb_at3 and dbbench_at3.' }),
+	#	('perfmon',             {'group': 'gen', 'type': str,  'default': None,         'register':True,  'help': 'Connect to performancemonitor.' }),
+	#	('perfmon_port',        {'group': 'gen', 'type': int,  'default': None,         'register':True,  'help': 'performancemonitor port' }),
+		('params',              {'group': 'gen', 'type': str,  'default': None,         'register':True,  'help': 'Extra rocksdb_test arguments.' }),
 		])
 
 	@classmethod
@@ -303,12 +303,13 @@ class GenericExperiment:
 
 	def run(self, args_d=None):
 		log.debug(f'GenericExperiment.run()')
+		args_d = coalesce(args_d, self.get_args_d())
+		bin_path = get_rocksdb_bin()
+
 		log.info('')
 		log.info('==========================================')
-		args_d = coalesce( args_d, self.get_args_d() )
 
-		bin_path = get_rocksdb_bin()
-		cmd =  f'{bin_path} \\\n'
+		cmd  = f'{bin_path} \\\n'
 		cmd += f'	--stats_interval=5  \\\n'
 
 		output_path = coalesce(args_d.get('output_path'), '')
