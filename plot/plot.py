@@ -51,6 +51,7 @@ class Options:
 	plot_smart_utilization = True
 	use_at3_counters = True
 	fio_folder = None
+
 	def __init__(self, **kargs):
 		if self.file_start_time is None:
 			self.file_start_time = {}
@@ -64,6 +65,7 @@ class Options:
 				self.__setattr__(k, v)
 			else:
 				raise Exception('Invalid option name: {}'.format(k))
+
 
 class DBClass:
 	conn = sqlite3.connect(':memory:')
@@ -173,18 +175,18 @@ class AllFiles:
 
 class File:
 	_filename = None
-	_options = None
+	_options  = None
 	_allfiles = None
-	_params = None
+	_params   = None
 
 	_stats_interval = None
-	_data = None
-	_dbbench = None
+	_data           = None
+	_dbbench        = None
 
-	_plotdata = None #get data from generated graphs
+	_plotdata = None  # get data from generated graphs
 
-	_file_id = None
-	_num_at = None
+	_file_id      = None
+	_num_at       = None
 	_at_direct_io = None
 
 	def __init__(self, filename, options, allfiles=None):
@@ -197,15 +199,15 @@ class File:
 		self._data = dict()
 		self._dbbench = list()
 		self._plotdata = collections.OrderedDict()
-		self.getDBBenchParams()
-		self.loadData()
+		self.get_dbbench_params()
+		self.load_data()
 
-	def loadData(self):
+	def load_data(self):
 		with open(self._filename) as file:
 			for line in file.readlines():
 				parsed_line = re.findall(r'Args\.([^:]+): *(.+)', line)
 				if len(parsed_line) > 0:
-					self._params[parsed_line[0][0]] = tryConvert(parsed_line[0][1], int, float)
+					self._params[parsed_line[0][0]] = try_convert(parsed_line[0][1], int, float)
 
 				parsed_line = re.findall(r'Task ([^,]+), STATS: (.+)', line)
 				if len(parsed_line) > 0:
@@ -214,13 +216,13 @@ class File:
 						data = json.loads(parsed_line[0][1])
 					except:
 						print("json exception (task {}): {}".format(task, parsed_line[0][1]))
-					#print("Task {}, data: {}".format(task, data))
+					# print("Task {}, data: {}".format(task, data))
 					if self._data.get(task) is None:
 						self._data[task] = []
 					data_dict = collections.OrderedDict()
 					self._data[task].append(data_dict)
 					for k, v in data.items():
-						data_dict[k] = tryConvert(v, int, float, decimalSuffix)
+						data_dict[k] = try_convert(v, int, float, decimal_suffix)
 			for e in self._data.keys(): # delete the 1st data of each task
 				del self._data[e][0]
 
@@ -229,19 +231,19 @@ class File:
 		if self._num_at > 0:
 			self._at_direct_io = (self._params['at_params[0]'].find('--direct_io') >= 0)
 
-	def getDBBenchParams(self):
+	def get_dbbench_params(self):
 		num_dbs = 0
 		cur_db = -1
 		with open(self._filename) as file:
 			for line in file.readlines():
 				if num_dbs == 0:
-					parsed_line = re.findall(r'Args\.num_dbs: *([0-9]+)', line) #number of DBs
+					parsed_line = re.findall(r'Args\.num_dbs: *([0-9]+)', line)  # number of DBs
 					if len(parsed_line) > 0:
 						num_dbs = int(parsed_line[0][0])
 						for i in range(0, num_dbs):
 							self._dbbench.append(collections.OrderedDict())
 					continue
-				parsed_line = re.findall(r'Executing *db_bench\[([0-9]+)\]. *Command:', line) # command of DB [i]
+				parsed_line = re.findall(r'Executing *db_bench\[([0-9]+)\]. *Command:', line)  # command of DB [i]
 				if len(parsed_line) > 0:
 					cur_db = int(parsed_line[0][0])
 					continue
@@ -252,14 +254,14 @@ class File:
 				for l2 in line.split("--"): # parameters
 					parsed_line = re.findall(r'\s*([^=]+)="([^"]+)"', l2)
 					if len(parsed_line) > 0:
-						self._dbbench[cur_db][parsed_line[0][0]] = tryConvert(parsed_line[0][1], int, float)
+						self._dbbench[cur_db][parsed_line[0][0]] = try_convert(parsed_line[0][1], int, float)
 						continue
 					parsed_line = re.findall(r'\s*([^=]+)=([^ ]+)', l2)
 					if len(parsed_line) > 0:
-						self._dbbench[cur_db][parsed_line[0][0]] = tryConvert(parsed_line[0][1], int, float)
+						self._dbbench[cur_db][parsed_line[0][0]] = try_convert(parsed_line[0][1], int, float)
 						continue
 
-	def printParams(self):
+	def print_params(self):
 		print('Params:')
 		for k, v in self._params.items():
 			if k.find('at_script') >= 0 : continue
@@ -289,13 +291,13 @@ class File:
 				DB.query(query.format(**values))
 		DB.commit()
 
-	def savePlotData(self, name, data):
+	def save_plot_data(self, name, data):
 		if self._options.savePlotData:
 			self._plotdata[name] = data
 
-	def countDBs(self):
+	def count_dbs(self):
 		num_dbbench, num_ycsb = 0, 0
-		for i in range(0,1024):
+		for i in range(0, 1024):
 			if self._data.get('db_bench[{}]'.format(i)) is None:
 				break
 			num_dbbench += 1
@@ -306,10 +308,11 @@ class File:
 		return (num_dbbench, num_ycsb)
 
 	_count_at3 = None
-	def countAT3(self):
+
+	def count_at3(self):
 		if self._count_at3 is None:
 			num = 0
-			for i in range(0,1024):
+			for i in range(0, 1024):
 				if self._data.get('access_time3[{}]'.format(i)) is None:
 					break
 				num += 1
@@ -318,8 +321,9 @@ class File:
 
 	_last_at3_time = 0
 	_last_at3_indexes = None
-	def lastAT3(self, time):
-		count_at3 = self.countAT3()
+
+	def last_at3(self, time):
+		count_at3 = self.count_at3()
 		if time < self._last_at3_time or self._last_at3_indexes is None:
 			self._last_at3_indexes = [ 0 for i in range (0, count_at3) ]
 		ret = []
@@ -334,8 +338,8 @@ class File:
 		self._last_at3_time = time
 		return ret
 
-	def lastAT3str(self, time):
-		at3list = self.lastAT3(time)
+	def last_at3_str(self, time):
+		at3list = self.last_at3(time)
 
 		ret = collections.OrderedDict()
 		for i in at3list:
@@ -351,13 +355,13 @@ class File:
 		else:
 			return '|'.join([ f'{v}x{k}' for k, v in ret.items() ])
 
-	def getAT3ticks(self, Xmin, Xmax):
+	def get_at3_ticks(self, Xmin, Xmax):
 		ticks, labels = [], []
-		if self.countAT3() > 0:
+		if self.count_at3() > 0:
 			last_w = ''
 			last_count = 0
 			for i in range(int(Xmin*60), int((Xmax*60)+1)):
-				w = self.lastAT3str(i)
+				w = self.last_at3_str(i)
 				if w != last_w:
 					ticks.append(i/60.0)
 					labels.append(f'$w_{{{last_count}}}$')
@@ -365,9 +369,9 @@ class File:
 					last_w = w
 		return (ticks, labels)
 
-	def addAT3ticks(self, ax, Xmin, Xmax):
-		if self.countAT3() > 0:
-			X2_ticks, X2_labels = self.getAT3ticks(Xmin, Xmax)
+	def add_at3_ticks(self, ax, Xmin, Xmax):
+		if self.count_at3() > 0:
+			X2_ticks, X2_labels = self.get_at3_ticks(Xmin, Xmax)
 			ax2 = ax.twin()
 			ax2.set_xticks(X2_ticks)
 			ax2.set_xticklabels(X2_labels, rotation=90)
@@ -376,7 +380,7 @@ class File:
 			return ax2
 		return None
 
-	def getMean(self, X, Y, interval):
+	def get_mean(self, X, Y, interval):
 		pd1 = pd.DataFrame({
 			'X': [(int(x/interval)*interval)+(interval/2) for x in X],
 			'Y': Y,
@@ -384,7 +388,7 @@ class File:
 		pd2 = pd1.groupby(['X']).agg({'Y':'mean'}).sort_values('X')
 		return list(pd2.index), list(pd2['Y'])
 
-	def cutBegin(self, X, Y, start):
+	def cut_begin(self, X, Y, start):
 		retX, retY = [], []
 		for i in range(len(X)):
 			if X[i] >= start:
@@ -393,7 +397,7 @@ class File:
 		return (retX, retY)
 
 	def graph_db(self):
-		num_dbbench, num_ycsb = self.countDBs()
+		num_dbbench, num_ycsb = self.count_dbs()
 		if num_dbbench == 0 and num_ycsb == 0:
 			return
 
@@ -411,7 +415,7 @@ class File:
 			Y = [i['ops_per_s'] for i in self._data[f'db_bench[{i}]']]
 
 			if self._options.file_start_time is not None and self._options.file_start_time.get(self._filename) is not None:
-				Xplot, Yplot = self.cutBegin(X, Y, self._options.file_start_time.get(self._filename))
+				Xplot, Yplot = self.cut_begin(X, Y, self._options.file_start_time.get(self._filename))
 			else:
 				Xplot, Yplot = X, Y
 			Xmin = min([Xmin, min(Xplot)])
@@ -426,13 +430,13 @@ class File:
 				sine_d = coalesce(self._dbbench[i]['sine_d'], 0)
 				Y = [ sine_a * math.sin(sine_b * x + sine_c) + sine_d for x in X]
 				if self._options.file_start_time is not None and self._options.file_start_time.get(self._filename) is not None:
-					Xplot, Yplot = self.cutBegin(X, Y, self._options.file_start_time.get(self._filename))
+					Xplot, Yplot = self.cut_begin(X, Y, self._options.file_start_time.get(self._filename))
 				else:
 					Xplot, Yplot = X, Y
 				ax.plot(Xplot, Yplot, '-', lw=1, label=f'db_bench (expected)')
 
 			if self._options.db_mean_interval is not None:
-				X, Y = self.getMean(Xplot, Yplot, self._options.db_mean_interval)
+				X, Y = self.get_mean(Xplot, Yplot, self._options.db_mean_interval)
 				ax.plot(X, Y, '-', lw=1, label=f'db_bench mean')
 				if i == 0 and self._allfiles is not None and self._params['num_at'] > 0:
 					allfiles_d = self._allfiles.add_dbmean_data(f"bs{self._params['at_block_size[0]']}", X, Y, None, None)
@@ -446,7 +450,7 @@ class File:
 			X = [i['time']/60.0 for i in self._data[f'ycsb[{i}]']]
 			Y = [i['ops_per_s'] for i in self._data[f'ycsb[{i}]']]
 			if self._options.file_start_time is not None and self._options.file_start_time.get(self._filename) is not None:
-				Xplot, Yplot = self.cutBegin(X, Y, self._options.file_start_time.get(self._filename))
+				Xplot, Yplot = self.cut_begin(X, Y, self._options.file_start_time.get(self._filename))
 			else:
 				Xplot, Yplot = X, Y
 			Xmin = min([Xmin, min(Xplot)])
@@ -455,13 +459,13 @@ class File:
 			ax.plot(Xplot, Yplot, '-', lw=1, label=f'ycsb {i_label}')
 
 			if self._options.db_mean_interval is not None:
-				X, Y = self.getMean(Xplot, Yplot, self._options.db_mean_interval)
+				X, Y = self.get_mean(Xplot, Yplot, self._options.db_mean_interval)
 				ax.plot(X, Y, '-', lw=1, label=f'ycsb {i_label} mean')
 				if i == 0 and self._allfiles is not None and self._params['num_at'] > 0:
 					allfiles_d = self._allfiles.add_dbmean_data(f"bs{self._params['at_block_size[0]']}", X, Y, None, None)
 
 		if not(self._options.file_start_time is not None and self._options.file_start_time.get(self._filename) is not None):
-			X2_ticks, X2_labels = self.getAT3ticks(Xmin, Xmax)
+			X2_ticks, X2_labels = self.get_at3_ticks(Xmin, Xmax)
 			ax2 = ax.twin()
 			ax2.set_xticks(X2_ticks)
 			ax2.set_xticklabels(X2_labels, rotation=90)
@@ -476,7 +480,7 @@ class File:
 		if self._options.db_ylim is not None:
 			ax.set_ylim( self._options.db_ylim )
 
-		self.setXticks(ax)
+		self.set_x_ticks(ax)
 
 		ax.set(xlabel="time (min)", ylabel="tx/s")
 
@@ -544,7 +548,7 @@ class File:
 			aux = (X[-1] - X[0]) * 0.01
 			ax.set_xlim([X[0]-aux,X[-1]+aux])
 
-			self.setXticks(ax)
+			self.set_x_ticks(ax)
 
 		fig.tight_layout()
 
@@ -594,7 +598,7 @@ class File:
 			aux = (X[-1] - X[0]) * 0.01
 			ax.set_xlim([X[0]-aux,X[-1]+aux])
 
-			self.setXticks(ax)
+			self.set_x_ticks(ax)
 
 		fig.tight_layout()
 
@@ -618,13 +622,13 @@ class File:
 		ax.set(ylabel="normalized performance")
 
 		X = [i['time']/60.0 for i in self._data['iostat']]
-		self.savePlotData('io_norm_total_X', X)
+		self.save_plot_data('io_norm_total_X', X)
 		Yr = numpy.array([i['rMB/s']     for i in self._data['iostat']])
 		Yw = numpy.array([i['wMB/s']     for i in self._data['iostat']])
 		Yt = Yr + Yw
-		self.savePlotData('io_norm_total_Y_raw', Yt)
+		self.save_plot_data('io_norm_total_Y_raw', Yt)
 		Yt = Yt / Yt[0]
-		self.savePlotData('io_norm_total_Y', Yt)
+		self.save_plot_data('io_norm_total_Y', Yt)
 		ax.plot(X, Yt, '-', lw=1, label='device', color='blue')
 
 		cur_at = self._data['access_time3[0]']
@@ -639,13 +643,13 @@ class File:
 			Y = Y/Yfirst
 			ax.plot(X, Y, '-', lw=1, label='job0', color='green')
 
-		self.savePlotData('io_norm_job0_X', X)
-		self.savePlotData('io_norm_job0_Y', Y)
+		self.save_plot_data('io_norm_job0_X', X)
+		self.save_plot_data('io_norm_job0_Y', Y)
 
 		aux = (X[-1] - X[0]) * 0.01
 		ax.set_xlim([X[0]-aux,X[-1]+aux])
 
-		self.setXticks(ax)
+		self.set_x_ticks(ax)
 
 		ax.legend(loc='upper right', ncol=3, frameon=True)
 
@@ -696,7 +700,7 @@ class File:
 		aux = (X[-1] - X[0]) * 0.01
 		for ax in axs:
 			ax.set_xlim([X[0]-aux,X[-1]+aux])
-			self.setXticks(ax)
+			self.set_x_ticks(ax)
 
 		axs[0].set_ylim([-5, None])
 		axs[1].set_ylim([-5, 105])
@@ -737,7 +741,7 @@ class File:
 		aux = (X[-1] - X[0]) * 0.01
 		for ax in axs:
 			ax.set_xlim([X[0]-aux,X[-1]+aux])
-			self.setXticks(ax)
+			self.set_x_ticks(ax)
 
 		axs[0].set_ylim([-5, None])
 		axs[1].set_ylim([-5, 105])
@@ -792,7 +796,7 @@ class File:
 			aux = (X[-1] - X[0]) * 0.01
 			ax.set_xlim([X[0]-aux,X[-1]+aux])
 
-			self.setXticks(ax)
+			self.set_x_ticks(ax)
 
 			ax.set(**ax_set)
 			#ax.set_yscale('log')
@@ -849,7 +853,7 @@ class File:
 			ax.set_xlim([X[0]-aux,X[-1]+aux])
 			ax.set_ylim([-0.05,1.08])
 
-			self.setXticks(ax)
+			self.set_x_ticks(ax)
 
 			ax.set(**ax_set)
 			#ax.set_yscale('log')
@@ -858,7 +862,7 @@ class File:
 			#ax.set_position([chartBox.x0, chartBox.y0, chartBox.width*0.75, chartBox.height])
 			#ax.legend(loc='upper center', bbox_to_anchor=(1.25, 1.0), ncol=2, frameon=True)
 
-		self.addAT3ticks(ax0, X[0], X[-1])
+		self.add_at3_ticks(ax0, X[0], X[-1])
 
 		plt.subplots_adjust(hspace=0.1)
 
@@ -920,9 +924,9 @@ class File:
 					fig.savefig(save_name, bbox_inches="tight")
 			plt.show()
 
-	def getPressureData(self):
-		num_dbbench, num_ycsb = self.countDBs()
-		num_at3 = self.countAT3()
+	def get_pressure_data(self):
+		num_dbbench, num_ycsb = self.count_dbs()
+		num_at3 = self.count_at3()
 		if num_dbbench == 0 and num_ycsb == 0: return None
 		if num_at3 == 0: return None
 
@@ -939,7 +943,7 @@ class File:
 			target_data[i['time']] = collections.OrderedDict()
 			target_data[i['time']]['db'] = i
 
-			w = self.lastAT3str(i['time'])
+			w = self.last_at3_str(i['time'])
 			if w != last_w:
 				last_w_counter += 1
 				last_w = w
@@ -960,7 +964,7 @@ class File:
 		return pd1
 
 	def graph_pressure(self):
-		pd = self.getPressureData()
+		pd = self.get_pressure_data()
 		if pd is None: return
 		if self._options.use_at3_counters:
 			pd2 = pd.groupby(['w', 'w_counter']).agg({'ops_per_s':'mean'}).sort_values('w_counter')
@@ -1009,7 +1013,6 @@ class File:
 		ax.set_ylim([0, 1.1*w0])
 		ax2.set_ylim([min(0, min(Y2)), 1.1])
 
-
 		######################################################
 		ax = fig.add_axes([0,0.62,1,0.16])
 
@@ -1044,7 +1047,7 @@ class File:
 				fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
 
-	def getContainerNames(self):
+	def get_container_names(self):
 		perfmon_data = self._data.get('performancemonitor')
 		if perfmon_data is None: return
 
@@ -1057,8 +1060,8 @@ class File:
 					container_names.append(k)
 		return container_names
 
-	def mapContainerNames(self):
-		names = self.getContainerNames()
+	def map_container_names(self):
+		names = self.get_container_names()
 		stats_keys = self._data.keys()
 		#print(f'stats_keys: {stats_keys}')
 
@@ -1083,7 +1086,7 @@ class File:
 		perfmon_data = self._data.get('performancemonitor')
 		if perfmon_data is None: return
 
-		containers_map = self.mapContainerNames()
+		containers_map = self.map_container_names()
 		#print(f'containers_map: {containers_map}')
 		if len(containers_map['container_names']) == 0: return
 		containers_map['container_names'].sort()
@@ -1107,9 +1110,9 @@ class File:
 				Y1r, Y1w = sum_Y1r, sum_Y1w
 			else:
 				c_name = containers_map['container_names'][i]
-				Y1r = [scale(getRecursive(x, 'containers',c_name,'blkio.service_bytes/s','Read'), 1024**2) for x in self._data['performancemonitor']]
+				Y1r = [scale(get_recursive(x, 'containers', c_name, 'blkio.service_bytes/s', 'Read'), 1024 ** 2) for x in self._data['performancemonitor']]
 				sum_Y1r += [coalesce(y,0.) for y in Y1r]
-				Y1w = [scale(getRecursive(x, 'containers',c_name,'blkio.service_bytes/s','Write'), 1024**2) for x in self._data['performancemonitor']]
+				Y1w = [scale(get_recursive(x, 'containers', c_name, 'blkio.service_bytes/s', 'Write'), 1024 ** 2) for x in self._data['performancemonitor']]
 				sum_Y1w += [coalesce(y,0.) for y in Y1w]
 			ax.plot(X, Y1r, '-', lw=1, label=f'MiB read', color=colors[0])
 			ax.plot(X, Y1w, '-.', lw=1, label=f'MiB write', color=colors[1])
@@ -1121,9 +1124,9 @@ class File:
 			if i == (len(axs)-1):
 				Y2r, Y2w = sum_Y2r, sum_Y2w
 			else:
-				Y2r = [getRecursive(x, 'containers',c_name,'blkio.serviced/s','Read') for x in self._data['performancemonitor']]
+				Y2r = [get_recursive(x, 'containers', c_name, 'blkio.serviced/s', 'Read') for x in self._data['performancemonitor']]
 				sum_Y2r += [coalesce(y,0.) for y in Y2r]
-				Y2w = [getRecursive(x, 'containers',c_name,'blkio.serviced/s','Write') for x in self._data['performancemonitor']]
+				Y2w = [get_recursive(x, 'containers', c_name, 'blkio.serviced/s', 'Write') for x in self._data['performancemonitor']]
 				sum_Y2w += [coalesce(y,0.) for y in Y2w]
 			ax2.plot(X, Y2r, ':', lw=1, label=f'IO read', color=colors[2])
 			ax2.plot(X, Y2w, ':', lw=1, label=f'IO write', color=colors[3])
@@ -1139,7 +1142,7 @@ class File:
 		aux = (X[-1] - X[0]) * 0.01
 		for ax in axs:
 			ax.set_xlim([X[0]-aux,X[-1]+aux])
-			self.setXticks(ax)
+			self.set_x_ticks(ax)
 
 		axs[0].set(title="containers I/O")
 		axs[-1].set(xlabel="time (min)")
@@ -1151,10 +1154,10 @@ class File:
 		plt.show()
 
 	def graph_ycsb_lsm_size(self):
-		ycsb_data = getRecursive(self._data, 'ycsb[0]')
+		ycsb_data = get_recursive(self._data, 'ycsb[0]')
 		if ycsb_data == None:
 			return
-		if getRecursive(ycsb_data, 0, 'socket_report', 'rocksdb.cfstats') == None:
+		if get_recursive(ycsb_data, 0, 'socket_report', 'rocksdb.cfstats') == None:
 			return
 
 		fig, axs = plt.subplots(1, 1)
@@ -1166,9 +1169,9 @@ class File:
 		X = [x['time']/60.0 for x in self._data['ycsb[0]']]
 		l = 0
 		while True:
-			if getRecursive(ycsb_data, 0, 'socket_report', 'rocksdb.cfstats', f'compaction.L{l}.SizeBytes') == None:
+			if get_recursive(ycsb_data, 0, 'socket_report', 'rocksdb.cfstats', f'compaction.L{l}.SizeBytes') == None:
 				break
-			Y = [float(coalesce(getRecursive(y, 'socket_report', 'rocksdb.cfstats', f'compaction.L{l}.SizeBytes'), 0))/(1024**2) for y in ycsb_data]
+			Y = [float(coalesce(get_recursive(y, 'socket_report', 'rocksdb.cfstats', f'compaction.L{l}.SizeBytes'), 0)) / (1024 ** 2) for y in ycsb_data]
 			ax.plot(X, Y, '-', lw=2, label=f'L{l}')
 			l += 1
 
@@ -1179,7 +1182,7 @@ class File:
 
 		aux = (X[-1] - X[0]) * 0.01
 		ax.set_xlim([X[0]-aux,X[-1]+aux])
-		self.setXticks(ax)
+		self.set_x_ticks(ax)
 
 		if self._options.save:
 			for f in self._options.formats:
@@ -1188,10 +1191,10 @@ class File:
 		plt.show()
 
 	def graph_smart_utilization(self):
-		perfmon_data = getRecursive(self._data, 'performancemonitor')
+		perfmon_data = get_recursive(self._data, 'performancemonitor')
 		if perfmon_data == None:
 			return
-		if getRecursive(perfmon_data, 0, 'smart', 'capacity') == None or getRecursive(perfmon_data, 0, 'smart', 'utilization') == None:
+		if get_recursive(perfmon_data, 0, 'smart', 'capacity') == None or get_recursive(perfmon_data, 0, 'smart', 'utilization') == None:
 			return
 
 		fig, axs = plt.subplots(1, 1)
@@ -1200,9 +1203,9 @@ class File:
 
 		ax = axs
 
-		capacity = float(getRecursive(perfmon_data, 0, 'smart', 'capacity'))
+		capacity = float(get_recursive(perfmon_data, 0, 'smart', 'capacity'))
 		X = [x['time']/60.0 for x in perfmon_data]
-		Y = [100. * float(coalesce(getRecursive(y, 'smart', 'utilization'), 0))/capacity for y in perfmon_data]
+		Y = [100. * float(coalesce(get_recursive(y, 'smart', 'utilization'), 0)) / capacity for y in perfmon_data]
 		ax.plot(X, Y, '-', lw=2)
 
 		ax.set(title="Flash Pages Utilization")
@@ -1212,7 +1215,7 @@ class File:
 
 		aux = (X[-1] - X[0]) * 0.01
 		ax.set_xlim([X[0]-aux,X[-1]+aux])
-		self.setXticks(ax)
+		self.set_x_ticks(ax)
 		ax.set_ylim([-1, 105])
 
 		if self._options.save:
@@ -1221,7 +1224,7 @@ class File:
 				fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
 
-	def setXticks(self, ax):
+	def set_x_ticks(self, ax):
 		if self._options.graphTickMajor is not None:
 			ax.xaxis.set_major_locator(MultipleLocator(self._options.graphTickMajor))
 			ax.xaxis.set_minor_locator(AutoMinorLocator(self._options.graphTickMinor))
@@ -1230,7 +1233,7 @@ class File:
 
 	def graph_all(self):
 		if self._options.print_params:
-			self.printParams()
+			self.print_params()
 		## Generic Graphs:
 		if self._options.plot_db:         self.graph_db()
 		if self._options.plot_io:         self.graph_io()
@@ -1326,7 +1329,7 @@ def coalesce(*values):
 	return None
 
 
-def getRecursive(value, *attributes):
+def get_recursive(value, *attributes):
 	cur_v = value
 	for i in attributes:
 		try:
@@ -1342,11 +1345,11 @@ def scale(value, divisor):
 	return None
 
 
-def scaleList(values, divisor):
+def scale_list(values, divisor):
 	return [scale(x, divisor) for x in values]
 
 
-def tryConvert(value, *types):
+def try_convert(value, *types):
 	for t in types:
 		try:
 			ret = t(value)
@@ -1356,10 +1359,10 @@ def tryConvert(value, *types):
 	return value
 
 
-def decimalSuffix(value):
+def decimal_suffix(value):
 	r = re.findall(r' *([0-9.]+) *([TBMK]) *', value)
 	if len(r) > 0:
-		number = tryConvert(r[0][0], int, float)
+		number = try_convert(r[0][0], int, float)
 		suffix = r[0][1]
 		if   suffix == "K": number = number * 1000
 		elif suffix == "M": number = number * (1000**2)
@@ -1370,10 +1373,10 @@ def decimalSuffix(value):
 		raise Exception("invalid number")
 
 
-def binarySuffix(value):
+def binary_suffix(value):
 	r = re.findall(r' *([0-9.]+) *([PTGMKptgmk])i{0,1}[Bb]{0,1} *', value)
 	if len(r) > 0:
-		number = tryConvert(r[0][0], int, float)
+		number = try_convert(r[0][0], int, float)
 		suffix = r[0][1]
 		if   suffix.upper() == "K": number = number * 1024
 		elif suffix.upper() == "M": number = number * (1024**2)
@@ -1426,9 +1429,9 @@ class FioFiles:
 
 		self._pd = pd.DataFrame({
 			"rw":           [i['jobs'][0]['job options']['rw']                         for i in self._data],
-			"iodepth":      [tryConvert( i['jobs'][0]['job options']['iodepth'], int)  for i in self._data],
-			"bs":           [binarySuffix( i['jobs'][0]['job options']['bs'])          for i in self._data],
-			"error":        [tryConvert(i['jobs'][0]['error'], bool)                   for i in self._data],
+			"iodepth":      [try_convert(i['jobs'][0]['job options']['iodepth'], int) for i in self._data],
+			"bs":           [binary_suffix(i['jobs'][0]['job options']['bs']) for i in self._data],
+			"error":        [try_convert(i['jobs'][0]['error'], bool) for i in self._data],
 			"bw_min":       [i['jobs'][0]['mixed']['bw_min']                           for i in self._data],
 			"bw_max":       [i['jobs'][0]['mixed']['bw_max']                           for i in self._data],
 			"bw_agg":       [i['jobs'][0]['mixed']['bw_agg']                           for i in self._data],
@@ -1582,7 +1585,7 @@ if __name__ == '__main__':
 
 	#plotFiles(getFiles('exp_dbbench/rrwr'), Options(plot_nothing=True, plot_db=True, db_mean_interval=5))
 
-	#f = File('exp_op/ycsb_workloada,at3_bs4_directio,op17.out', Options(plot_nothing=True, plot_smart_utilization=True, db_mean_interval=2)); f.graph_all()
+	#f = File('exp_now/ycsb_workloadb.out', Options(plot_nothing=True, plot_db=True, plot_smart_utilization=True, db_mean_interval=2)); f.graph_all()
 	#f = File('exp_db_levels/ycsb_workloada.out', Options(plot_nothing=True, plot_ycsb_lsm_size=True, plot_db=True, db_mean_interval=2)); f.graph_all()
 	#f = File('exp_db_perfmon/ycsb_workloadb,at3_bs512_directio.out', Options(plot_nothing=True, plot_containers_io=True, plot_io=True, plot_db=False, db_mean_interval=2)); f.graph_all()
 	#f = File('exp_db/dbbench_wwr,at3_bs512_directio.out', Options(use_at3_counters=True))
