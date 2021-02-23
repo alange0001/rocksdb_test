@@ -1153,36 +1153,42 @@ class File:
 				fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
 
-	def graph_ycsb_lsm_size(self):
+	def graph_ycsb_lsm_size(self) -> None:
 		ycsb_data = get_recursive(self._data, 'ycsb[0]')
-		if ycsb_data == None:
-			return
-		if get_recursive(ycsb_data, 0, 'socket_report', 'rocksdb.cfstats') == None:
+		if ycsb_data == None or get_recursive(ycsb_data, 0, 'socket_report', 'rocksdb.cfstats') == None:
 			return
 
-		fig, axs = plt.subplots(1, 1)
+		l_max = -1
+		while get_recursive(ycsb_data, 0, 'socket_report', 'rocksdb.cfstats', f'compaction.L{l_max +1}.SizeBytes') != None:
+			l_max += 1
+		if l_max < 0:
+			return
+
+		X = [x['time']/60.0 for x in self._data['ycsb[0]']]
+		aux = (X[-1] - X[0]) * 0.01
+
+		fig, axs = plt.subplots(l_max +1, 1)
 		fig.set_figheight(6)
 		fig.set_figwidth(9)
 
-		ax = axs
+		for l in range(0, l_max +1):
+			ax = axs[l]
 
-		X = [x['time']/60.0 for x in self._data['ycsb[0]']]
-		l = 0
-		while True:
-			if get_recursive(ycsb_data, 0, 'socket_report', 'rocksdb.cfstats', f'compaction.L{l}.SizeBytes') == None:
-				break
-			Y = [float(coalesce(get_recursive(y, 'socket_report', 'rocksdb.cfstats', f'compaction.L{l}.SizeBytes'), 0)) / (1024 ** 2) for y in ycsb_data]
-			ax.plot(X, Y, '-', lw=2, label=f'L{l}')
-			l += 1
+			Y = [float(coalesce(get_recursive(y, 'socket_report', 'rocksdb.cfstats', f'compaction.L{l}.SizeBytes'), 0)) / (1024 ** 3) for y in ycsb_data]
+			ax.plot(X, Y, '-', lw=1, label=f'L{l}')
 
-		ax.set(title="LSM-tree level sizes")
-		ax.set(xlabel="time (min)")
-		ax.set(ylabel=f"MiB")
-		ax.legend(loc='upper right', ncol=2, frameon=False)
+			ax.set(ylabel=f"L{l}\nGiB")
+			if ax != axs[-1]:
+				ax.set(xticklabels=[])
 
-		aux = (X[-1] - X[0]) * 0.01
-		ax.set_xlim([X[0]-aux,X[-1]+aux])
-		self.set_x_ticks(ax)
+			#ax.legend(loc='upper right', ncol=1, frameon=False)
+
+			ax.set_xlim([X[0]-aux,X[-1]+aux])
+			ax.set_ylim([-.01, None])
+			self.set_x_ticks(ax)
+
+		axs[0].set(title="LSM-tree level sizes")
+		axs[-1].set(xlabel="time (min)")
 
 		if self._options.save:
 			for f in self._options.formats:
@@ -1198,7 +1204,7 @@ class File:
 			return
 
 		fig, axs = plt.subplots(1, 1)
-		fig.set_figheight(4)
+		fig.set_figheight(3)
 		fig.set_figwidth(9)
 
 		ax = axs
@@ -1585,7 +1591,7 @@ if __name__ == '__main__':
 
 	#plotFiles(getFiles('exp_dbbench/rrwr'), Options(plot_nothing=True, plot_db=True, db_mean_interval=5))
 
-	#f = File('exp_now/ycsb_workloadb.out', Options(plot_nothing=True, plot_db=True, plot_smart_utilization=True, db_mean_interval=2)); f.graph_all()
+	#f = File('exp_now/ycsb_workloadb.out', Options(plot_nothing=True, plot_ycsb_lsm_size=True, db_mean_interval=2)); f.graph_all()
 	#f = File('exp_db_levels/ycsb_workloada.out', Options(plot_nothing=True, plot_ycsb_lsm_size=True, plot_db=True, db_mean_interval=2)); f.graph_all()
 	#f = File('exp_db_perfmon/ycsb_workloadb,at3_bs512_directio.out', Options(plot_nothing=True, plot_containers_io=True, plot_io=True, plot_db=False, db_mean_interval=2)); f.graph_all()
 	#f = File('exp_db/dbbench_wwr,at3_bs512_directio.out', Options(use_at3_counters=True))
