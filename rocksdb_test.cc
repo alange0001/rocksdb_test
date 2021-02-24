@@ -535,19 +535,23 @@ class YCSB : public ExperimentTask {
 			}
 
 			if (args->ydb_socket) {
-				if (socket_client.get() == nullptr) {
-					auto socket_path = (tmpdir->getContainerDir(container_name) / "rocksdb.sock");
-					spdlog::info("initiating socket client: {}", socket_path.string());
-					socket_client.reset(new alutils::Socket(
-							alutils::Socket::tClient,
-							socket_path.string(),
-							[this](alutils::Socket::HandlerData* data)->void{ socket_handler(data);},
-							alutils::Socket::Params{.buffer_size=4096}
-					));
-				}
+				try {
+					if (socket_client.get() == nullptr) {
+						auto socket_path = (tmpdir->getContainerDir(container_name) / "rocksdb.sock");
+						spdlog::info("initiating socket client: {}", socket_path.string());
+						socket_client.reset(new alutils::Socket(
+								alutils::Socket::tClient,
+								socket_path.string(),
+								[this](alutils::Socket::HandlerData* data)->void{ socket_handler(data);},
+								alutils::Socket::Params{.buffer_size=4096}
+						));
+					}
 
-				data2 = get_data_and_clear();
-				socket_client->send_msg("report column_family=usertable output=socket", true);
+					data2 = get_data_and_clear();
+					socket_client->send_msg("report column_family=usertable output=socket", true);
+				} catch (std::exception& e) {
+					spdlog::error("output handler exception from {} (socket client): {}", name, e.what());
+				}
 
 			} else {
 				print();
