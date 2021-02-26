@@ -536,6 +536,10 @@ class YCSB : public ExperimentTask {
 
 			if (args->ydb_socket) {
 				try {
+					if (socket_client.get() != nullptr && !socket_client->isActive()) {
+						spdlog::error("socket client is not active for {}", name);
+						socket_client.reset(nullptr);
+					}
 					if (socket_client.get() == nullptr) {
 						auto socket_path = (tmpdir->getContainerDir(container_name) / "rocksdb.sock");
 						spdlog::info("initiating socket client: {}", socket_path.string());
