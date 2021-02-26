@@ -135,6 +135,7 @@ class DBBench : public ExperimentTask {
 			config = fmt::format("  -v \"{}\":/rocksdb.options \\\n", tmpdir->getFileCopy(args->rocksdb_config_file).c_str());
 		string ret =
 			format("docker run --name=\"{}\" -t --rm                  \\\n", container_name) +
+			format("  --ulimit nofile=1048576:1048576                 \\\n") +
 			format("  --user=\"{}\"                                   \\\n", getuid()) +
 			format("  -v \"{}\":/workdata                             \\\n", args->db_path[number]) +
 			format("  -v {}:/tmp/host                                 \\\n", tmpdir->getContainerDir(container_name).c_str())+
@@ -421,6 +422,7 @@ class YCSB : public ExperimentTask {
 	string get_docker_cmd(uint32_t sleep) {
 		string ret =
 			format("docker run --name=\"{}\" -t --rm                  \\\n", container_name) +
+			format("  --ulimit nofile=1048576:1048576                 \\\n") +
 			format("  --user=\"{}\"                                   \\\n", getuid()) +
 			format("  -v \"{}\":/workdata                             \\\n", args->ydb_path[number]) +
 			format("  -v {}:/tmp/host                                 \\\n", tmpdir->getContainerDir(container_name).c_str());
