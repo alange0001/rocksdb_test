@@ -915,10 +915,10 @@ class Test:
 def signal_handler(signame, signumber, stack):
 	try:
 		log.warning("signal {} received".format(signame))
-		for p in psutil.Process().children(recursive=True):
+		for p in psutil.Process().children(recursive=False):
 			try:
-				log.warning(f'Child process {p.pid} is still running. Kill it.')
-				p.terminate()
+				log.warning(f'Child process {p.pid} is still running. Sending signal {signame}.')
+				p.send_signal(signumber)
 			except Exception as e:
 				sys.stderr.write(f'signal_handler exception1: {str(e)}\n')
 	except Exception as e:

@@ -764,11 +764,7 @@ class PerformanceMonitorClient {
 
 #define ALL_Signals_F( _f ) \
 		_f(SIGTERM) \
-		_f(SIGSEGV) \
-		_f(SIGINT)  \
-		_f(SIGILL)  \
-		_f(SIGABRT) \
-		_f(SIGFPE)
+		_f(SIGINT)
 
 class Program {
 	static Program*   this_;
@@ -916,12 +912,14 @@ class Program {
 			perfmon.reset(nullptr);
 			DEBUG_MSG("destroy tasks end");
 
-			std::this_thread::sleep_for(milliseconds(300));
+			std::this_thread::sleep_for(milliseconds(1000));
 			DEBUG_MSG("kill children begin");
 			auto children = alutils::get_children(getpid());
 			for (auto i: children) {
-				spdlog::warn("child (pid {}) still active. kill it", i);
-				kill(i, SIGTERM);
+				if (i != getpid()) {
+					spdlog::warn("child (pid {}) still active. kill it", i);
+					kill(i, SIGTERM);
+				}
 			}
 			DEBUG_MSG("kill children end");
 
