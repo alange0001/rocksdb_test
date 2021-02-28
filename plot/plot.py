@@ -18,6 +18,7 @@ import re
 import json
 import sqlite3
 import numpy
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.ticker import (AutoMinorLocator, MultipleLocator)
 from mpl_toolkits.axes_grid1 import host_subplot
@@ -1159,8 +1160,13 @@ class File:
 			return
 
 		l_max = -1
-		while get_recursive(ycsb_data, 0, 'socket_report', 'rocksdb.cfstats', f'compaction.L{l_max +1}.SizeBytes') != None:
-			l_max += 1
+		for t_count in range(0, 10):
+			while get_recursive(ycsb_data, t_count, 'socket_report', 'rocksdb.cfstats', f'compaction.L{l_max +1}.SizeBytes') is not None:
+				l_max += 1
+			for i in range(2, 6):
+				if get_recursive(ycsb_data, t_count, 'socket_report', 'rocksdb.cfstats', f'compaction.L{l_max +i}.SizeBytes'):
+					l_max += i
+		# print(f'l_max = {l_max}')
 		if l_max < 0:
 			return
 
@@ -1564,6 +1570,7 @@ class FioFiles:
 ##############################################################################
 if __name__ == '__main__':
 	pass
+	#mpl.use('Qt5Agg')
 	#Options.save = True
 
 	#graph_at3_script('at3_script25.pdf', 4, 25)
@@ -1591,7 +1598,7 @@ if __name__ == '__main__':
 
 	#plotFiles(getFiles('exp_dbbench/rrwr'), Options(plot_nothing=True, plot_db=True, db_mean_interval=5))
 
-	#f = File('exp_now/ycsb_workloadb.out', Options(plot_nothing=True, plot_ycsb_lsm_size=True, db_mean_interval=2)); f.graph_all()
+	f = File('exp_fill_levels/ycsb_workloada,round03.out', Options(plot_nothing=True, plot_ycsb_lsm_size=True, db_mean_interval=2)); f.graph_all()
 	#f = File('exp_db_levels/ycsb_workloada.out', Options(plot_nothing=True, plot_ycsb_lsm_size=True, plot_db=True, db_mean_interval=2)); f.graph_all()
 	#f = File('exp_db_perfmon/ycsb_workloadb,at3_bs512_directio.out', Options(plot_nothing=True, plot_containers_io=True, plot_io=True, plot_db=False, db_mean_interval=2)); f.graph_all()
 	#f = File('exp_db/dbbench_wwr,at3_bs512_directio.out', Options(use_at3_counters=True))
