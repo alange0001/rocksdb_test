@@ -3,6 +3,8 @@
 // LICENSE.GPLv2 file in the root directory) and Apache 2.0 License
 // (found in the LICENSE.Apache file in the root directory).
 
+#include "version.h"
+
 #include <string>
 #include <thread>
 #include <stdexcept>
@@ -336,27 +338,19 @@ class Program {
 		DEBUG_MSG("constructor");
 		Program::this_ = this;
 		std::signal(SIGTERM, Program::signalWrapper);
-		std::signal(SIGSEGV, Program::signalWrapper);
 		std::signal(SIGINT,  Program::signalWrapper);
-		std::signal(SIGILL,  Program::signalWrapper);
-		std::signal(SIGABRT, Program::signalWrapper);
-		std::signal(SIGFPE,  Program::signalWrapper);
 	}
 	~Program() {
 		DEBUG_MSG("destructor");
 		std::signal(SIGTERM, SIG_DFL);
-		std::signal(SIGSEGV, SIG_DFL);
 		std::signal(SIGINT,  SIG_DFL);
-		std::signal(SIGILL,  SIG_DFL);
-		std::signal(SIGABRT, SIG_DFL);
-		std::signal(SIGFPE,  SIG_DFL);
 		Program::this_ = nullptr;
 	}
 
 	int main(int argc, char** argv) noexcept {
 		using namespace std::chrono;
 
-		spdlog::info("Initializing program {}", argv[0]);
+		spdlog::info("Initializing program access_time3 version {}", ROCKSDB_TEST_VERSION);
 		try {
 			args.reset(new Args(argc, argv));
 

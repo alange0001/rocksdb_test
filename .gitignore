@@ -1,2 +1,9 @@
 bazel-*
 vars.bzl
+.cproject
+.idea
+.project
+.settings
+3rd-party
+build
+version.h

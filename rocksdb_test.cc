@@ -3,6 +3,8 @@
 // LICENSE.GPLv2 file in the root directory) and Apache 2.0 License
 // (found in the LICENSE.Apache file in the root directory).
 
+#include "version.h"
+
 #include <string>
 #include <vector>
 #include <queue>
@@ -800,7 +802,7 @@ class Program {
 
 	int main(int argc, char** argv) noexcept {
 		DEBUG_MSG("initialized");
-		spdlog::info("rocksdb_test version: 1.10");
+		spdlog::info("rocksdb_test version: " ROCKSDB_TEST_VERSION);
 		try {
 			args.reset(new Args(argc, argv));
 			clock.reset(new Clock());
@@ -914,7 +916,7 @@ class Program {
 
 			std::this_thread::sleep_for(milliseconds(1000));
 			DEBUG_MSG("kill children begin");
-			auto children = alutils::get_children(getpid());
+			auto children = alutils::get_children(getpid(), true);
 			for (auto i: children) {
 				if (i != getpid()) {
 					spdlog::warn("child (pid {}) still active. kill it", i);
