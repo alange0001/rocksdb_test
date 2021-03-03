@@ -79,9 +79,6 @@ class ArgsWrapper: # single global instance "args"
 			default=None,
 			help='Save arguments to a file (JSON).')
 
-		parser.add_argument('--data_path', type=str,
-			default=load_args.get('data_path'),
-			help='Directory used to store both database and access_time3 files.')
 		parser.add_argument('--output_path', type=str,
 			default=coalesce(load_args.get('output_path'), '.'),
 			help='Output directory of the experiments (default=./).')
@@ -115,7 +112,6 @@ class ArgsWrapper: # single global instance "args"
 
 		argcheck_bool(args, 'confirm_cmd', required=True)
 
-		argcheck_path(args, 'data_path',         required=(args.test == ''),  absolute=True,  type='dir')
 		argcheck_path(args, 'output_path',       required=True,  absolute=False, type='dir')
 		argcheck_path(args, 'rocksdb_test_path', required=False, absolute=True,  type='dir')
 		argcheck_path(args, 'rocksdb_path',      required=False, absolute=True,  type='dir')
@@ -187,6 +183,7 @@ class GenericExperiment:
 	output_filename = None
 
 	helper_params = collections.OrderedDict([
+		('data_path',           {'group': 'gen', 'type': str,  'default': None,        'register': True,  'help': 'Directory used to store both database and access_time3 files.' }),
 		('output_prefix',       {'group': 'gen', 'type': str,  'default': '',          'register': True,  'help': 'Output prefix.' }),
 		('output_suffix',       {'group': 'gen', 'type': str,  'default': '',          'register': True,  'help': 'Output suffix.' }),
 		('before_run_cmd',      {'group': 'gen', 'type': str,  'default': None,        'register': True,  'help': 'Execute this command before running the rocksdb_test.' }),
@@ -222,7 +219,7 @@ class GenericExperiment:
 	#	('ydb_rocksdb_jni',     {'group': 'ydb', 'type': str,  'default': None,         'register':True,  'help': 'Rocksdb binding used by YCSB.' }),
 	#	('ydb_socket',          {'group': 'ydb', 'type': str,  'default': '0',          'register':True,  'help': 'Activates the socket server for RocksDB''s internal statistics. Modified version of YCSB.' }),
 		('num_at',              {'group': 'at3', 'type': int,  'default': 0,            'register':True,  'help': 'Number of access_time3 instances.' }),
-		('at_dir',              {'group': 'at3', 'type': str,  'default': None,         'register':False, 'help': 'Directory containing the files used by the access_time3 instances. By default, this argument is configured automatically (<DATA_PATH>/tmp).' }),
+		('at_dir',              {'group': 'at3', 'type': str,  'default': None,         'register':True,  'help': 'Directory containing the files used by the access_time3 instances. By default, this argument is configured automatically (<DATA_PATH>/tmp).' }),
 		('at_file',             {'group': 'at3', 'type': str,  'default': None,         'register':False, 'help': 'Files used by the access_time3 instances (separated by #). Also configured automatically.' }),
 		('at_block_size',       {'group': 'at3', 'type': str,  'default': None,         'register':False, 'help': 'Block size used by the access_time3 instances (default=512).' }),
 		('at_params',           {'group': 'at3', 'type': str,  'default': None,         'register':True,  'help': 'Extra access_time3 arguments, if necessary.' }),
@@ -280,14 +277,21 @@ class GenericExperiment:
 
 	def process_args_d(self, args_d):
 		log.debug(f'GenericExperiment.process_args_d()')
-		if coalesce(args_d.get('num_dbs'), 0) > 0:
-			args_d['db_path'] = '#'.join([ f'{args_d["data_path"]}/rocksdb_{x}' for x in range(0, args_d['num_dbs']) ])
+		num_dbs  = coalesce(args_d.get('num_dbs'), 0)
+		num_ydbs = coalesce(args_d.get('num_ydbs'), 0)
 
-		if coalesce(args_d.get('num_ydbs'), 0) > 0:
-			args_d['ydb_path'] = '#'.join([ f'{args_d["data_path"]}/rocksdb_ycsb_{x}' for x in range(0, args_d['num_ydbs']) ])
+		if num_dbs > 0 and num_ydbs > 0:
+			if args_d.get('data_path') or not os.path.isdir(args_d.get('data_path')) is None:
+				raise Exception(f'invalid data_path: {args_d.get("data_path")}')
+
+		if num_dbs > 0:
+			args_d['db_path'] = '#'.join([f'{args_d["data_path"]}/rocksdb_{x}' for x in range(0, num_dbs)])
+
+		if num_ydbs > 0:
+			args_d['ydb_path'] = '#'.join([f'{args_d["data_path"]}/rocksdb_ycsb_{x}' for x in range(0, num_ydbs)])
 
 		if coalesce(args_d.get('num_at'), 0) > 0:
-			args_d['at_dir']        = coalesce(args_d.get('at_dir'), f'{args_d["data_path"]}/tmp' )
+			args_d['at_dir']  = coalesce(args_d.get('at_dir'), f'{args_d["data_path"]}/tmp')
 			argcheck_path(args_d, 'at_dir', required=True, absolute=True, type='dir')
 			args_d['at_file'] = '#'.join([ str(x) for x in range(0, args_d['num_at']) ])
 
@@ -698,9 +702,20 @@ class ExpCreateAt3 (GenericExperiment):
 
 	def process_args_d(self, args_d):
 		log.debug(f'Exp_create_at3.process_args_d()')
-		args_d['at_dir'] = coalesce(args_d.get('at_dir'), f'{args_d["data_path"]}/tmp' )
-		if not os.path.isdir(args_d['at_dir']):
-			os.mkdir(args_d['at_dir'])
+
+		if args_d.get('data_path') is None and args_d.get('at_dir') is None:
+			raise Exception('at least one of the following parameters must be defined: data_path and at_dir')
+
+		if args_d.get('at_dir') is not None and not os.path.isdir(args_d.get('at_dir')):
+			raise Exception(f'at_dir is not a valid directory: {args_d.get("at_dir")}')
+
+		if args_d.get('at_dir') is None:
+			if not os.path.isdir(args_d.get('data_path')):
+				raise Exception(f'data_path is not a valid directory: {args_d.get("data_path")}')
+			args_d['at_dir'] = os.path.join(args_d['data_path'], 'tmp')
+			if not os.path.isdir(args_d['at_dir']):
+				os.mkdir(args_d['at_dir'])
+
 		return super(self.__class__, self).process_args_d(args_d)
 
 	def run(self):
