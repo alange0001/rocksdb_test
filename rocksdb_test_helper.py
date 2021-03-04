@@ -19,6 +19,7 @@ import argparse
 import json
 import collections
 import re
+import time
 
 # =============================================================================
 import logging
@@ -495,6 +496,8 @@ class ExpYcsb (GenericExperiment):
 		cls.exp_params['duration']['default']     = 90
 		cls.exp_params['warm_period']['default']  = 30
 		cls.exp_params['num_ydbs']['default']     = 1
+		cls.exp_params['rocksdb_config_file']['register'] = True
+		cls.exp_params['rocksdb_config_file']['default']  = get_default_rocksdb_options()
 
 	def run(self):
 		log.debug(f'Exp_ycsb.run()')
@@ -532,6 +535,8 @@ class ExpYcsbAt3 (GenericExperiment):
 		cls.exp_params['duration']['default']     = 90
 		cls.exp_params['warm_period']['default']  = 30
 		cls.exp_params['num_ydbs']['default']     = 1
+		cls.exp_params['rocksdb_config_file']['register'] = True
+		cls.exp_params['rocksdb_config_file']['default']  = get_default_rocksdb_options()
 		cls.exp_params['num_at']['default']       = 4
 		cls.exp_params['at_params']['default']    = '--flush_blocks=0 --random_ratio=0.5 --wait --direct_io'
 
@@ -928,14 +933,24 @@ class Test:
 
 # =============================================================================
 def signal_handler(signame, signumber, stack):
+	def kill_process(p_):
+		try:
+			log.warning(f'Child process {p_.pid} is still running. Sending signal {signame}.')
+			p_.send_signal(signumber)
+		except Exception as e:
+			sys.stderr.write(f'signal_handler exception1: {str(e)}\n')
+
 	try:
 		log.warning("signal {} received".format(signame))
 		for p in psutil.Process().children(recursive=False):
-			try:
-				log.warning(f'Child process {p.pid} is still running. Sending signal {signame}.')
-				p.send_signal(signumber)
-			except Exception as e:
-				sys.stderr.write(f'signal_handler exception1: {str(e)}\n')
+			kill_process(p)
+		for i in range(0, 10):
+			time.sleep(0.2)
+			if len(psutil.Process().children(recursive=True)) == 0:
+				break
+		for p in psutil.Process().children(recursive=True):
+			kill_process(p)
+
 	except Exception as e:
 		sys.stderr.write(f'signal_handler exception2: {str(e)}\n')
 	exit(1)

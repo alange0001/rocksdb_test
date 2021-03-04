@@ -482,12 +482,15 @@ class YCSB : public ExperimentTask {
 	}
 
 	string get_cmd_run() {
+
 		string cmd = get_docker_cmd(args->ydb_sleep[number]) +
 			format("  ycsb.sh run rocksdb -s                          \\\n") +
 			get_const_params() +
 			format("    -p operationcount={}                          \\\n", 0) +
 			format("    -p status.interval={}                         \\\n", args->stats_interval) +
 			format("    -threads {}                                   \\\n", args->ydb_threads[number]);
+			if (args->rocksdb_config_file.length() > 0) cmd +=
+			format("    -p rocksdb.optionsfile=\"/rocksdb.options\"   \\\n");
 			if (args->ydb_params[number].length() > 0) cmd +=
 			format("    {}                                            \\\n", args->ydb_params[number]);
 			cmd +=
