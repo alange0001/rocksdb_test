@@ -478,6 +478,9 @@ class File:
 
 		if self._options.db_xlim is not None:
 			ax.set_xlim( self._options.db_xlim )
+		else:
+			aux = (Xmax - Xmin) * 0.01
+			ax.set_xlim([Xmin-aux, Xmax+aux])
 		if self._options.db_ylim is not None:
 			ax.set_ylim( self._options.db_ylim )
 
