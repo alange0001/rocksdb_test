@@ -49,6 +49,8 @@ class Options:
 	print_pressure_values = False
 	plot_containers_io = True
 	plot_ycsb_lsm_size = True
+	plot_ycsb_lsm_details = True
+	plot_ycsb_lsm_summary = True
 	plot_smart_utilization = True
 	use_at3_counters = True
 	fio_folder = None
@@ -406,7 +408,7 @@ class File:
 		#fig, ax = plt.subplots()
 		ax = host_subplot(111, figure=fig)
 		fig.set_figheight(3)
-		fig.set_figwidth(8)
+		fig.set_figwidth(9)
 
 		Ymax = -1
 		Xmin, Xmax = 10**10, -10**10
@@ -1157,17 +1159,17 @@ class File:
 				fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
 
-	def graph_ycsb_lsm_size(self) -> None:
+	def graph_ycsb_lsm_generic(self, file_suffix: str, stats_name: str, title: str, y_label: str, y_f) -> None:
 		ycsb_data = get_recursive(self._data, 'ycsb[0]')
 		if ycsb_data == None or get_recursive(ycsb_data, 0, 'socket_report', 'rocksdb.cfstats') == None:
 			return
 
 		l_max = -1
 		for t_count in range(0, 10):
-			while get_recursive(ycsb_data, t_count, 'socket_report', 'rocksdb.cfstats', f'compaction.L{l_max +1}.SizeBytes') is not None:
+			while get_recursive(ycsb_data, t_count, 'socket_report', 'rocksdb.cfstats', f'compaction.L{l_max +1}.{stats_name}') is not None:
 				l_max += 1
 			for i in range(2, 6):
-				if get_recursive(ycsb_data, t_count, 'socket_report', 'rocksdb.cfstats', f'compaction.L{l_max +i}.SizeBytes'):
+				if get_recursive(ycsb_data, t_count, 'socket_report', 'rocksdb.cfstats', f'compaction.L{l_max +i}.{stats_name}'):
 					l_max += i
 		# print(f'l_max = {l_max}')
 		if l_max < 0:
@@ -1183,25 +1185,84 @@ class File:
 		for l in range(0, l_max +1):
 			ax = axs[l]
 
-			Y = [float(coalesce(get_recursive(y, 'socket_report', 'rocksdb.cfstats', f'compaction.L{l}.SizeBytes'), 0)) / (1024 ** 3) for y in ycsb_data]
-			ax.plot(X, Y, '-', lw=1, label=f'L{l}')
+			Y = [y_f(get_recursive(y, 'socket_report', 'rocksdb.cfstats', f'compaction.L{l}.{stats_name}')) for y in ycsb_data]
+			ax.plot(X, Y, '-', lw=1.4, label=f'L{l}')
 
-			ax.set(ylabel=f"L{l}\nGiB")
+			ax.set(ylabel=y_label.format(**locals()))
 			if ax != axs[-1]:
 				ax.set(xticklabels=[])
 
-			#ax.legend(loc='upper right', ncol=1, frameon=False)
-
 			ax.set_xlim([X[0]-aux,X[-1]+aux])
-			ax.set_ylim([-.01, None])
+			ax.set_ylim([-.01, max(Y) * 1.1])
 			self.set_x_ticks(ax)
 
-		axs[0].set(title="LSM-tree level sizes")
+		axs[0].set(title=title)
 		axs[-1].set(xlabel="time (min)")
 
 		if self._options.save:
 			for f in self._options.formats:
-				save_name = '{}_graph_lsm_size.{}'.format(self._filename.replace('.out', ''), f)
+				save_name = f'{self._filename.replace(".out", "")}_graph_lsm_{file_suffix}.{f}'
+				fig.savefig(save_name, bbox_inches="tight")
+		plt.show()
+
+	def graph_ycsb_lsm_size(self) -> None:
+		self.graph_ycsb_lsm_generic(
+			file_suffix='size',
+			stats_name='SizeBytes',
+			title='LSM-tree level sizes',
+			y_label='L{l}\nGiB',
+			y_f=lambda y: float(coalesce(y, 0)) / (1024 ** 3))
+
+	def graph_ycsb_lsm_details(self) -> None:
+		for i in ['CompactedFiles', 'NumFiles', 'ReadMBps', 'Score', 'WriteAmp', 'WriteMBps']:
+			self.graph_ycsb_lsm_generic(
+				file_suffix=i,
+				stats_name=i,
+				title=f'LSM-tree level {i}',
+				y_label=f'L{{l}}',
+				y_f=lambda y: float(coalesce(y, 0)))
+
+	def graph_ycsb_lsm_summary(self) -> None:
+		ycsb_data = get_recursive(self._data, 'ycsb[0]')
+		if ycsb_data == None or get_recursive(ycsb_data, 0, 'socket_report', 'rocksdb.cfstats') == None:
+			return
+
+		X = [x['time']/60.0 for x in self._data['ycsb[0]']]
+		aux = (X[-1] - X[0]) * 0.01
+
+		fig, axs = plt.subplots(2, 1)
+		fig.set_figheight(6)
+		fig.set_figwidth(9)
+
+		ax = axs[0]
+		Y1 = [float(coalesce(get_recursive(y, 'socket_report', 'rocksdb.cfstats', 'compaction.Sum.ReadMBps', 0))) for y in ycsb_data]
+		ax.plot(X, Y1, '-', lw=1.4, label='read')
+		Y2 = [float(coalesce(get_recursive(y, 'socket_report', 'rocksdb.cfstats', 'compaction.Sum.WriteMBps', 0))) for y in ycsb_data]
+		ax.plot(X, Y2, '-', lw=1.4, label='write')
+		ax.set(ylabel='compaction\nMiB/s')
+		ax.set(xticklabels=[])
+		ax.set_ylim([-.01, max([max(Y1), max(Y2)]) * 1.1])
+
+		ax = axs[1]
+		Y1 = [float(coalesce(get_recursive(y, 'socket_report', 'rocksdb.cfstats', 'io_stalls.total_slowdown', 0))) for y in ycsb_data]
+		ax.plot(X, Y1, '-', lw=1.4, label='total slowdown')
+		Y2 = [float(coalesce(get_recursive(y, 'socket_report', 'rocksdb.cfstats', 'io_stalls.total_stop', 0))) for y in ycsb_data]
+		ax.plot(X, Y2, '-', lw=1.4, label='total stop')
+		ax.set(ylabel='iostalls')
+		#ax.set(xticklabels=[])
+		ax.set_ylim([-.01, max([max(Y1), max(Y2)]) * 1.1])
+
+		for ax in axs:
+			ax.set_xlim([X[0]-aux,X[-1]+aux])
+			self.set_x_ticks(ax)
+			ax.legend(loc='best', ncol=1, frameon=False)
+
+		axs[0].set(title='LSM-tree stats summary')
+		axs[-1].set(xlabel="time (min)")
+
+		if self._options.save:
+			for f in self._options.formats:
+				save_name = f'{self._filename.replace(".out", "")}_graph_lsm_summary.{f}'
 				fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
 
@@ -1250,14 +1311,16 @@ class File:
 		if self._options.print_params:
 			self.print_params()
 		## Generic Graphs:
-		if self._options.plot_db:         self.graph_db()
-		if self._options.plot_io:         self.graph_io()
-		if self._options.plot_cpu:        self.graph_cpu()
-		if self._options.plot_at3:        self.graph_at3()
-		if self._options.plot_at3_script: self.graph_at3_script()
-		if self._options.plot_pressure:   self.graph_pressure()
-		if self._options.plot_containers_io: self.graph_containers_io()
-		if self._options.plot_ycsb_lsm_size: self.graph_ycsb_lsm_size()
+		if self._options.plot_db:                self.graph_db()
+		if self._options.plot_io:                self.graph_io()
+		if self._options.plot_cpu:               self.graph_cpu()
+		if self._options.plot_at3:               self.graph_at3()
+		if self._options.plot_at3_script:        self.graph_at3_script()
+		if self._options.plot_pressure:          self.graph_pressure()
+		if self._options.plot_containers_io:     self.graph_containers_io()
+		if self._options.plot_ycsb_lsm_size:     self.graph_ycsb_lsm_size()
+		if self._options.plot_ycsb_lsm_details:  self.graph_ycsb_lsm_details()
+		if self._options.plot_ycsb_lsm_summary:  self.graph_ycsb_lsm_summary()
 		if self._options.plot_smart_utilization: self.graph_smart_utilization()
 
 		## Special case graphs:
@@ -1601,7 +1664,7 @@ if __name__ == '__main__':
 
 	#plotFiles(getFiles('exp_dbbench/rrwr'), Options(plot_nothing=True, plot_db=True, db_mean_interval=5))
 
-	f = File('exp_fill_levels/ycsb_workloada,round03.out', Options(plot_nothing=True, plot_ycsb_lsm_size=True, db_mean_interval=2)); f.graph_all()
+	#f = File('exp_fill_levels/ycsb_workloada,round03.out', Options(plot_nothing=True, plot_ycsb_lsm_size=True, db_mean_interval=2)); f.graph_all()
 	#f = File('exp_db_levels/ycsb_workloada.out', Options(plot_nothing=True, plot_ycsb_lsm_size=True, plot_db=True, db_mean_interval=2)); f.graph_all()
 	#f = File('exp_db_perfmon/ycsb_workloadb,at3_bs512_directio.out', Options(plot_nothing=True, plot_containers_io=True, plot_io=True, plot_db=False, db_mean_interval=2)); f.graph_all()
 	#f = File('exp_db/dbbench_wwr,at3_bs512_directio.out', Options(use_at3_counters=True))
