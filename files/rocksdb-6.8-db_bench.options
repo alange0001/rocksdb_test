@@ -9,6 +9,8 @@
   options_file_version=1.1
 
 [DBOptions]
+  WAL_size_limit_MB=0
+  WAL_ttl_seconds=0
   access_hint_on_compaction_start=NORMAL
   advise_random_on_open=true
   allow_2pc=false
@@ -75,8 +77,6 @@
   use_fsync=false
   wal_bytes_per_sync=0
   wal_recovery_mode=kPointInTimeRecovery
-  WAL_size_limit_MB=0
-  WAL_ttl_seconds=0
   writable_file_max_buffer_size=1048576
   write_dbid_to_manifest=false
   write_thread_max_yield_usec=100
@@ -87,8 +87,8 @@
   arena_block_size=16777216
   bloom_locality=0
   bottommost_compression=kDisableCompressionOption
-  compaction_filter_factory=nullptr
   compaction_filter=nullptr
+  compaction_filter_factory=nullptr
   compaction_options_fifo={allow_compaction=true;max_table_files_size=0;}
   compaction_options_universal={stop_style=kCompactionStopStyleTotalSize;compression_size_percent=-1;allow_trivial_move=false;max_merge_width=4294967295;max_size_amplification_percent=200;min_merge_width=2;size_ratio=1;}
   compaction_pri=kMinOverlappingRatio
@@ -136,29 +136,29 @@
   write_buffer_size=134217728
   
 [TableOptions/BlockBasedTable "default"]
-  pin_top_level_index_and_filter=false
-  enable_index_compression=true
-  read_amp_bytes_per_bit=8589934592
-  format_version=2
   block_align=false
-  metadata_block_size=4096
-  block_size_deviation=10
-  partition_filters=false
-  block_size=8192
-  index_block_restart_interval=1
-  no_block_cache=false
-  checksum=kCRC32c
-  whole_key_filtering=true
-  index_shortening=kShortenSeparators
-  data_block_index_type=kDataBlockBinarySearch
-  index_type=kBinarySearch
-  verify_compression=false
-  filter_policy=rocksdb.BuiltinBloomFilter
-  data_block_hash_table_util_ratio=0.750000
-  pin_l0_filter_and_index_blocks_in_cache=true
   block_restart_interval=16
-  cache_index_and_filter_blocks_with_high_priority=true
+  block_size=8192
+  block_size_deviation=10
   cache_index_and_filter_blocks=false
-  hash_index_allow_collision=true
+  cache_index_and_filter_blocks_with_high_priority=true
+  checksum=kCRC32c
+  data_block_hash_table_util_ratio=0.750000
+  data_block_index_type=kDataBlockBinarySearch
+  enable_index_compression=true
+  filter_policy=rocksdb.BuiltinBloomFilter
   flush_block_policy_factory=FlushBlockBySizePolicyFactory
+  format_version=2
+  hash_index_allow_collision=true
+  index_block_restart_interval=1
+  index_shortening=kShortenSeparators
+  index_type=kBinarySearch
+  metadata_block_size=4096
+  no_block_cache=false
+  partition_filters=false
+  pin_l0_filter_and_index_blocks_in_cache=true
+  pin_top_level_index_and_filter=false
+  read_amp_bytes_per_bit=8589934592
+  verify_compression=false
+  whole_key_filtering=true
   
