@@ -1466,7 +1466,7 @@ def binary_suffix(value):
 		raise Exception("invalid number")
 
 
-def getFiles(dirname):
+def getFiles(dirname: str, str_filter: str = None, lambda_filter=None) -> list:
 	try:
 		from natsort import natsorted
 		sort_method = natsorted
@@ -1476,7 +1476,14 @@ def getFiles(dirname):
 	files = []
 	for fn in os.listdir(dirname):
 		if re.search(r'\.out$', fn) is not None:
-			files.append('{}/{}'.format(dirname, fn))
+			str_filter_found = True
+			if str_filter is not None and fn.find(str_filter) == -1:
+				str_filter_found = False
+			lambda_filter_found = True
+			if lambda_filter is not None and not lambda_filter(fn):
+				lambda_filter_found = False
+			if str_filter_found and lambda_filter_found:
+				files.append(f'{dirname}/{fn}')
 	return sort_method(files)
 
 
