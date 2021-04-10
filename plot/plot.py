@@ -205,8 +205,38 @@ class File:
 		self.get_dbbench_params()
 		self.load_data()
 
+	@classmethod
+	def decompose_filename(cls, filename: str) -> list:
+		r = re.findall(r'(.*)(\.out)(\.gz|\.lzma|\.xz)?$', filename)
+		if len(r) > 0:
+			return list(r[0])
+		return []
+
+	@classmethod
+	def accept_file(cls, filename: str) -> bool:
+		return len(cls.decompose_filename(filename)) > 0
+
+	def open_file(self):
+		d = self.__class__.decompose_filename(self._filename)
+		if len(d) > 2 and d[2] == '.gz':
+			import gzip
+			return gzip.open(self._filename, 'rt')
+		if len(d) > 2 and d[2] in ['.lzma', '.xz']:
+			import lzma
+			return lzma.open(self._filename, 'rt')
+		return open(self._filename, 'rt')
+
+	_filename_without_ext_cache = None
+
+	@property
+	def _filename_without_ext(self) -> str:
+		if self._filename_without_ext_cache is None:
+			d = self.__class__.decompose_filename(self._filename)
+			self._filename_without_ext_cache = d[0] if len(d) > 0 else self._filename
+		return self._filename_without_ext_cache
+
 	def load_data(self):
-		with open(self._filename) as file:
+		with self.open_file() as file:
 			for line in file.readlines():
 				parsed_line = re.findall(r'Args\.([^:]+): *(.+)', line)
 				if len(parsed_line) > 0:
@@ -237,7 +267,7 @@ class File:
 	def get_dbbench_params(self):
 		num_dbs = 0
 		cur_db = -1
-		with open(self._filename) as file:
+		with self.open_file() as file:
 			for line in file.readlines():
 				if num_dbs == 0:
 					parsed_line = re.findall(r'Args\.num_dbs: *([0-9]+)', line)  # number of DBs
@@ -497,7 +527,7 @@ class File:
 
 		if self._options.save:
 			for f in self._options.formats:
-				save_name = '{}_graph_db.{}'.format(self._filename.replace('.out', ''), f)
+				save_name = f'{self._filename_without_ext}_graph_db.{f}'
 				fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
 
@@ -560,7 +590,7 @@ class File:
 
 		if self._options.save:
 			for f in self._options.formats:
-				save_name = '{}_graph_io.{}'.format(self._filename.replace('.out', ''), f)
+				save_name = f'{self._filename_without_ext}_graph_io.{f}'
 				fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
 
@@ -610,7 +640,7 @@ class File:
 
 		if self._options.save:
 			for f in self._options.formats:
-				save_name = '{}_graph_io.{}'.format(self._filename.replace('.out', ''), f)
+				save_name = f'{self._filename_without_ext}_graph_io.{f}'
 				fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
 
@@ -667,7 +697,7 @@ class File:
 
 		if self._options.save:
 			for f in self._options.formats:
-				save_name = '{}_graph_io_norm.{}'.format(self._filename.replace('.out', ''), f)
+				save_name = f'{self._filename_without_ext}_graph_io_norm.{f}'
 				fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
 
@@ -717,7 +747,7 @@ class File:
 
 		if self._options.save:
 			for f in self._options.formats:
-				save_name = '{}_graph_cpu.{}'.format(self._filename.replace('.out', ''), f)
+				save_name = f'{self._filename_without_ext}_graph_cpu.{f}'
 				fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
 
@@ -762,7 +792,7 @@ class File:
 
 		if self._options.save:
 			for f in self._options.formats:
-				save_name = '{}_graph_cpu.{}'.format(self._filename.replace('.out', ''), f)
+				save_name = f'{self._filename_without_ext}_graph_cpu.{f}'
 				fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
 
@@ -815,7 +845,7 @@ class File:
 
 		if self._options.save:
 			for f in self._options.formats:
-				save_name = '{}_graph_at3.{}'.format(self._filename.replace('.out', ''), f)
+				save_name = f'{self._filename_without_ext}_graph_at3.{f}'
 				fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
 
@@ -874,7 +904,7 @@ class File:
 
 		if self._options.save:
 			for f in self._options.formats:
-				save_name = '{}_graph_at3_script.{}'.format(self._filename.replace('.out', ''), f)
+				save_name = f'{self._filename_without_ext}_graph_at3_script.{f}'
 				fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
 
@@ -926,7 +956,7 @@ class File:
 
 			if self._options.save:
 				for f in self._options.formats:
-					save_name = '{}-at3_bs{}.{}'.format(self._filename.replace('.out', ''), bs, f)
+					save_name = f'{self._filename_without_ext}-at3_bs{bs}.{f}'
 					fig.savefig(save_name, bbox_inches="tight")
 			plt.show()
 
@@ -1049,7 +1079,7 @@ class File:
 
 		if self._options.save:
 			for f in self._options.formats:
-				save_name = '{}-pressure.{}'.format(self._filename.replace('.out', ''), f)
+				save_name = f'{self._filename_without_ext}-pressure.{f}'
 				fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
 
@@ -1155,7 +1185,7 @@ class File:
 
 		if self._options.save:
 			for f in self._options.formats:
-				save_name = '{}_graph_containers_io.{}'.format(self._filename.replace('.out', ''), f)
+				save_name = f'{self._filename_without_ext}_graph_containers_io.{f}'
 				fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
 
@@ -1201,7 +1231,7 @@ class File:
 
 		if self._options.save:
 			for f in self._options.formats:
-				save_name = f'{self._filename.replace(".out", "")}_graph_lsm_{file_suffix}.{f}'
+				save_name = f'{self._filename_without_ext}_graph_lsm_{file_suffix}.{f}'
 				fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
 
@@ -1262,7 +1292,7 @@ class File:
 
 		if self._options.save:
 			for f in self._options.formats:
-				save_name = f'{self._filename.replace(".out", "")}_graph_lsm_summary.{f}'
+				save_name = f'{self._filename_without_ext}_graph_lsm_summary.{f}'
 				fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
 
@@ -1296,7 +1326,7 @@ class File:
 
 		if self._options.save:
 			for f in self._options.formats:
-				save_name = '{}_graph_smart_utilization.{}'.format(self._filename.replace('.out', ''), f)
+				save_name = f'{self._filename_without_ext}_graph_smart_utilization.{f}'
 				fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
 
@@ -1475,7 +1505,7 @@ def getFiles(dirname: str, str_filter: str = None, lambda_filter=None) -> list:
 		sort_method = sorted
 	files = []
 	for fn in os.listdir(dirname):
-		if re.search(r'\.out$', fn) is not None:
+		if File.accept_file(fn):
 			str_filter_found = True
 			if str_filter is not None and fn.find(str_filter) == -1:
 				str_filter_found = False
