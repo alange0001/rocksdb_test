@@ -189,8 +189,8 @@ class AllFiles:
 
 	def add_pressure_data(self, line_label: str, x: list, x_labels: list) -> None:
 		if self._pressure_data is None:
-			self._pressure_data = collections.OrderedDict()
-		self._pressure_data[line_label] = (x, x_labels)
+			self._pressure_data = []
+		self._pressure_data.append( (line_label, x, x_labels) )
 
 	def graph_pressure(self) -> None:
 		if self._pressure_data is None:
@@ -206,10 +206,11 @@ class AllFiles:
 		Y_labels = []
 		Y_ticks = []
 		i_ax = 0
-		for line_label, data in self._pressure_data.items():
+		for data in self._pressure_data:
+			line_label = data[0]
+			X = data[1]
+			X_labels = data[2]
 			Y_labels.append(line_label)
-			X = data[0]
-			X_labels = data[1]
 
 			for i in range(len(X)):
 				ax.annotate(f'{X_labels[i]}', xy=(X[i], i_ax), xytext=(X[i] - 0.007, i_ax + 0.2), rotation=90)
