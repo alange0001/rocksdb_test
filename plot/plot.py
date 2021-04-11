@@ -54,6 +54,8 @@ class Options:
 	plot_smart_utilization = True
 	use_at3_counters = True
 	fio_folder = None
+	plot_all_dbmean = True
+	plot_all_pressure = True
 
 	def __init__(self, **kargs):
 		if self.file_start_time is None:
@@ -111,12 +113,20 @@ class AllFiles:
 	_dbmean = None
 	_filename = None
 
-	def __init__(self, filename):
+	def __init__(self, filename, options=None):
 		self._dbmean = []
+		self._options = options
 		self._filename = filename
 
-	def setOptions(self, options):
-		self._options = options
+	def check_options(self, options):
+		if self._options is None:
+			self._options = options
+
+	def graph_all(self):
+		if self._options.plot_all_dbmean:
+			self.graph_dbmean()
+		if self._options.plot_all_pressure:
+			self.graph_pressure()
 
 	def add_dbmean_data(self, label, X, Y, W_ticks, W_labels):
 		ret = {
@@ -132,7 +142,7 @@ class AllFiles:
 		self._xlim = X
 		self._ylim = Y
 
-	def plot_dbmean(self):
+	def graph_dbmean(self):
 		if len(self._dbmean) == 0:
 			return
 
@@ -171,7 +181,58 @@ class AllFiles:
 
 		if self._options.save:
 			for f in self._options.formats:
-				save_name = '{}_graph_db.{}'.format(self._filename.replace('.out', ''), f)
+				save_name = f'{self._filename}_graph_db.{f}'
+				fig.savefig(save_name, bbox_inches="tight")
+		plt.show()
+
+	_pressure_data = None
+
+	def add_pressure_data(self, line_label: str, x: list, x_labels: list) -> None:
+		if self._pressure_data is None:
+			self._pressure_data = collections.OrderedDict()
+		self._pressure_data[line_label] = (x, x_labels)
+
+	def graph_pressure(self) -> None:
+		if self._pressure_data is None:
+			return
+
+		colors = plt.get_cmap('tab10').colors
+		n_data = len(self._pressure_data)
+
+		fig, ax = plt.subplots()
+		fig.set_figheight(0.7 * n_data)
+		fig.set_figwidth(10)
+
+		Y_labels = []
+		Y_ticks = []
+		i_ax = 0
+		for line_label, data in self._pressure_data.items():
+			Y_labels.append(line_label)
+			X = data[0]
+			X_labels = data[1]
+
+			for i in range(len(X)):
+				ax.annotate(f'{X_labels[i]}', xy=(X[i], i_ax), xytext=(X[i] - 0.007, i_ax + 0.2), rotation=90)
+
+			ax.plot(X, [i_ax for x in X], 'o', color=colors[0])
+			Y_ticks.append(i_ax)
+			i_ax -= 1
+
+		ax.set_xlim([min(0, min(X))-0.05, 1.05])
+		ax.set_ylim([i_ax + 0.8, 0.7])
+		ax.yaxis.set_ticks(Y_ticks)
+		ax.yaxis.set_ticklabels(Y_labels)
+
+		ax.xaxis.set_major_locator(MultipleLocator(0.1))
+		ax.xaxis.set_minor_locator(AutoMinorLocator(4))
+		ax.grid(which='major', color='#888888', linestyle='--')
+		ax.grid(which='minor', color='#CCCCCC', linestyle=':')
+
+		ax.set(xlabel="normalized pressure: $(\\rho(w_0)-\\rho(w_i)) / \\rho(w_0)$")
+
+		if self._options.save:
+			for f in self._options.formats:
+				save_name = f'{self._filename}-pressure.{f}'
 				fig.savefig(save_name, bbox_inches="tight")
 		plt.show()
 
@@ -196,8 +257,8 @@ class File:
 		self._filename = filename
 		self._options = options
 		self._allfiles = allfiles
-		if allfiles:
-			self._allfiles.setOptions(options)
+		if allfiles is not None:
+			allfiles.check_options(options)
 		self._params = collections.OrderedDict()
 		self._data = dict()
 		self._dbbench = list()
@@ -1077,6 +1138,9 @@ class File:
 		global a
 		a = ax
 
+		if self._allfiles:
+			self._allfiles.add_pressure_data(f'bs = {self._params["at_block_size[0]"]}', X, X_labels)
+
 		if self._options.save:
 			for f in self._options.formats:
 				save_name = f'{self._filename_without_ext}-pressure.{f}'
@@ -1518,6 +1582,9 @@ def getFiles(dirname: str, str_filter: str = None, lambda_filter=None) -> list:
 
 
 def plotFiles(filenames, options, allfiles=None):
+	if isinstance(allfiles, str):
+		allfiles = AllFiles(allfiles, options)
+
 	for name in filenames:
 		print(
 			'######################################################\n' +
@@ -1526,6 +1593,12 @@ def plotFiles(filenames, options, allfiles=None):
 		f = File(name, options, allfiles)
 		f.graph_all()
 		del f
+
+	if allfiles is not None:
+		print(
+			'######################################################\n' +
+			'AllFiles Graphs:\n')
+		allfiles.graph_all()
 
 
 class FioFiles:
