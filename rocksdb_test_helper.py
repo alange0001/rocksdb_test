@@ -193,6 +193,7 @@ class GenericExperiment:
 		('backup_ycsb',         {'group': 'ydb', 'type': str,  'default': None,        'register': True,  'help': 'Restore the database backup used by the YCSB instances from this .tar file (don\'t use subdirs).' }),
 		('ydb_workload_list',   {'group': 'ydb', 'type': str,  'default': 'workloadb', 'register': False, 'help': 'List of YCSB workloads (space separated).' }),
 		('at_block_size_list',  {'group': 'at3', 'type': str,  'default': '512',       'register': False, 'help': 'List of block sizes used in the experiments with access_time3 (space separated).' }),
+		('at_script_gen',       {'group': 'at3', 'type': int,  'default': 1,           'register': True,  'help': 'Access_time3 script generator (1 or 2).' }),
 		('at_interval',         {'group': 'at3', 'type': int,  'default': 2,           'register': False, 'help': 'Interval between changes in the access pattern of the access_time3 instances.' }),
 		('at_file_size',        {'group': 'at3', 'type': int,  'default': 10000,       'register': False, 'help': 'Interval between changes in the access pattern of the access_time3 instances.' }),
 		])
@@ -544,8 +545,14 @@ class ExpYcsbAt3 (GenericExperiment):
 		log.debug(f'Exp_ycsb_at3.run()')
 		args_d = self.get_args_d()
 
-		args_d['at_script'] = get_at3_script(int(args_d['warm_period'])+10, int(args_d['num_at']),
-		                                     int(args_d['at_interval']))
+		if coalesce(args_d.get('at_script_gen'), 1) == 1:
+			args_d['at_script'] = get_at3_script(int(args_d['warm_period']), int(args_d['num_at']),
+			                                 int(args_d['at_interval']))
+		elif args_d.get('at_script_gen') == 2:
+			args_d['at_script'] = get_at3_script2(int(args_d['warm_period']), int(args_d['num_at']),
+			                                 int(args_d['at_interval']))
+		else:
+			raise Exception('invalid at_script_gen')
 
 		for at_bs in args_d['at_block_size_list'].split(' '):
 			args_d['at_block_size'] = at_bs
@@ -674,8 +681,14 @@ class ExpDbbenchAt3 (GenericExperiment):
 		log.debug(f'Exp_dbbench_at3.run()')
 		args_d = self.get_args_d()
 
-		args_d['at_script'] = get_at3_script(int(args_d['warm_period'])+10, int(args_d['num_at']),
-		                                     int(args_d['at_interval']))
+		if coalesce(args_d.get('at_script_gen'), 1) == 1:
+			args_d['at_script'] = get_at3_script(int(args_d['warm_period']), int(args_d['num_at']),
+			                                 int(args_d['at_interval']))
+		elif args_d.get('at_script_gen') == 2:
+			args_d['at_script'] = get_at3_script2(int(args_d['warm_period']), int(args_d['num_at']),
+			                                 int(args_d['at_interval']))
+		else:
+			raise Exception('invalid at_script_gen')
 
 		for at_bs in args_d['at_block_size_list'].split(' '):
 			args_d['at_block_size'] = at_bs
@@ -882,12 +895,30 @@ def search_file(name):
 	return None
 
 
-def get_at3_script(wait, instances, interval):
+def get_at3_script(warm, instances, interval):
+	wait = warm
+	while wait <= warm+10: wait += interval
+
 	ret = []
 	for i in range(0, instances):
 		jc = wait + i * interval
 		ret_l = f"0:wait;0:write_ratio=0;{jc}m:wait=false"
 		for j in [0.1, 0.2, 0.3, 0.5, 0.7, 1]:
+			jc += interval * instances
+			ret_l += f";{jc}m:write_ratio={j}"
+		ret.append(ret_l)
+	return '#'.join(ret)
+
+
+def get_at3_script2(warm, instances, interval):
+	wait = warm
+	while wait <= warm+10: wait += interval
+
+	ret = []
+	for i in range(0, instances):
+		jc = wait + i * interval
+		ret_l = f"0:wait;0:write_ratio=0;{jc}m:wait=false"
+		for j in [(i+1)/10, 1]:
 			jc += interval * instances
 			ret_l += f";{jc}m:write_ratio={j}"
 		ret.append(ret_l)
