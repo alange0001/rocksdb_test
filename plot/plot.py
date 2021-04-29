@@ -465,9 +465,9 @@ class File:
 				wc += 1
 
 			self._w_list = ret
-			print('\nDEBUG: w_list:')
-			for k, v in self._w_list.items():
-				print(k, ":", v)
+			#print('\nDEBUG: w_list:')
+			#for k, v in self._w_list.items():
+			#	print(k, ":", v)
 		return self._w_list
 
 	def last_at3(self, time):
