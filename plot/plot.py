@@ -445,7 +445,10 @@ class File:
 			while i < len(times):
 				i_time = times[i]
 				ret_wc = collections.OrderedDict()
-				ret_wc['time'] = i_time
+				if i_time > fuzzy:
+					ret_wc['time'] = i_time
+				else:
+					ret_wc['time'] = 0
 				ret_wc['name'] = f'w{wc}'
 				ret_wc['number'] = wc
 				ret_wc['latex_name'] = f'$w_{{{wc}}}$'
@@ -462,13 +465,13 @@ class File:
 				wc += 1
 
 			self._w_list = ret
-			# print('\nDEBUG: w_list:')
-			# for k, v in self._w_list.items():
-			# 	print(k, ":", v)
+			print('\nDEBUG: w_list:')
+			for k, v in self._w_list.items():
+				print(k, ":", v)
 		return self._w_list
 
 	def last_at3(self, time):
-		if self._num_at <= 0 or self.w_list is not None:
+		if self._num_at <= 0 or self.w_list is None:
 			return None
 		w_list = list(self.w_list.values())
 		last_w = w_list[0]
