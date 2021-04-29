@@ -402,70 +402,98 @@ class File:
 			num_ycsb += 1
 		return (num_dbbench, num_ycsb)
 
-	_count_at3 = None
+	_at3_changes = None
 
-	def count_at3(self):
-		if self._count_at3 is None:
-			num = 0
-			for i in range(0, 1024):
-				if self._data.get('access_time3[{}]'.format(i)) is None:
-					break
-				num += 1
-			self._count_at3 = num
-		return self._count_at3
+	@property
+	def at3_changes(self):
+		if self._at3_changes is None:
+			self._at3_changes = []
+			count_at3 = self._num_at
+			for i in range(0, count_at3):
+				i_at = collections.OrderedDict()
+				self._at3_changes.append(i_at)
+				last_conf = None
+				for j_at in self._data.get(f'access_time3[{i}]'):
+					j_at_v = (j_at['wait'], j_at['random_ratio'], j_at['write_ratio'])
+					if j_at_v != last_conf:
+						last_conf = j_at_v
+						i_at[j_at['time']] = j_at_v
+			# print('\nDEBUG: at3_changes:')
+			# for i in self._at3_changes:
+			# 	print(i)
+		return self._at3_changes
 
-	_last_at3_time = 0
-	_last_at3_indexes = None
+	_w_list = None
+
+	@property
+	def w_list(self):
+		if self._w_list is None and self._num_at > 0:
+			fuzzy = 15
+			ret = collections.OrderedDict()
+
+			aux_times = dict()
+			for i in range(0, len(self.at3_changes)):
+				for time, conf in self.at3_changes[i].items():
+					if aux_times.get(time) is None:
+						aux_times[time] = []
+					aux_times[time].append((i, conf))
+			times = list(aux_times.keys())
+			times.sort()
+
+			i = 0
+			wc = 0
+			while i < len(times):
+				i_time = times[i]
+				ret_wc = collections.OrderedDict()
+				ret_wc['time'] = i_time
+				ret_wc['name'] = f'w{wc}'
+				ret_wc['number'] = wc
+				ret_wc['latex_name'] = f'$w_{{{wc}}}$'
+				for i_at in aux_times[i_time]:
+					ret_wc[i_at[0]] = i_at[1]
+				ret[f'w{wc}'] = ret_wc
+				for j in range(i+1, len(times)):
+					if times[j] > i_time + fuzzy:
+						break
+					i += 1
+					for i_at in aux_times[times[j]]:
+						ret_wc[i_at[0]] = i_at[1]
+				i += 1
+				wc += 1
+
+			self._w_list = ret
+			# print('\nDEBUG: w_list:')
+			# for k, v in self._w_list.items():
+			# 	print(k, ":", v)
+		return self._w_list
 
 	def last_at3(self, time):
-		count_at3 = self.count_at3()
-		if time < self._last_at3_time or self._last_at3_indexes is None:
-			self._last_at3_indexes = [ 0 for i in range (0, count_at3) ]
-		ret = []
-		for i in range(0, count_at3):
-			at3 = self._data[f'access_time3[{i}]']
-			last = at3[self._last_at3_indexes[i]]
-			for j in range(self._last_at3_indexes[i], len(at3)):
-				if at3[j]['time'] > time: break
-				last = at3[j]
-			ret.append(last)
-
-		self._last_at3_time = time
-		return ret
-
-	def last_at3_str(self, time):
-		at3list = self.last_at3(time)
-
-		ret = collections.OrderedDict()
-		for i in at3list:
-			if i['wait'] != 'true':
-				#s = f'{i["random_ratio"]}r,{i["write_ratio"]}w'
-				s = f'{i["random_ratio"]}r{i["write_ratio"]}w'
-				if s in ret.keys():
-					ret[s] += 1
-				else:
-					ret[s] = 1
-		if len(ret) == 0:
-			return 'w0'
-		else:
-			return '|'.join([ f'{v}x{k}' for k, v in ret.items() ])
+		if self._num_at <= 0 or self.w_list is not None:
+			return None
+		w_list = list(self.w_list.values())
+		last_w = w_list[0]
+		for w in w_list:
+			if w['time'] > time:
+				break
+			last_w = w
+		return last_w
 
 	def get_at3_ticks(self, Xmin, Xmax):
+		# print(f'\nDEBUG: get_at3_ticks{Xmin, Xmax}')
 		ticks, labels = [], []
-		if self.count_at3() > 0:
-			last_w = ''
-			last_count = 0
-			for i in range(int(Xmin*60), int((Xmax*60)+1)):
-				w = self.last_at3_str(i)
-				if w != last_w:
-					ticks.append(i/60.0)
-					labels.append(f'$w_{{{last_count}}}$')
-					last_count += 1
-					last_w = w
-		return (ticks, labels)
+		if self.w_list is not None:
+			for w in self.w_list.values():
+				w_time = int(w['time']/60)
+				if w_time < Xmin:
+					continue
+				if w_time > Xmax:
+					break
+				ticks.append(w_time)
+				labels.append(w['latex_name'])
+		return ticks, labels
 
 	def add_at3_ticks(self, ax, Xmin, Xmax):
-		if self.count_at3() > 0:
+		if self._num_at > 0:
 			X2_ticks, X2_labels = self.get_at3_ticks(Xmin, Xmax)
 			ax2 = ax.twin()
 			ax2.set_xticks(X2_ticks)
@@ -560,7 +588,7 @@ class File:
 					allfiles_d = self._allfiles.add_dbmean_data(f"bs{self._params['at_block_size[0]']}", X, Y, None, None)
 
 		if not(self._options.file_start_time is not None and self._options.file_start_time.get(self._filename) is not None):
-			X2_ticks, X2_labels = self.get_at3_ticks(Xmin, Xmax)
+			X2_ticks, X2_labels = self.get_at3_ticks(int(Xmin), int(Xmax))
 			ax2 = ax.twin()
 			ax2.set_xticks(X2_ticks)
 			ax2.set_xticklabels(X2_labels, rotation=90)
@@ -960,7 +988,7 @@ class File:
 			#ax.set_position([chartBox.x0, chartBox.y0, chartBox.width*0.75, chartBox.height])
 			#ax.legend(loc='upper center', bbox_to_anchor=(1.25, 1.0), ncol=2, frameon=True)
 
-		self.add_at3_ticks(ax0, X[0], X[-1])
+		self.add_at3_ticks(ax0, int(X[0]), int(X[-1]))
 
 		plt.subplots_adjust(hspace=0.1)
 
@@ -1024,7 +1052,7 @@ class File:
 
 	def get_pressure_data(self):
 		num_dbbench, num_ycsb = self.count_dbs()
-		num_at3 = self.count_at3()
+		num_at3 = self._num_at
 		if num_dbbench == 0 and num_ycsb == 0: return None
 		if num_at3 == 0: return None
 
@@ -1035,21 +1063,13 @@ class File:
 			target_db = self._data['db_bench[0]']
 
 		target_data = collections.OrderedDict()
-		last_w = ''
-		last_w_counter = -1
 		for i in target_db:
 			target_data[i['time']] = collections.OrderedDict()
 			target_data[i['time']]['db'] = i
 
-			w = self.last_at3_str(i['time'])
-			if w != last_w:
-				last_w_counter += 1
-				last_w = w
-			#if self._options.use_at3_counters:
-			target_data[i['time']]['at3'] = f'w{last_w_counter}'
-			#else:
-			#	target_data[i['time']]['at3'] = w
-			target_data[i['time']]['at3_counter'] = last_w_counter
+			w = self.last_at3(i['time'])
+			target_data[i['time']]['at3'] = w['name']
+			target_data[i['time']]['at3_counter'] = w['number']
 
 		timelist = list(target_data.keys()); timelist.sort()
 
