@@ -545,14 +545,10 @@ class ExpYcsbAt3 (GenericExperiment):
 		log.debug(f'Exp_ycsb_at3.run()')
 		args_d = self.get_args_d()
 
-		if coalesce(args_d.get('at_script_gen'), 1) == 1:
-			args_d['at_script'] = get_at3_script(int(args_d['warm_period']), int(args_d['num_at']),
-			                                 int(args_d['at_interval']))
-		elif args_d.get('at_script_gen') == 2:
-			args_d['at_script'] = get_at3_script2(int(args_d['warm_period']), int(args_d['num_at']),
-			                                 int(args_d['at_interval']))
-		else:
-			raise Exception('invalid at_script_gen')
+		args_d['at_script'] = get_at3_script(script_gen=coalesce(args_d.get('at_script_gen'), 1),
+		                                     warm=int(args_d['warm_period']),
+		                                     instances=int(args_d['num_at']),
+		                                     interval=int(args_d['at_interval']))
 
 		for at_bs in args_d['at_block_size_list'].split(' '):
 			args_d['at_block_size'] = at_bs
@@ -681,14 +677,10 @@ class ExpDbbenchAt3 (GenericExperiment):
 		log.debug(f'Exp_dbbench_at3.run()')
 		args_d = self.get_args_d()
 
-		if coalesce(args_d.get('at_script_gen'), 1) == 1:
-			args_d['at_script'] = get_at3_script(int(args_d['warm_period']), int(args_d['num_at']),
-			                                 int(args_d['at_interval']))
-		elif args_d.get('at_script_gen') == 2:
-			args_d['at_script'] = get_at3_script2(int(args_d['warm_period']), int(args_d['num_at']),
-			                                 int(args_d['at_interval']))
-		else:
-			raise Exception('invalid at_script_gen')
+		args_d['at_script'] = get_at3_script(script_gen=coalesce(args_d.get('at_script_gen'), 1),
+		                                     warm=int(args_d['warm_period']),
+		                                     instances=int(args_d['num_at']),
+		                                     interval=int(args_d['at_interval']))
 
 		for at_bs in args_d['at_block_size_list'].split(' '):
 			args_d['at_block_size'] = at_bs
@@ -895,33 +887,36 @@ def search_file(name):
 	return None
 
 
-def get_at3_script(warm, instances, interval):
+def get_at3_script(script_gen: int = 1, warm: int = 0, w0: int = 10, instances: int = 4, interval: int = 2) -> str:
 	wait = warm
-	while wait <= warm+10: wait += interval
+	while wait < warm+w0: wait += interval
 
 	ret = []
-	for i in range(0, instances):
-		jc = wait + i * interval
-		ret_l = f"0:wait;0:write_ratio=0;{jc}m:wait=false"
-		for j in [0.1, 0.2, 0.3, 0.5, 0.7, 1]:
-			jc += interval * instances
-			ret_l += f";{jc}m:write_ratio={j}"
-		ret.append(ret_l)
-	return '#'.join(ret)
+	if script_gen == 1:
+		for i in range(0, instances):
+			jc = wait + i * interval
+			ret_l = f"0:wait;0:write_ratio=0;{jc}m:wait=false"
+			for j in [0.1, 0.2, 0.3, 0.5, 0.7, 1]:
+				jc += interval * instances
+				ret_l += f";{jc}m:write_ratio={j}"
+			ret.append(ret_l)
 
+	elif script_gen == 2:
+		jc = wait
+		for i in range(0, instances):
+			ret.append(f"0:wait;0:write_ratio=0;{jc}m:wait=false")
+			jc += interval
+		for i in range(0, instances):
+			ret[i] += f";{jc}m:write_ratio=0.1"
+			jc += interval
+		for i in range(0, instances):
+			ret[i] += f";{jc}m:write_ratio={0.9 if i + 1 == instances else 1}"
+		jc += interval
+		for i in range(0, instances):
+			ret[i] += f";{jc}m:write_ratio=1"
 
-def get_at3_script2(warm, instances, interval):
-	wait = warm
-	while wait <= warm+10: wait += interval
-
-	ret = []
-	for i in range(0, instances):
-		jc = wait + i * interval
-		ret_l = f"0:wait;0:write_ratio=0;{jc}m:wait=false"
-		for j in [(i+1)/10, 1]:
-			jc += interval * instances
-			ret_l += f";{jc}m:write_ratio={j}"
-		ret.append(ret_l)
+	else:
+		raise Exception(f'Invalid at_script_gen = "{script_gen}". Must be 1 or 2.')
 	return '#'.join(ret)
 
 
