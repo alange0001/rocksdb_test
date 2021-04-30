@@ -915,8 +915,20 @@ def get_at3_script(script_gen: int = 1, warm: int = 0, w0: int = 10, instances: 
 		for i in range(0, instances):
 			ret[i] += f";{jc}m:write_ratio=1"
 
+	elif script_gen == 3:
+		jc = wait
+		for i in range(0, instances):
+			ret.append(f"0:wait;0:write_ratio=0;{jc}m:wait=false")
+			jc += interval
+		for i in range(0, instances):
+			ret[i] += f";{jc}m:write_ratio=0.1"
+			jc += interval
+		for i in range(0, instances):
+			ret[i] += f";{jc}m:write_ratio=0.9"
+			jc += interval
+
 	else:
-		raise Exception(f'Invalid at_script_gen = "{script_gen}". Must be 1 or 2.')
+		raise Exception(f'Invalid at_script_gen = "{script_gen}". Must be [1-3].')
 	return '#'.join(ret)
 
 
