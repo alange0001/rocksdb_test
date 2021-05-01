@@ -53,6 +53,7 @@ class Options:
 	plot_ycsb_lsm_summary = True
 	plot_smart_utilization = True
 	use_at3_counters = True
+	at3_ticks = True
 	fio_folder = None
 	plot_all_dbmean = True
 	plot_all_pressure = True
@@ -496,13 +497,18 @@ class File:
 		return ticks, labels
 
 	def add_at3_ticks(self, ax, Xmin, Xmax):
-		if self._num_at > 0:
+		if self._options.at3_ticks and self._num_at > 0:
 			X2_ticks, X2_labels = self.get_at3_ticks(Xmin, Xmax)
-			ax2 = ax.twin()
+			if 'twin' in dir(ax):
+				ax2 = ax.twin()
+				ax2.axis["right"].major_ticklabels.set_visible(False)
+				ax2.axis["top"].major_ticklabels.set_visible(True)
+			else:
+				ax2 = ax.twiny()
+
 			ax2.set_xticks(X2_ticks)
 			ax2.set_xticklabels(X2_labels, rotation=90)
-			ax2.axis["right"].major_ticklabels.set_visible(False)
-			ax2.axis["top"].major_ticklabels.set_visible(True)
+			ax2.set_xlim(ax.get_xlim()) # ax.set_xlim() must be set before
 			return ax2
 		return None
 
@@ -527,9 +533,9 @@ class File:
 		if num_dbbench == 0 and num_ycsb == 0:
 			return
 
-		fig = plt.gcf()
-		#fig, ax = plt.subplots()
-		ax = host_subplot(111, figure=fig)
+		# fig = plt.gcf()
+		# ax = host_subplot(111, figure=fig)
+		fig, ax = plt.subplots()
 		fig.set_figheight(3)
 		fig.set_figwidth(9)
 
@@ -590,17 +596,6 @@ class File:
 				if i == 0 and self._allfiles is not None and self._params['num_at'] > 0:
 					allfiles_d = self._allfiles.add_dbmean_data(f"bs{self._params['at_block_size[0]']}", X, Y, None, None)
 
-		if not(self._options.file_start_time is not None and self._options.file_start_time.get(self._filename) is not None):
-			X2_ticks, X2_labels = self.get_at3_ticks(int(Xmin), int(Xmax))
-			ax2 = ax.twin()
-			ax2.set_xticks(X2_ticks)
-			ax2.set_xticklabels(X2_labels, rotation=90)
-			ax2.axis["right"].major_ticklabels.set_visible(False)
-			ax2.axis["top"].major_ticklabels.set_visible(True)
-			if allfiles_d is not None:
-				allfiles_d['W_ticks'] = X2_ticks
-				allfiles_d['W_labels'] = X2_labels
-
 		if self._options.db_xlim is not None:
 			ax.set_xlim( self._options.db_xlim )
 		else:
@@ -611,7 +606,14 @@ class File:
 
 		self.set_x_ticks(ax)
 
-		ax.set(xlabel="time (min)", ylabel="tx/s")
+		if not(self._options.file_start_time is not None and self._options.file_start_time.get(self._filename) is not None):
+			self.add_at3_ticks(ax, int(Xmin), int(Xmax))
+			if allfiles_d is not None:
+				X2_ticks, X2_labels = self.get_at3_ticks(int(Xmin), int(Xmax))
+				allfiles_d['W_ticks'] = X2_ticks
+				allfiles_d['W_labels'] = X2_labels
+
+		ax.set(title="Key-Value Store's Performance", xlabel="time (min)", ylabel="tx/s")
 
 		#chartBox = ax.get_position()
 		#ax.set_position([chartBox.x0, chartBox.y0, chartBox.width*0.65, chartBox.height])
@@ -676,6 +678,8 @@ class File:
 
 			aux = (X[-1] - X[0]) * 0.01
 			ax.set_xlim([X[0]-aux,X[-1]+aux])
+			if ax_i == 0:
+				self.add_at3_ticks(ax, int(X[0]), int(X[-1]))
 
 			self.set_x_ticks(ax)
 
@@ -809,8 +813,8 @@ class File:
 			return s
 
 		fig, axs = plt.subplots(2, 1)
-		fig.set_figheight(5)
-		fig.set_figwidth(8)
+		fig.set_figheight(4)
+		fig.set_figwidth(9)
 		axs[0].grid()
 		axs[1].grid()
 
@@ -833,10 +837,12 @@ class File:
 
 		axs[0].set_ylim([-5, None])
 		axs[1].set_ylim([-5, 105])
-		axs[0].set(title="cpu", ylabel="all CPUs (%)")
-		axs[1].set(xlabel="time (min)", ylabel="per CPU (%)")
+		axs[0].set(title="CPU", ylabel="all CPUs\npercent")
+		axs[1].set(xlabel="time (min)", ylabel="per CPU\npercent")
 
 		axs[0].legend(loc='upper right', ncol=2, frameon=True)
+
+		self.add_at3_ticks(axs[0], int(X[0]), int(X[-1]))
 
 		if self._options.save:
 			for f in self._options.formats:
@@ -898,6 +904,7 @@ class File:
 		fig.set_figheight(5)
 		fig.set_figwidth(8)
 
+		ax2 = None
 		for i in range(0,self._num_at):
 			ax = axs[i] if self._num_at > 1 else axs
 			ax.grid()
@@ -911,10 +918,10 @@ class File:
 			ax.plot(X, Y, '-', lw=1, label='write', color='orange')
 
 			ax_set = dict()
-			ax_set['ylabel'] ="MB/s"
+			ax_set['ylabel'] = f"at3[{i}]\nMB/s"
 
 			if i == 0:
-				ax_set['title'] = "access_time3: performance"
+				ax_set['title'] = "access_time3 (at3): performance"
 			if i == self._num_at -1:
 				ax_set['xlabel'] = "time (min)"
 				ax.legend(bbox_to_anchor=(0., -.8, 1., .102), loc='lower left',
@@ -923,7 +930,9 @@ class File:
 				ax.xaxis.set_ticklabels([])
 
 			aux = (X[-1] - X[0]) * 0.01
-			ax.set_xlim([X[0]-aux,X[-1]+aux])
+			ax.set_xlim([X[0]-aux, X[-1]+aux])
+			if i == 0:
+				self.add_at3_ticks(ax, int(X[0]), int(X[-1]))
 
 			self.set_x_ticks(ax)
 
@@ -946,14 +955,12 @@ class File:
 		if self._num_at == 0 or self._num_at is None:
 			return
 
-		fig = plt.gcf()
-		#fig, axs = plt.subplots(self._num_at, 1)
+		fig, axs = plt.subplots(self._num_at, 1)
 		fig.set_figheight(5)
 		fig.set_figwidth(8)
 
 		for i in range(0,self._num_at):
-			#ax = axs[i] if self._num_at > 1 else axs
-			ax = host_subplot((100 * self._num_at) + 10+i+1, figure=fig)
+			ax = axs[i] if self._num_at > 1 else axs
 			if i == 0:
 				ax0 = ax
 
@@ -966,16 +973,15 @@ class File:
 			ax.plot(X, Y, '-.', lw=1.5, label='random_ratio (rr)', color='blue')
 
 			ax_set = dict()
-			#ax_set['ylabel'] ="%"
 
+			ax_set['ylabel'] = f'at3[{i}]\nratio'
 			if i == 0:
-				pass
-				#ax_set['title'] = "access_time3: access pattern"
+				ax_set['title'] = 'Concurrent Workloads'
 			if i == self._num_at -1:
 				ax_set['xlabel'] = "time (min)"
 				ax.legend(bbox_to_anchor=(0., -.8, 1., .102), loc='lower left',
 					ncol=2, mode="expand", borderaxespad=0.)
-			if i>=0 and i < self._num_at -1:
+			if i < self._num_at - 1:
 				ax.xaxis.set_ticklabels([])
 
 			aux = (X[-1] - X[0]) * 0.01
@@ -983,13 +989,7 @@ class File:
 			ax.set_ylim([-0.05,1.08])
 
 			self.set_x_ticks(ax)
-
 			ax.set(**ax_set)
-			#ax.set_yscale('log')
-
-			#chartBox = ax.get_position()
-			#ax.set_position([chartBox.x0, chartBox.y0, chartBox.width*0.75, chartBox.height])
-			#ax.legend(loc='upper center', bbox_to_anchor=(1.25, 1.0), ncol=2, frameon=True)
 
 		self.add_at3_ticks(ax0, int(X[0]), int(X[-1]))
 
@@ -1268,8 +1268,10 @@ class File:
 			ax.set_xlim([X[0]-aux,X[-1]+aux])
 			self.set_x_ticks(ax)
 
-		axs[0].set(title="containers I/O")
+		axs[0].set(title="Containers I/O")
 		axs[-1].set(xlabel="time (min)")
+
+		self.add_at3_ticks(axs[0], int(X[0]), int(X[-1]))
 
 		if self._options.save:
 			for f in self._options.formats:
@@ -1312,6 +1314,8 @@ class File:
 
 			ax.set_xlim([X[0]-aux,X[-1]+aux])
 			ax.set_ylim([-.01, max(Y) * 1.1])
+			if l == 0:
+				self.add_at3_ticks(ax, int(X[0]), int(X[-1]))
 			self.set_x_ticks(ax)
 
 		axs[0].set(title=title)
@@ -1392,7 +1396,7 @@ class File:
 			return
 
 		fig, axs = plt.subplots(1, 1)
-		fig.set_figheight(3)
+		fig.set_figheight(2)
 		fig.set_figwidth(9)
 
 		ax = axs
@@ -1409,6 +1413,8 @@ class File:
 
 		aux = (X[-1] - X[0]) * 0.01
 		ax.set_xlim([X[0]-aux,X[-1]+aux])
+		self.add_at3_ticks(ax, int(X[0]), int(X[-1]))
+
 		self.set_x_ticks(ax)
 		ax.set_ylim([-1, 105])
 
