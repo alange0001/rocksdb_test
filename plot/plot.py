@@ -16,6 +16,7 @@ import math
 import collections
 import re
 import json
+import copy
 import sqlite3
 import numpy
 import matplotlib as mpl
@@ -35,7 +36,7 @@ class Options:
 	plot_db = True
 	db_mean_interval = 2
 	db_xlim = None
-	db_ylim = None
+	db_ylim = [0,  None]
 	file_start_time = None
 	plot_ycsb = True
 	plot_io = True
@@ -61,7 +62,15 @@ class Options:
 	def __init__(self, **kargs):
 		if self.file_start_time is None:
 			self.file_start_time = {}
-		for k,v in kargs.items():
+		self._process_args(kargs)
+
+	def __call__(self, **kargs):
+		cp = copy.copy(self)
+		cp._process_args(kargs)
+		return cp
+
+	def _process_args(self, args: dict) -> None:
+		for k,v in args.items():
 			if k == 'plot_nothing':
 				if v:
 					for i in dir(self):
@@ -1381,6 +1390,8 @@ class File:
 
 		axs[0].set(title='LSM-tree stats summary')
 		axs[-1].set(xlabel="time (min)")
+
+		self.add_at3_ticks(axs[0], int(X[0]), int(X[-1]))
 
 		if self._options.save:
 			for f in self._options.formats:
