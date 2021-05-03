@@ -263,15 +263,15 @@ class GenericExperiment:
 
 		# register helper_params
 		for k, v in cls.helper_params.items():
-			if v.get('register') == True:
+			if v.get('register') is True:
 				parser.add_argument(f'--{k}', type=v['type'], default=coalesce(load_args.get(k), v.get('default')),
-					help=v.get('help'))
+				                    help=v.get('help'))
 			
 		# register exp_params
 		for k, v in cls.exp_params.items():
-			if v.get('register') == True:
+			if v.get('register') is True:
 				parser.add_argument(f'--{k}', type=v['type'], default=coalesce(load_args.get(k), v.get('default')),
-					help=v.get('help'))
+				                    help=v.get('help'))
 
 	def get_args_d(self):
 		log.debug(f'GenericExperiment.get_args_d()')
@@ -533,7 +533,7 @@ class ExpYcsbAt3 (GenericExperiment):
 		cls.helper_params['at_block_size_list']['register'] = True
 		cls.helper_params['at_interval']['register']        = True
 
-		cls.exp_params['duration']['default']     = 90
+		cls.exp_params['duration']['default']     = -1
 		cls.exp_params['warm_period']['default']  = 30
 		cls.exp_params['num_ydbs']['default']     = 1
 		cls.exp_params['rocksdb_config_file']['register'] = True
@@ -545,10 +545,12 @@ class ExpYcsbAt3 (GenericExperiment):
 		log.debug(f'Exp_ycsb_at3.run()')
 		args_d = self.get_args_d()
 
-		args_d['at_script'] = get_at3_script(script_gen=coalesce(args_d.get('at_script_gen'), 1),
-		                                     warm=int(args_d['warm_period']),
-		                                     instances=int(args_d['num_at']),
-		                                     interval=int(args_d['at_interval']))
+		args_d['at_script'], at_duration = get_at3_script(script_gen=coalesce(args_d.get('at_script_gen'), 1),
+		                                                  warm=int(args_d['warm_period']),
+		                                                  instances=int(args_d['num_at']),
+		                                                  interval=int(args_d['at_interval']))
+		if coalesce(args_d.get('duration'), -1) < 0:
+			args_d['duration'] = at_duration
 
 		for at_bs in args_d['at_block_size_list'].split(' '):
 			args_d['at_block_size'] = at_bs
@@ -667,7 +669,7 @@ class ExpDbbenchAt3 (GenericExperiment):
 		cls.helper_params['at_block_size_list']['register'] = True
 		cls.helper_params['at_interval']['register']        = True
 
-		cls.exp_params['duration']['default']     = 90
+		cls.exp_params['duration']['default']     = -1
 		cls.exp_params['warm_period']['default']  = 30
 		cls.exp_params['num_dbs']['default']      = 1
 		cls.exp_params['num_at']['default']       = 4
@@ -677,10 +679,12 @@ class ExpDbbenchAt3 (GenericExperiment):
 		log.debug(f'Exp_dbbench_at3.run()')
 		args_d = self.get_args_d()
 
-		args_d['at_script'] = get_at3_script(script_gen=coalesce(args_d.get('at_script_gen'), 1),
-		                                     warm=int(args_d['warm_period']),
-		                                     instances=int(args_d['num_at']),
-		                                     interval=int(args_d['at_interval']))
+		args_d['at_script'], at_duration = get_at3_script(script_gen=coalesce(args_d.get('at_script_gen'), 1),
+		                                                  warm=int(args_d['warm_period']),
+		                                                  instances=int(args_d['num_at']),
+		                                                  interval=int(args_d['at_interval']))
+		if coalesce(args_d.get('duration'), -1) < 0:
+			args_d['duration'] = at_duration
 
 		for at_bs in args_d['at_block_size_list'].split(' '):
 			args_d['at_block_size'] = at_bs
@@ -887,19 +891,20 @@ def search_file(name):
 	return None
 
 
-def get_at3_script(script_gen: int = 1, warm: int = 0, w0: int = 10, instances: int = 4, interval: int = 2) -> str:
+def get_at3_script(script_gen: int = 1, warm: int = 0, w0: int = 10, instances: int = 4, interval: int = 2) -> set:
 	wait = warm
 	while wait < warm+w0: wait += interval
 
 	ret = []
 	if script_gen == 1:
+		jc = wait
 		for i in range(0, instances):
-			jc = wait + i * interval
-			ret_l = f"0:wait;0:write_ratio=0;{jc}m:wait=false"
-			for j in [0.1, 0.2, 0.3, 0.5, 0.7, 1]:
-				jc += interval * instances
-				ret_l += f";{jc}m:write_ratio={j}"
-			ret.append(ret_l)
+			ret.append(f"0:wait;0:write_ratio=0;{jc}m:wait=false")
+			jc += interval
+		for wr in [0.1, 0.2, 0.3, 0.5, 0.7, 1]:
+			for i in range(0, instances):
+				ret[i] += f";{jc}m:write_ratio={wr}"
+				jc += interval
 
 	elif script_gen == 2:
 		jc = wait
@@ -914,6 +919,7 @@ def get_at3_script(script_gen: int = 1, warm: int = 0, w0: int = 10, instances: 
 		jc += interval
 		for i in range(0, instances):
 			ret[i] += f";{jc}m:write_ratio=1"
+		jc += interval
 
 	elif script_gen == 3:
 		jc = wait
@@ -929,7 +935,7 @@ def get_at3_script(script_gen: int = 1, warm: int = 0, w0: int = 10, instances: 
 
 	else:
 		raise Exception(f'Invalid at_script_gen = "{script_gen}". Must be [1-3].')
-	return '#'.join(ret)
+	return '#'.join(ret), jc
 
 
 def get_default_rocksdb_options():
