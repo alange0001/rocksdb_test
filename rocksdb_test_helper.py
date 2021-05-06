@@ -539,7 +539,7 @@ class ExpYcsbAt3 (GenericExperiment):
 		cls.exp_params['rocksdb_config_file']['register'] = True
 		cls.exp_params['rocksdb_config_file']['default']  = ''
 		cls.exp_params['num_at']['default']       = 4
-		cls.exp_params['at_params']['default']    = '--flush_blocks=0 --random_ratio=0.5 --wait --direct_io'
+		cls.exp_params['at_params']['default']    = '--flush_blocks=0 --random_ratio=0.5 --wait --iodepth=8'
 
 	def run(self):
 		log.debug(f'Exp_ycsb_at3.run()')
@@ -673,7 +673,7 @@ class ExpDbbenchAt3 (GenericExperiment):
 		cls.exp_params['warm_period']['default']  = 30
 		cls.exp_params['num_dbs']['default']      = 1
 		cls.exp_params['num_at']['default']       = 4
-		cls.exp_params['at_params']['default']    = '--flush_blocks=0 --random_ratio=0.5 --wait --direct_io'
+		cls.exp_params['at_params']['default']    = '--flush_blocks=0 --random_ratio=0.5 --wait --iodepth=8'
 
 	def run(self):
 		log.debug(f'Exp_dbbench_at3.run()')
