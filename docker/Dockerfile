@@ -5,7 +5,7 @@ LABEL email="alange0001@gmail.com"
 
 RUN apt-get update
 
-RUN apt-get install -y libgflags-dev libsnappy-dev zlib1g-dev libbz2-dev liblz4-dev libzstd-dev openjdk-14-jre
+RUN apt-get install -y libgflags-dev libsnappy-dev zlib1g-dev libbz2-dev liblz4-dev libzstd-dev openjdk-14-jre libaio1
 
 RUN apt-get clean
 
