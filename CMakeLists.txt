@@ -4,7 +4,8 @@ project (rocksdb_test)
 
 SET(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
 SET(BUILD_SHARED_LIBS OFF)
-SET(CMAKE_EXE_LINKER_FLAGS "-static -static-libstdc++ -lrt -pthread -Wl,--whole-archive -lpthread -Wl,--no-whole-archive")
+#SET(CMAKE_EXE_LINKER_FLAGS "-static -static-libstdc++ -lrt -pthread -Wl,--whole-archive -lpthread -Wl,--no-whole-archive")
+SET(CMAKE_EXE_LINKER_FLAGS "-lrt -pthread -lpthread")
 list(APPEND THIRDPARTY_LIBS dl)
 
 #################################################################
@@ -39,16 +40,6 @@ include_directories("${ALUTILS_DIR}/include")
 list(APPEND THIRDPARTY_LIBS "${ALUTILS_DIR}/build/libalutils.a")
 list(APPEND THIRDPARTY_LIBS ${ALUTILS_DIR}/3rd-party/procps/proc/.libs/libprocps.a)
 
-# https://github.com/facebook/rocksdb.git
-#set(ROCKSDB_DIR "${WORKSPACE}/rocksdb")
-#include_directories ("${ROCKSDB_DIR}/include")
-#list(APPEND THIRDPARTY_LIBS "${ROCKSDB_DIR}/librocksdb.a")
-#list(APPEND THIRDPARTY_LIBS "${ROCKSDB_DIR}/libbz2.a")
-#list(APPEND THIRDPARTY_LIBS "${ROCKSDB_DIR}/liblz4.a")
-#list(APPEND THIRDPARTY_LIBS "${ROCKSDB_DIR}/libz.a")
-#list(APPEND THIRDPARTY_LIBS "${ROCKSDB_DIR}/libzstd.a")
-#list(APPEND THIRDPARTY_LIBS "${ROCKSDB_DIR}/libsnappy.a")
-
 # 3rd-party/nlohmann:
 #   Source code: https://github.com/nlohmann/json.git
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/3rd-party/nlohmann")
@@ -61,11 +52,11 @@ set_property(TARGET rocksdb_test PROPERTY CXX_STANDARD 17)
 #set_property(TARGET rocksdb_test PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 add_executable(access_time3 access_time3.cc access_time3_args.cc util.cc)
-target_link_libraries(access_time3 ${THIRDPARTY_LIBS})
+target_link_libraries(access_time3 ${THIRDPARTY_LIBS} aio)
 set_property(TARGET access_time3 PROPERTY CXX_STANDARD 17)
 #set_property(TARGET access_time3 PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 add_executable(test test.cc util.cc)
-target_link_libraries(test ${THIRDPARTY_LIBS})
+target_link_libraries(test ${THIRDPARTY_LIBS} aio)
 set_property(TARGET test PROPERTY CXX_STANDARD 17)
 #set_property(TARGET test PROPERTY POSITION_INDEPENDENT_CODE ON)

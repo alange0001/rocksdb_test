@@ -123,7 +123,6 @@ void Args::executeCommand(const string& command_line) {
 				"COMMANDS:\n"
 				"    stop           - terminate\n"
 				"    wait           - (true|false)\n"
-				"    block_size     - [4..] in KiB\n"
 				"    sleep_interval - nanoseconds\n"
 				"    sleep_count    - [1..]\n"
 				"    write_ratio    - [0..1]\n"
@@ -150,7 +149,6 @@ void Args::executeCommand(const string& command_line) {
 		}
 	parseLineCommand(wait, alutils::parseBool, false, true);
 	parseLineCommand(sleep_interval, alutils::parseUint64, true, 0);
-	parseLineCommandValidate(block_size, alutils::parseUint64);
 	parseLineCommandValidate(sleep_count, alutils::parseUint64);
 	parseLineCommandValidate(write_ratio, alutils::parseDouble);
 	parseLineCommandValidate(random_ratio, alutils::parseDouble);

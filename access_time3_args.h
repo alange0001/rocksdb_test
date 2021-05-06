@@ -58,7 +58,7 @@ using std::deque;
 		value >= 4,                                               \
 		nullptr)                                                  \
 	_f(flush_blocks, uint64_t, DEFINE_uint64,                     \
-		1,                                                        \
+		0,                                                        \
 		"blocks written before a flush (0 = no flush)",           \
 		true,                                                     \
 		nullptr)                                                  \
@@ -82,10 +82,15 @@ using std::deque;
 		"number of IOs before sleep",                             \
 		value > 0,                                                \
 		nullptr)                                                  \
-	_f(direct_io, bool, DEFINE_bool,                               \
-		false,                                                    \
-		"use direct_io",                                           \
+	_f(direct_io, bool, DEFINE_bool,                              \
 		true,                                                     \
+		"use O_DIRECT",                                           \
+		true,                                                     \
+		nullptr)                                                  \
+	_f(iodepth, uint32_t, DEFINE_uint32,                          \
+		1,                                                        \
+		"iodepth",                                                \
+		value > 0,                                                \
 		nullptr)                                                  \
 	_f(stats_interval, uint32_t, DEFINE_uint32,                   \
 		5,                                                        \

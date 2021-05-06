@@ -22,15 +22,24 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <libaio.h>
 
 #include <spdlog/spdlog.h>
 #include <fmt/format.h>
+#include <alutils/io.h>
 #include <alutils/process.h>
 
 #include "access_time3_args.h"
 #include "util.h"
 
-const uint32_t buffer_align = 512;
+////////////////////////////////////////////////////////////////////////////////////
+#undef __CLASS__
+#define __CLASS__ ""
+
+const size_t aligned_buffer_size = 512;
+struct alignas(aligned_buffer_size) aligned_buffer_t {
+	char data[aligned_buffer_size];
+};
 
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
@@ -47,6 +56,177 @@ struct Stats {
 		ret.KB_write -= val.KB_write;
 		return ret;
 	}
+	void increment(const Stats& val) {
+		blocks += val.blocks;
+		KB_read += val.KB_read;
+		KB_write += val.KB_write;
+	}
+};
+
+////////////////////////////////////////////////////////////////////////////////////
+#undef __CLASS__
+#define __CLASS__ "AIOController"
+
+class AIORequest {
+	public:  // ------------------------------------------------------------
+	int              pos    = -1;
+	bool             active = false;
+	int              fd     = 0;
+	io_context_t*    ctx    = nullptr;
+	iocb             cb;
+	Stats            stats;
+	size_t           size   = 0;
+	long long        offset = 0;
+	void*            buffer = nullptr;
+
+	void init(int pos_, io_context_t* ctx_, int fd_) {
+		pos = pos_; ctx = ctx_; fd = fd_;
+	}
+
+	void request(bool write_, void* buffer_, size_t size_, long long offset_) {
+		buffer = buffer_;
+		size = size_;
+		offset = offset_;
+		assert(pos >= 0);
+		assert(!active);
+		assert(size > 0);
+		assert(offset >= 0);
+
+		if (write_) {
+			reset_stats(0, size / 1024);
+			io_prep_pwrite(&cb, fd, buffer, size, offset);
+		} else { //read
+			reset_stats(size / 1024, 0);
+			io_prep_pread(&cb, fd, buffer, size, offset);
+		}
+		cb.data = this;
+
+		iocb* iocbs[1] = {&cb};
+		if (io_submit(*ctx, 1, iocbs) != 1) {
+			throw std::runtime_error("failed to submit aio request");
+		}
+	}
+
+	bool overlap(size_t size_, long long offset_) {
+		if (!active || size == 0 || size_ == 0)
+			return false;
+		long long end  = offset  + size  -1;
+		long long end_ = offset_ + size_ -1;
+		return (offset_ >= offset && offset_ <= end)
+		    || (end_ >= offset && end_ <= end)
+		    || (offset_ <= offset && end_ >= end);
+	}
+
+	private: // ------------------------------------------------------------
+
+	void reset_stats(typeof(stats.KB_read) read, typeof(stats.KB_write) write) {
+		stats.blocks = 1;
+		stats.KB_read = read;
+		stats.KB_write = write;
+	}
+};
+
+class AIOController {
+	int      fd;
+	uint32_t iodepth;
+	uint32_t in_progress = 0;
+	bool*    stop;
+	Stats*   stats;
+	io_context_t ctx;
+	std::unique_ptr<AIORequest[]>  request_list;
+
+	public:  // ------------------------------------------------------------
+
+	AIOController(int fd_, uint32_t iodepth_, bool* stop_, Stats* stats_) :
+		fd(fd_), iodepth(iodepth_),
+		stop(stop_), stats(stats_)
+	{
+		DEBUG_MSG("constructor");
+		memset(&ctx, 0, sizeof(ctx));
+		if (io_setup(iodepth + 5, &ctx) != 0) {
+			throw std::runtime_error("io_setup returned error");
+		}
+
+		request_list.reset(new AIORequest[iodepth]);
+		for (int i = 0; i < iodepth; i++) {
+			request_list[i].init(i, &ctx, fd);
+		}
+	}
+
+	~AIOController() {
+		DEBUG_MSG("destructor");
+		if (io_destroy(ctx) < 0) {
+			spdlog::error("io_destroy returned error");
+		}
+	}
+
+	bool wait_ready() {
+		if (stop != nullptr && *stop)
+			return false;
+		if (in_progress < iodepth)
+			return true;
+
+		timespec timeout;
+		io_event events[iodepth];
+		while (1) {
+			if (stop != nullptr && *stop)
+				return false;
+			timeout.tv_sec = 0;
+			timeout.tv_nsec = 200000000;
+
+			auto nevents = io_getevents(ctx, 0, iodepth, events, &timeout);
+			if (stop != nullptr && *stop)
+				return false;
+			if (nevents < 0 && errno != EAGAIN) {
+				std::runtime_error(fmt::format("io_getevents returned error: {}", alutils::strerror2(errno)).c_str());
+				return false;
+			}
+			for (int i = 0; i < nevents; i++) {
+				in_progress--;
+				if (events[i].data) {
+					auto req = ((AIORequest*) events[i].data);
+					assert(req->pos >= 0 && req->pos < iodepth);
+					stats->increment(req->stats);
+					req->active = false;
+				}
+			}
+			if (nevents > 0)
+				break;
+		}
+		return true;
+	}
+
+	bool overlap(size_t size, long long offset) {
+		for (int i = 0; i < iodepth; i++) {
+			if (request_list[i].overlap(size, offset)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	int get_free_request_number() {
+		if (wait_ready()) {
+			for (int i = 0; i < iodepth; i++) {
+				if (!request_list[i].active) {
+					return i;
+				}
+			}
+		}
+		return -1;
+	}
+
+	void request_read(int number, void* buffer, size_t size, long long offset) {
+		assert(number >= 0 && number < iodepth);
+		in_progress++;
+		request_list[number].request(false, buffer, size, offset);
+	}
+
+	void request_write(int number, void* buffer, size_t size, long long offset) {
+		assert(number >= 0 && number < iodepth);
+		in_progress++;
+		request_list[number].request(true, buffer, size, offset);
+	}
 };
 
 ////////////////////////////////////////////////////////////////////////////////////
@@ -58,9 +238,10 @@ class Worker {
 	int         filed = -1;
 
 	std::thread        thread;
-	std::thread        thread_flush;
 	std::exception_ptr thread_exception;
 	bool               stop_ = false;
+
+	std::unique_ptr<AIOController> iocontroller;
 
 	std::default_random_engine rand_eng;
 
@@ -89,20 +270,22 @@ class Worker {
 		DEBUG_MSG("open file");
 		int flags = O_RDWR;
 		if (args->direct_io)
-			flags = flags|O_DIRECT|O_DSYNC;
+			flags = flags|O_DIRECT;
 		filed = open(args->filename.c_str(), flags, 0640);
 		if (filed < 0)
 			throw std::runtime_error("can't open file");
 
+		iocontroller.reset(new AIOController(filed, args->iodepth, &stop_, &stats));
+
 		thread = std::thread( [this]{this->threadMain();} );
 	}
+
 	~Worker() {
 		DEBUG_MSG("destructor");
 		stop_ = true;
 		if (thread.joinable())
 			thread.join();
-		if (thread_flush.joinable())
-			thread_flush.join();
+		iocontroller.reset(nullptr);
 		if (filed >= 0) {
 			DEBUG_MSG("close file");
 			close(filed);
@@ -114,18 +297,14 @@ class Worker {
 	}
 
 	void threadMain() noexcept {
-		struct alignas(buffer_align) buffer_t {
-			char data[buffer_align];
-		};
-
 		spdlog::info("initiating worker thread");
 		try {
 			const uint32_t random_scale = 10000;
 			std::uniform_int_distribution<uint32_t> rand_ratio(0,random_scale -1);
 
-			uint64_t cur_block_size = 0;
-			uint64_t buffer_size;
-			std::unique_ptr<buffer_t[]> buffer_mem;
+			auto cur_block_size  = args->block_size;
+			uint64_t buffer_size = cur_block_size * 1024; // KiB to B;
+			std::unique_ptr<aligned_buffer_t[]> buffer_mem;
 			char* buffer;
 			uint64_t file_blocks;
 
@@ -134,6 +313,16 @@ class Worker {
 			uint64_t flush_count = 0;
 			uint64_t sleep_count = 0;
 			uint64_t cur_block = 0;
+
+			buffer_mem.reset(new aligned_buffer_t[(buffer_size*args->iodepth)/sizeof(aligned_buffer_t)]);
+			buffer = buffer_mem[0].data;
+			randomize_buffer(buffer, buffer_size * args->iodepth);
+
+			file_blocks = (args->filesize * 1024) / cur_block_size;
+
+			rand_block.reset(new std::uniform_int_distribution<uint64_t>(0, file_blocks -1));
+
+			cur_block = file_blocks; // seek 0 if next sequential I/O
 
 			while (!stop_) {
 				if (args->wait)
@@ -147,57 +336,42 @@ class Worker {
 				}
 				if (stop_) break;
 
-				if (cur_block_size != args->block_size) { // change block size
-					cur_block_size = args->block_size;
-
-					buffer_size = cur_block_size * 1024; // KiB to B
-					buffer_mem.reset(new buffer_t[buffer_size/buffer_align]);
-					buffer = buffer_mem[0].data;
-					randomize_buffer(buffer, buffer_size);
-
-					file_blocks = (args->filesize * 1024) / cur_block_size;
-
-					rand_block.reset(new std::uniform_int_distribution<uint64_t>(0, file_blocks -1));
-
-					cur_block = file_blocks; // lseek 0 if next sequential I/O
-				}
-
 				uint32_t write_ratio_uint = (uint32_t) (args->write_ratio * random_scale);
 				uint32_t random_ratio_uint = (uint32_t) (args->random_ratio * random_scale);
 
-				if (rand_ratio(rand_eng) < random_ratio_uint) { //random access
-					cur_block = (*rand_block)(rand_eng);
-					if (lseek(filed, cur_block * buffer_size, SEEK_SET) == -1)
-						throw std::runtime_error(fmt::format("seek error ({})", strerror(errno)));
-				} else {                                        //sequential access
-					cur_block++;
-					if (cur_block >= file_blocks) {
-						if (lseek(filed, 0, SEEK_SET) == -1)
-							throw std::runtime_error(fmt::format("seek error ({})", strerror(errno)));
-						cur_block = 0;
-					}
-				}
+				long long offset;
 
-				if (rand_ratio(rand_eng) < write_ratio_uint) { //write
-					if (write(filed, buffer, buffer_size) == -1)
-						throw std::runtime_error(fmt::format("write error ({})", strerror(errno)));
-					stats.KB_write += cur_block_size;
-
-					if (!args->direct_io && args->flush_blocks) {
-						if (++flush_count >= args->flush_blocks) {
-							fdatasync(filed);
-							flush_count = 0;
+				do {
+					if (rand_ratio(rand_eng) < random_ratio_uint) { //random access
+						cur_block = (*rand_block)(rand_eng);
+					} else {                                        //sequential access
+						cur_block++;
+						if (cur_block >= file_blocks) {
+							cur_block = 0;
 						}
 					}
-				} else {                                       //read
-					if (read(filed, buffer, buffer_size) == -1)
-						throw std::runtime_error(fmt::format("read error ({})", strerror(errno)));
-					stats.KB_read += cur_block_size;
+					offset = cur_block * buffer_size;
+				} while(iocontroller->overlap(buffer_size, offset));
+
+				auto n = iocontroller->get_free_request_number();
+				if (n >= 0) {
+					if (rand_ratio(rand_eng) < write_ratio_uint) { //write
+						iocontroller->request_write(n, &buffer[buffer_size * n], buffer_size, offset);
+
+						if (args->flush_blocks) {
+							if (++flush_count >= args->flush_blocks) {
+								fdatasync(filed);
+								flush_count = 0;
+							}
+						}
+					} else {                                       //read
+						iocontroller->request_read(n, &buffer[buffer_size * n], buffer_size, offset);
+					}
+				} else {
+					spdlog::warn("invalid free request number: {}", n);
 				}
 
-				stats.blocks++;
-
-				if (args->sleep_interval > 0) {
+				if (!stop_ && args->sleep_interval > 0) {
 					if (++sleep_count > args->sleep_count) {
 						sleep_count = 0;
 						std::this_thread::sleep_for(std::chrono::microseconds(args->sleep_interval));
@@ -224,7 +398,7 @@ class Worker {
 	private: //--------------------------------------------------------------------
 	void createFile() {
 		const uint32_t buffer_size = 1024 * 1024;
-		alignas(buffer_align) char buffer[buffer_size];
+		alignas(aligned_buffer_size) char buffer[buffer_size];
 		randomize_buffer(buffer, buffer_size);
 
 		spdlog::info("creating file {}", args->filename);
