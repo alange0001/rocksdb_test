@@ -1,7 +1,9 @@
 
 bin: build 3rd-party-gflags 3rd-party-fmt 3rd-party-spdlog 3rd-party-alutils 3rd-party-nlohmann
-	echo '#pragma once' > version.h
-	echo '#define ROCKSDB_TEST_VERSION "1.11"' >> version.h
+	echo '#pragma once' > version.h.new
+	echo '#define ROCKSDB_TEST_VERSION "1.12"' >> version.h.new
+	test -f "version.h" || cp -f version.h.new version.h
+	test "$(shell md5sum version.h |cut -d' ' -f1 )x == $(shell md5sum version.h.new |cut -d' ' -f1 )x" || cp -f version.h.new version.h 
 	cd build && make -j6
 
 all: bin AppImage
