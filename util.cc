@@ -123,3 +123,48 @@ std::filesystem::path TmpDir::getFileCopy(const std::filesystem::path& original_
 	}
 	return ret;
 }
+
+////////////////////////////////////////////////////////////////////////////////////
+#undef __CLASS__
+#define __CLASS__ ""
+
+const char* E2S(int error) {
+#	define return_error(val) if (error == -val) return #val
+	return_error(EAGAIN );
+	return_error(EPERM  );
+	return_error(ENOENT );
+	return_error(ESRCH  );
+	return_error(EINTR  );
+	return_error(EIO    );
+	return_error(ENXIO  );
+	return_error(E2BIG  );
+	return_error(ENOEXEC);
+	return_error(EBADF  );
+	return_error(ECHILD );
+	return_error(EAGAIN );
+	return_error(ENOMEM );
+	return_error(EACCES );
+	return_error(EFAULT );
+	return_error(ENOTBLK);
+	return_error(EBUSY  );
+	return_error(EEXIST	);
+	return_error(EXDEV  );
+	return_error(ENODEV	);
+	return_error(ENOTDIR);
+	return_error(EISDIR );
+	return_error(EINVAL );
+	return_error(ENFILE );
+	return_error(EMFILE );
+	return_error(ENOTTY );
+	return_error(ETXTBSY);
+	return_error(EFBIG  );
+	return_error(ENOSPC );
+	return_error(ESPIPE );
+	return_error(EROFS  );
+	return_error(EMLINK );
+	return_error(EPIPE  );
+	return_error(EDOM   );
+	return_error(ERANGE );
+	return "unknown";
+#   undef return_error
+}

@@ -46,19 +46,25 @@ struct alignas(aligned_buffer_size) aligned_buffer_t {
 #define __CLASS__ "Stats::"
 
 struct Stats {
-	uint64_t blocks = 0;
-	uint64_t KB_read = 0;
+	uint64_t blocks        = 0;
+	uint64_t blocks_read   = 0;
+	uint64_t blocks_write  = 0;
+	uint64_t KB_read  = 0;
 	uint64_t KB_write = 0;
 	Stats operator- (const Stats& val) {
 		Stats ret = *this;
-		ret.blocks -= val.blocks;
-		ret.KB_read -= val.KB_read;
+		ret.blocks       -= val.blocks;
+		ret.blocks_read  -= val.blocks_read;
+		ret.blocks_write -= val.blocks_write;
+		ret.KB_read  -= val.KB_read;
 		ret.KB_write -= val.KB_write;
 		return ret;
 	}
 	void increment(const Stats& val) {
-		blocks += val.blocks;
-		KB_read += val.KB_read;
+		blocks       += val.blocks;
+		blocks_read  += val.blocks_read;
+		blocks_write += val.blocks_write;
+		KB_read  += val.KB_read;
 		KB_write += val.KB_write;
 	}
 };
@@ -71,6 +77,7 @@ class AIORequest {
 	public:  // ------------------------------------------------------------
 	int              pos    = -1;
 	bool             active = false;
+	bool             write  = false;
 	int              fd     = 0;
 	io_context_t*    ctx    = nullptr;
 	iocb             cb;
@@ -87,12 +94,13 @@ class AIORequest {
 		buffer = buffer_;
 		size = size_;
 		offset = offset_;
+		write = write_;
 		assert(pos >= 0);
 		assert(!active);
 		assert(size > 0);
 		assert(offset >= 0);
 
-		if (write_) {
+		if (write) {
 			reset_stats(0, size / 1024);
 			io_prep_pwrite(&cb, fd, buffer, size, offset);
 		} else { //read
@@ -102,8 +110,15 @@ class AIORequest {
 		cb.data = this;
 
 		iocb* iocbs[1] = {&cb};
-		if (io_submit(*ctx, 1, iocbs) != 1) {
-			throw std::runtime_error("failed to submit aio request");
+		auto ret = io_submit(*ctx, 1, iocbs);
+		if (ret == 1) {
+			active = true;
+		} else if (ret == 0) {
+			spdlog::warn("aio submit returned 0", E2S(ret));
+		} else if (ret == -EINTR || ret == -EAGAIN) {
+			spdlog::warn("aio submit returned -{}", E2S(ret));
+		} else {
+			throw std::runtime_error(fmt::format("failed to submit aio request: -{}", E2S(ret)).c_str());
 		}
 	}
 
@@ -121,6 +136,8 @@ class AIORequest {
 
 	void reset_stats(typeof(stats.KB_read) read, typeof(stats.KB_write) write) {
 		stats.blocks = 1;
+		stats.blocks_read  = (read  > 0) ? 1 : 0;
+		stats.blocks_write = (write > 0) ? 1 : 0;
 		stats.KB_read = read;
 		stats.KB_write = write;
 	}
@@ -129,7 +146,7 @@ class AIORequest {
 class AIOController {
 	int      fd;
 	uint32_t iodepth;
-	uint32_t in_progress = 0;
+	uint32_t in_progress   = 0;
 	bool*    stop;
 	Stats*   stats;
 	io_context_t ctx;
@@ -142,9 +159,12 @@ class AIOController {
 		stop(stop_), stats(stats_)
 	{
 		DEBUG_MSG("constructor");
+
 		memset(&ctx, 0, sizeof(ctx));
-		if (io_setup(iodepth + 5, &ctx) != 0) {
-			throw std::runtime_error("io_setup returned error");
+
+		auto ret = io_setup(iodepth + 5, &ctx);
+		if (ret != 0) {
+			throw std::runtime_error(fmt::format("io_setup returned error {}:{}", ret, E2S(ret)).c_str());
 		}
 
 		request_list.reset(new AIORequest[iodepth]);
@@ -172,23 +192,33 @@ class AIOController {
 			if (stop != nullptr && *stop)
 				return false;
 			timeout.tv_sec = 0;
-			timeout.tv_nsec = 200000000;
+			timeout.tv_nsec = 100000000;
 
 			auto nevents = io_getevents(ctx, 0, iodepth, events, &timeout);
 			if (stop != nullptr && *stop)
 				return false;
-			if (nevents < 0 && errno != EAGAIN) {
-				std::runtime_error(fmt::format("io_getevents returned error: {}", alutils::strerror2(errno)).c_str());
-				return false;
+			if (nevents == 0) {
+				continue;
+			} else if (nevents < 0) {
+				if (nevents != -EAGAIN && nevents != -EINTR) {
+					spdlog::warn("io_getevents returned {}:{}", nevents, E2S(nevents));
+				} else {
+					throw std::runtime_error(fmt::format("io_getevents returned error: {}:{}", nevents, E2S(nevents)).c_str());
+				}
 			}
+			Stats stats_sum;
 			for (int i = 0; i < nevents; i++) {
-				in_progress--;
 				if (events[i].data) {
+					in_progress--;
 					auto req = ((AIORequest*) events[i].data);
 					assert(req->pos >= 0 && req->pos < iodepth);
-					stats->increment(req->stats);
+					assert(req->active);
 					req->active = false;
+					stats_sum.increment(req->stats);
 				}
+			}
+			if (stats != nullptr) {
+				stats->increment(stats_sum);
 			}
 			if (nevents > 0)
 				break;
@@ -218,14 +248,18 @@ class AIOController {
 
 	void request_read(int number, void* buffer, size_t size, long long offset) {
 		assert(number >= 0 && number < iodepth);
-		in_progress++;
 		request_list[number].request(false, buffer, size, offset);
+		if (request_list[number].active) {
+			in_progress++;
+		}
 	}
 
 	void request_write(int number, void* buffer, size_t size, long long offset) {
 		assert(number >= 0 && number < iodepth);
-		in_progress++;
 		request_list[number].request(true, buffer, size, offset);
+		if (request_list[number].active) {
+			in_progress++;
+		}
 	}
 };
 
@@ -384,13 +418,16 @@ class Worker {
 		}
 		spdlog::info("worker thread finished");
 	}
+
 	bool isActive() {
 		if (thread_exception) std::rethrow_exception(thread_exception);
 		return !stop_;
 	}
+
 	void stop() noexcept {
 		stop_ = true;
 	}
+
 	void wait(bool value=true) noexcept {
 		args->wait = value;
 	}
@@ -579,7 +616,9 @@ class Program {
 							fmt::format(", \"total_MiB/s\":\"{:.1f}\"", static_cast<double>((delta.KB_read + delta.KB_write) * 1000)/static_cast<double>(elapsed_ms * 1024) ) +
 							fmt::format(", \"read_MiB/s\":\"{:.1f}\"",  static_cast<double>(delta.KB_read  * 1000)/static_cast<double>(elapsed_ms * 1024) ) +
 							fmt::format(", \"write_MiB/s\":\"{:.1f}\"", static_cast<double>(delta.KB_write * 1000)/static_cast<double>(elapsed_ms * 1024) ) +
-							fmt::format(", \"blocks/s\":\"{:.1f}\"",    static_cast<double>(delta.blocks   * 1000)/static_cast<double>(elapsed_ms) );
+							fmt::format(", \"blocks/s\":\"{:.1f}\"",    static_cast<double>(delta.blocks   * 1000)/static_cast<double>(elapsed_ms) ) +
+							fmt::format(", \"blocks_read/s\":\"{:.1f}\"",  static_cast<double>(delta.blocks_read  * 1000)/static_cast<double>(elapsed_ms) ) +
+							fmt::format(", \"blocks_write/s\":\"{:.1f}\"", static_cast<double>(delta.blocks_write * 1000)/static_cast<double>(elapsed_ms) ) ;
 						spdlog::info("STATS: {{{}, {}}}", aux_str, aux_args);
 					} else { // args changed. skip stats for one period
 						args->changed = false;
