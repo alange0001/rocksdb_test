@@ -159,16 +159,17 @@ class AIOController {
 		stop(stop_), stats(stats_)
 	{
 		DEBUG_MSG("constructor");
+		assert(iodepth > 0 && iodepth <= max_iodepth);
 
 		memset(&ctx, 0, sizeof(ctx));
 
-		auto ret = io_setup(iodepth + 5, &ctx);
+		auto ret = io_setup(max_iodepth, &ctx);
 		if (ret != 0) {
 			throw std::runtime_error(fmt::format("io_setup returned error {}:{}", ret, E2S(ret)).c_str());
 		}
 
-		request_list.reset(new AIORequest[iodepth]);
-		for (int i = 0; i < iodepth; i++) {
+		request_list.reset(new AIORequest[max_iodepth]);
+		for (uint32_t i = 0; i < max_iodepth; i++) {
 			request_list[i].init(i, &ctx, fd);
 		}
 	}
@@ -186,15 +187,12 @@ class AIOController {
 		if (in_progress < iodepth)
 			return true;
 
-		timespec timeout;
-		io_event events[iodepth];
+		io_event events[max_iodepth];
 		while (1) {
 			if (stop != nullptr && *stop)
 				return false;
-			timeout.tv_sec = 0;
-			timeout.tv_nsec = 100000000;
 
-			auto nevents = io_getevents(ctx, 0, iodepth, events, &timeout);
+			auto nevents = io_getevents(ctx, 0, iodepth, events, nullptr);
 			if (stop != nullptr && *stop)
 				return false;
 			if (nevents == 0) {
@@ -207,27 +205,32 @@ class AIOController {
 				}
 			}
 			Stats stats_sum;
+			uint32_t nevents_under_iodepth = 0;
 			for (int i = 0; i < nevents; i++) {
 				if (events[i].data) {
 					in_progress--;
 					auto req = ((AIORequest*) events[i].data);
-					assert(req->pos >= 0 && req->pos < iodepth);
+					assert(req->pos >= 0 && req->pos < max_iodepth);
 					assert(req->active);
 					req->active = false;
 					stats_sum.increment(req->stats);
+					if (req->pos < iodepth) {
+						nevents_under_iodepth++;
+					}
 				}
 			}
 			if (stats != nullptr) {
 				stats->increment(stats_sum);
 			}
-			if (nevents > 0)
+			if (nevents > 0 && nevents_under_iodepth > 0)
 				break;
+			std::this_thread::sleep_for(std::chrono::milliseconds(50));
 		}
 		return true;
 	}
 
 	bool overlap(size_t size, long long offset) {
-		for (int i = 0; i < iodepth; i++) {
+		for (int i = 0; i < max_iodepth; i++) {
 			if (request_list[i].overlap(size, offset)) {
 				return true;
 			}
@@ -260,6 +263,11 @@ class AIOController {
 		if (request_list[number].active) {
 			in_progress++;
 		}
+	}
+
+	void update_iodepth(uint32_t new_iodepth) {
+		DEBUG_MSG("iodepth changed from {} to {}", iodepth, new_iodepth);
+		iodepth = new_iodepth;
 	}
 };
 
@@ -333,30 +341,22 @@ class Worker {
 	void threadMain() noexcept {
 		spdlog::info("initiating worker thread");
 		try {
-			const uint32_t random_scale = 10000;
-			std::uniform_int_distribution<uint32_t> rand_ratio(0,random_scale -1);
-
-			auto cur_block_size  = args->block_size;
-			uint64_t buffer_size = cur_block_size * 1024; // KiB to B;
-			std::unique_ptr<aligned_buffer_t[]> buffer_mem;
-			char* buffer;
-			uint64_t file_blocks;
-
-			std::unique_ptr<std::uniform_int_distribution<uint64_t>> rand_block;
-
 			uint64_t flush_count = 0;
 			uint64_t sleep_count = 0;
-			uint64_t cur_block = 0;
+			const uint32_t random_scale = 10000;
 
-			buffer_mem.reset(new aligned_buffer_t[(buffer_size*args->iodepth)/sizeof(aligned_buffer_t)]);
-			buffer = buffer_mem[0].data;
-			randomize_buffer(buffer, buffer_size * args->iodepth);
+			std::uniform_int_distribution<uint32_t> rand_ratio(0,random_scale -1);
+			std::unique_ptr<std::uniform_int_distribution<uint64_t>> rand_block;
 
-			file_blocks = (args->filesize * 1024) / cur_block_size;
+			typeof(Args::block_size) cur_block_size  = 0;
+			uint64_t buffer_size = 0;
+			uint64_t file_blocks = 0;
+			uint64_t cur_block   = 0;
+			uint32_t cur_iodepth = args->iodepth;
 
-			rand_block.reset(new std::uniform_int_distribution<uint64_t>(0, file_blocks -1));
-
-			cur_block = file_blocks; // seek 0 if next sequential I/O
+			std::unique_ptr<aligned_buffer_t[]> buffer_list[max_iodepth];
+			uint64_t buffer_size_list[max_iodepth];
+			memset(buffer_size_list, 0, sizeof(uint64_t) * max_iodepth);
 
 			while (!stop_) {
 				if (args->wait)
@@ -370,11 +370,21 @@ class Worker {
 				}
 				if (stop_) break;
 
+				if (cur_block_size != args->block_size) { // check block size
+					DEBUG_MSG("cur_block_size changed from {} to {}", cur_block_size, args->block_size);
+					cur_block_size = args->block_size;
+					buffer_size = cur_block_size * 1024; // KiB to B;
+					file_blocks = (args->filesize * 1024) / cur_block_size;
+
+					rand_block.reset(new std::uniform_int_distribution<uint64_t>(0, file_blocks -1));
+
+					cur_block = file_blocks; // seek 0 if next sequential I/O
+				}
+
 				uint32_t write_ratio_uint = (uint32_t) (args->write_ratio * random_scale);
 				uint32_t random_ratio_uint = (uint32_t) (args->random_ratio * random_scale);
 
 				long long offset;
-
 				do {
 					if (rand_ratio(rand_eng) < random_ratio_uint) { //random access
 						cur_block = (*rand_block)(rand_eng);
@@ -387,10 +397,32 @@ class Worker {
 					offset = cur_block * buffer_size;
 				} while(iocontroller->overlap(buffer_size, offset));
 
+				if (cur_iodepth != args->iodepth) {
+					cur_iodepth = args->iodepth;
+					iocontroller->update_iodepth(cur_iodepth);
+				}
+
 				auto n = iocontroller->get_free_request_number();
+				if (stop_) break;
+
 				if (n >= 0) {
+					assert( n < max_iodepth );
+					char* buffer;
+
+					// check for buffer_size update in buffer_size_list
+					if (buffer_size != buffer_size_list[n]) {
+						DEBUG_MSG("buffer_size_list[{}] changed from {} to {}", n, buffer_size_list[n], buffer_size);
+						buffer_list[n].reset(new aligned_buffer_t[buffer_size/sizeof(aligned_buffer_t)]);
+						buffer = buffer_list[n][0].data;
+						randomize_buffer(buffer, buffer_size);
+						buffer_size_list[n] = buffer_size;
+					} else {
+						buffer = buffer_list[n][0].data;
+					}
+
+					// request read/write
 					if (rand_ratio(rand_eng) < write_ratio_uint) { //write
-						iocontroller->request_write(n, &buffer[buffer_size * n], buffer_size, offset);
+						iocontroller->request_write(n, buffer, buffer_size, offset);
 
 						if (args->flush_blocks) {
 							if (++flush_count >= args->flush_blocks) {
@@ -399,10 +431,10 @@ class Worker {
 							}
 						}
 					} else {                                       //read
-						iocontroller->request_read(n, &buffer[buffer_size * n], buffer_size, offset);
+						iocontroller->request_read(n, buffer, buffer_size, offset);
 					}
 				} else {
-					spdlog::warn("invalid free request number: {}", n);
+					spdlog::warn("Invalid free request number ({}). Try again in the next loop.", n);
 				}
 
 				if (!stop_ && args->sleep_interval > 0) {

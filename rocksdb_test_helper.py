@@ -224,6 +224,7 @@ class GenericExperiment:
 		('at_dir',              {'group': 'at3', 'type': str,  'default': None,         'register':True,  'help': 'Directory containing the files used by the access_time3 instances. By default, this argument is configured automatically (<DATA_PATH>/tmp).' }),
 		('at_file',             {'group': 'at3', 'type': str,  'default': None,         'register':False, 'help': 'Files used by the access_time3 instances (separated by #). Also configured automatically.' }),
 		('at_block_size',       {'group': 'at3', 'type': str,  'default': None,         'register':False, 'help': 'Block size used by the access_time3 instances (default=512).' }),
+		('at_iodepth',          {'group': 'at3', 'type': str,  'default': 1,            'register':True,  'help': 'I/O depth used by the access_time3 instances (default=1).' }),
 		('at_params',           {'group': 'at3', 'type': str,  'default': None,         'register':True,  'help': 'Extra access_time3 arguments, if necessary.' }),
 		('at_script',           {'group': 'at3', 'type': str,  'default': None,         'register':False, 'help': 'Access_time3 script (separated by "#"). Generated automatically by experiments ycsb_at3 and dbbench_at3.' }),
 	#	('perfmon',             {'group': 'gen', 'type': str,  'default': None,         'register':True,  'help': 'Connect to performancemonitor.' }),
@@ -539,7 +540,7 @@ class ExpYcsbAt3 (GenericExperiment):
 		cls.exp_params['rocksdb_config_file']['register'] = True
 		cls.exp_params['rocksdb_config_file']['default']  = ''
 		cls.exp_params['num_at']['default']       = 4
-		cls.exp_params['at_params']['default']    = '--flush_blocks=0 --random_ratio=0.5 --wait --iodepth=8'
+		cls.exp_params['at_params']['default']    = '--flush_blocks=0 --random_ratio=0.5 --wait'
 
 	def run(self):
 		log.debug(f'Exp_ycsb_at3.run()')
@@ -673,7 +674,7 @@ class ExpDbbenchAt3 (GenericExperiment):
 		cls.exp_params['warm_period']['default']  = 30
 		cls.exp_params['num_dbs']['default']      = 1
 		cls.exp_params['num_at']['default']       = 4
-		cls.exp_params['at_params']['default']    = '--flush_blocks=0 --random_ratio=0.5 --wait --iodepth=8'
+		cls.exp_params['at_params']['default']    = '--flush_blocks=0 --random_ratio=0.5 --wait'
 
 	def run(self):
 		log.debug(f'Exp_dbbench_at3.run()')

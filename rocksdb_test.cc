@@ -643,6 +643,7 @@ class AccessTime3 : public ExperimentTask {
 			format("    --filename=\"/workdata/{}\"                   \\\n", args->at_file[number]) +
 			format("    --create_file=false                           \\\n") +
 			format("    --block_size={}                               \\\n", args->at_block_size[number]) +
+			format("    --iodepth={}                                  \\\n", args->at_iodepth[number]) +
 			format("    --command_script=\"{}\"                       \\\n", args->at_script[number]) +
 			format("    {} 2>&1 ", args->at_params[number]);
 

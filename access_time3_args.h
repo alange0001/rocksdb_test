@@ -15,6 +15,8 @@ using std::deque;
 
 ////////////////////////////////////////////////////////////////////////////////////
 
+const uint32_t max_iodepth = 128;
+
 /*_f(ARG_name, ARG_type, ARG_flag_type, ARG_flag_default, ARG_help, ARG_condition, ARG_set_event)*/
 #define ALL_ARGS_Direct_F( _f )                                   \
 	_f(log_level, string, DEFINE_string,                          \
@@ -90,7 +92,7 @@ using std::deque;
 	_f(iodepth, uint32_t, DEFINE_uint32,                          \
 		1,                                                        \
 		"iodepth",                                                \
-		value > 0,                                                \
+		value > 0 && value <= max_iodepth,                        \
 		nullptr)                                                  \
 	_f(stats_interval, uint32_t, DEFINE_uint32,                   \
 		5,                                                        \

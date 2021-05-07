@@ -125,10 +125,12 @@ void Args::executeCommand(const string& command_line) {
 				"    wait           - (true|false)\n"
 				"    sleep_interval - nanoseconds\n"
 				"    sleep_count    - [1..]\n"
+				"    block_size     - [4..]\n"
+				"    iodepth        - [1..{}]\n"
 				"    write_ratio    - [0..1]\n"
 				"    random_ratio   - [0..1]\n"
 				"    flush_blocks   - [0..]\n"
-				);
+				, max_iodepth);
 		return;
 	}
 
@@ -150,6 +152,8 @@ void Args::executeCommand(const string& command_line) {
 	parseLineCommand(wait, alutils::parseBool, false, true);
 	parseLineCommand(sleep_interval, alutils::parseUint64, true, 0);
 	parseLineCommandValidate(sleep_count, alutils::parseUint64);
+	parseLineCommandValidate(block_size, alutils::parseUint64);
+	parseLineCommandValidate(iodepth, alutils::parseUint32);
 	parseLineCommandValidate(write_ratio, alutils::parseDouble);
 	parseLineCommandValidate(random_ratio, alutils::parseDouble);
 	parseLineCommand(flush_blocks, alutils::parseUint64, true, 0);
@@ -166,6 +170,7 @@ string Args::strStat() {
 	addArgStr(wait);
 	addArgStr(filesize);
 	addArgStr(block_size);
+	addArgStr(iodepth);
 	addArgStr(flush_blocks);
 	addArgStr(write_ratio);
 	addArgStr(random_ratio);
