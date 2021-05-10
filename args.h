@@ -267,6 +267,14 @@ using std::function;
 		uint32_t,                                                 \
 		value > 0,                                                \
 		num_at)                                                   \
+	_f(at_io_engine, VectorParser<string>, DEFINE_string,         \
+		"posix",                                                  \
+		"access_time3 --io_engine (list)",                        \
+		true,                                                     \
+		nullptr,                                                  \
+		string,                                                   \
+		value.length() > 0,                                       \
+		num_at)                                                   \
 	_f(at_params, VectorParser<string>, DEFINE_string,            \
 		"--random_ratio=0.1 --write_ratio=0.3",                   \
 		"other params for the access_time3 (list)",               \
