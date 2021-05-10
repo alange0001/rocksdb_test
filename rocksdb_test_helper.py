@@ -225,6 +225,7 @@ class GenericExperiment:
 		('at_file',             {'group': 'at3', 'type': str,  'default': None,         'register':False, 'help': 'Files used by the access_time3 instances (separated by #). Also configured automatically.' }),
 		('at_block_size',       {'group': 'at3', 'type': str,  'default': None,         'register':False, 'help': 'Block size used by the access_time3 instances (default=512).' }),
 		('at_iodepth',          {'group': 'at3', 'type': str,  'default': 1,            'register':True,  'help': 'I/O depth used by the access_time3 instances (default=1).' }),
+		('at_io_engine',        {'group': 'at3', 'type': str,  'default': None,         'register':True,  'help': 'I/O engine used by the access_time3 instances.' }),
 		('at_params',           {'group': 'at3', 'type': str,  'default': None,         'register':True,  'help': 'Extra access_time3 arguments, if necessary.' }),
 		('at_script',           {'group': 'at3', 'type': str,  'default': None,         'register':False, 'help': 'Access_time3 script (separated by "#"). Generated automatically by experiments ycsb_at3 and dbbench_at3.' }),
 	#	('perfmon',             {'group': 'gen', 'type': str,  'default': None,         'register':True,  'help': 'Connect to performancemonitor.' }),
