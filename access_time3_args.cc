@@ -123,8 +123,6 @@ void Args::executeCommand(const string& command_line) {
 				"COMMANDS:\n"
 				"    stop           - terminate\n"
 				"    wait           - (true|false)\n"
-				"    sleep_interval - nanoseconds\n"
-				"    sleep_count    - [1..]\n"
 				"    block_size     - [4..]\n"
 				"    iodepth        - [1..{}]\n"
 				"    write_ratio    - [0..1]\n"
@@ -150,8 +148,6 @@ void Args::executeCommand(const string& command_line) {
 				return; \
 		}
 	parseLineCommand(wait, alutils::parseBool, false, true);
-	parseLineCommand(sleep_interval, alutils::parseUint64, true, 0);
-	parseLineCommandValidate(sleep_count, alutils::parseUint64);
 	parseLineCommandValidate(block_size, alutils::parseUint64);
 	parseLineCommandValidate(iodepth, alutils::parseUint32);
 	parseLineCommandValidate(write_ratio, alutils::parseDouble);
@@ -174,8 +170,6 @@ string Args::strStat() {
 	addArgStr(flush_blocks);
 	addArgStr(write_ratio);
 	addArgStr(random_ratio);
-	addArgStr(sleep_interval);
-	addArgStr(sleep_count);
 #	undef addArgStr
 
 	return ret;

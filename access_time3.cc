@@ -12,6 +12,7 @@
 #include <random>
 #include <regex>
 #include <limits>
+#include <set>
 
 #include <iostream>
 
@@ -20,6 +21,7 @@
 
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/uio.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <libaio.h>
@@ -56,226 +58,467 @@ struct Stats {
 		ret.blocks       -= val.blocks;
 		ret.blocks_read  -= val.blocks_read;
 		ret.blocks_write -= val.blocks_write;
-		ret.KB_read  -= val.KB_read;
-		ret.KB_write -= val.KB_write;
+		ret.KB_read      -= val.KB_read;
+		ret.KB_write     -= val.KB_write;
 		return ret;
 	}
-	void increment(const Stats& val) {
+	Stats& operator+= (const Stats& val) {
 		blocks       += val.blocks;
 		blocks_read  += val.blocks_read;
 		blocks_write += val.blocks_write;
-		KB_read  += val.KB_read;
-		KB_write += val.KB_write;
+		KB_read      += val.KB_read;
+		KB_write     += val.KB_write;
+		return *this;
 	}
 };
 
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
-#define __CLASS__ "AIOController"
+#define __CLASS__ "GenericEngine::"
+
+typedef std::function<void(const Stats& val)> increment_stats_t;
+
+class GenericEngine {
+	public: //---------------------------------------------------------------------
+	GenericEngine() {}
+	virtual ~GenericEngine() {}
+	virtual void make_requests(bool& stop_) {}
+	virtual void wait() {}
+};
+
+////////////////////////////////////////////////////////////////////////////////////
+#undef __CLASS__
+#define __CLASS__ "AccessParams::"
+
+struct AccessParams {
+	typeof(Args::block_size) block_size;
+	size_t     size;
+	long long  offset;
+	bool       write;
+};
+
+typedef std::function<AccessParams()> access_params_t;
+
+////////////////////////////////////////////////////////////////////////////////////
+#undef __CLASS__
+#define __CLASS__ "AIORequest::"
+
+typedef std::function<void(char* buffer, uint32_t size)> randomize_buffer_t;
+typedef std::function<void(long long offset)> offset_released_t;
 
 class AIORequest {
 	public:  // ------------------------------------------------------------
+	struct Options {
+		int                 pos_count = 0;
+		int                 fd;
+		io_context_t*       ctx;
+		randomize_buffer_t  randomize_buffer;
+		access_params_t     access_params;
+		offset_released_t   offset_released;
+
+		Options(int fd_, io_context_t* ctx_, randomize_buffer_t randomize_buffer_, access_params_t access_params_,
+		        offset_released_t offset_released_)
+		        : fd(fd_), ctx(ctx_),
+		          randomize_buffer(randomize_buffer_),
+				  access_params(access_params_),
+				  offset_released(offset_released_) {}
+	};
+
+	Options*         options;
 	int              pos    = -1;
 	bool             active = false;
 	bool             write  = false;
-	int              fd     = 0;
-	io_context_t*    ctx    = nullptr;
 	iocb             cb;
 	Stats            stats;
 	size_t           size   = 0;
 	long long        offset = 0;
-	void*            buffer = nullptr;
 
-	void init(int pos_, io_context_t* ctx_, int fd_) {
-		pos = pos_; ctx = ctx_; fd = fd_;
+	std::unique_ptr<aligned_buffer_t[]> buffer_mem;
+	char*            buffer = nullptr;
+
+	AIORequest(Options* options_) : options(options_) {
+		assert( options != nullptr );
+		pos = options->pos_count++;
 	}
 
-	void request(bool write_, void* buffer_, size_t size_, long long offset_) {
-		buffer = buffer_;
-		size = size_;
-		offset = offset_;
-		write = write_;
+	~AIORequest() {
+		if (active) {
+			spdlog::info("AIORequest[{}] is still active. Canceling it.", pos);
+			io_event event;
+			auto ret = io_cancel(*(options->ctx), &cb, &event);
+			if (ret < 0) {
+				spdlog::warn("\tio_cancel returned error {}:{}", ret, E2S(ret));
+			}
+		}
+	}
+
+	bool request() {
 		assert(pos >= 0);
 		assert(!active);
-		assert(size > 0);
-		assert(offset >= 0);
 
-		if (write) {
-			reset_stats(0, size / 1024);
-			io_prep_pwrite(&cb, fd, buffer, size, offset);
+		auto params = options->access_params();
+		assert(params.size > 0);
+		if (size != params.size) {
+			DEBUG_MSG("request size changed from {} to {}", size, params.size);
+			size = params.size;
+			buffer_mem.reset(new aligned_buffer_t[size/sizeof(aligned_buffer_t)]);
+			buffer = buffer_mem[0].data;
+			options->randomize_buffer(buffer, size);
+		}
+
+		stats = Stats{
+			.blocks = 1,
+			.blocks_read  = static_cast<uint64_t>( (!params.write) ? 1 : 0 ),
+			.blocks_write = static_cast<uint64_t>( ( params.write) ? 1 : 0 ),
+			.KB_read  = (!params.write) ? params.block_size : 0,
+			.KB_write = ( params.write) ? params.block_size : 0,
+		};
+
+		write = params.write;
+		offset = params.offset;
+
+		if (params.write) {
+			io_prep_pwrite(&cb, options->fd, buffer, size, offset);
 		} else { //read
-			reset_stats(size / 1024, 0);
-			io_prep_pread(&cb, fd, buffer, size, offset);
+			io_prep_pread(&cb, options->fd, buffer, size, offset);
 		}
 		cb.data = this;
 
-		iocb* iocbs[1] = {&cb};
-		auto ret = io_submit(*ctx, 1, iocbs);
+		iocb* iocbs[] = {&cb};
+		auto ret = io_submit(*(options->ctx), 1, iocbs);
 		if (ret == 1) {
 			active = true;
+			return true;
 		} else if (ret == 0) {
-			spdlog::warn("aio submit returned 0", E2S(ret));
+			spdlog::warn("aio submit returned 0");
 		} else if (ret == -EINTR || ret == -EAGAIN) {
-			spdlog::warn("aio submit returned -{}", E2S(ret));
+			spdlog::warn("aio submit returned {}:{}", ret, E2S(ret));
 		} else {
-			throw std::runtime_error(fmt::format("failed to submit aio request: -{}", E2S(ret)).c_str());
+			throw std::runtime_error(fmt::format("failed to submit the aio request: {}:{}", ret, E2S(ret)).c_str());
 		}
+		return false;
 	}
 
-	bool overlap(size_t size_, long long offset_) {
-		if (!active || size == 0 || size_ == 0)
-			return false;
-		long long end  = offset  + size  -1;
-		long long end_ = offset_ + size_ -1;
-		return (offset_ >= offset && offset_ <= end)
-		    || (end_ >= offset && end_ <= end)
-		    || (offset_ <= offset && end_ >= end);
-	}
-
-	private: // ------------------------------------------------------------
-
-	void reset_stats(typeof(stats.KB_read) read, typeof(stats.KB_write) write) {
-		stats.blocks = 1;
-		stats.blocks_read  = (read  > 0) ? 1 : 0;
-		stats.blocks_write = (write > 0) ? 1 : 0;
-		stats.KB_read = read;
-		stats.KB_write = write;
+	void request_finished() {
+		assert(active);
+		active = false;
+		options->offset_released(offset);
 	}
 };
 
-class AIOController {
-	int      fd;
-	uint32_t iodepth;
-	uint32_t in_progress   = 0;
-	bool*    stop;
-	Stats*   stats;
+////////////////////////////////////////////////////////////////////////////////////
+#undef __CLASS__
+#define __CLASS__ "AIOEngine::"
+
+class AIOEngine : public GenericEngine {
 	io_context_t ctx;
-	std::unique_ptr<AIORequest[]>  request_list;
+
+	std::unique_ptr<AIORequest::Options> request_options;
+	std::unique_ptr<std::unique_ptr<AIORequest>[]> request_list;
+
+	uint32_t& iodepth;
+	increment_stats_t increment_stats;
 
 	public:  // ------------------------------------------------------------
-
-	AIOController(int fd_, uint32_t iodepth_, bool* stop_, Stats* stats_) :
-		fd(fd_), iodepth(iodepth_),
-		stop(stop_), stats(stats_)
+	AIOEngine(int fd, uint32_t& iodepth_, increment_stats_t increment_stats_, randomize_buffer_t randomize_buffer_,
+	          access_params_t access_params_, offset_released_t offset_released_)
+	          : iodepth(iodepth_), increment_stats(increment_stats_)
 	{
 		DEBUG_MSG("constructor");
-		assert(iodepth > 0 && iodepth <= max_iodepth);
 
 		memset(&ctx, 0, sizeof(ctx));
-
 		auto ret = io_setup(max_iodepth, &ctx);
 		if (ret != 0) {
 			throw std::runtime_error(fmt::format("io_setup returned error {}:{}", ret, E2S(ret)).c_str());
 		}
 
-		request_list.reset(new AIORequest[max_iodepth]);
-		for (uint32_t i = 0; i < max_iodepth; i++) {
-			request_list[i].init(i, &ctx, fd);
+		request_options.reset(new AIORequest::Options(fd, &ctx, randomize_buffer_, access_params_, offset_released_));
+
+		request_list.reset(new std::unique_ptr<AIORequest>[max_iodepth]);
+		for (int i = 0; i < max_iodepth; i++) {
+			request_list[i].reset(new AIORequest(request_options.get()));
 		}
 	}
 
-	~AIOController() {
+	~AIOEngine() {
 		DEBUG_MSG("destructor");
-		if (io_destroy(ctx) < 0) {
-			spdlog::error("io_destroy returned error");
+
+		spdlog::info("waiting for pending requests");
+		timespec timeout = {.tv_sec  = 0, .tv_nsec = 300 * 1000 * 1000 };
+		io_event events[max_iodepth];
+		auto ret = io_getevents(ctx, iodepth, max_iodepth, events, &timeout);
+		if (ret < 0) {
+			spdlog::error("io_getevents returned error {}:{}", ret, E2S(ret));
+		}
+		for (int i = 0; i < ret; i++)
+			request_list[i]->active = false;
+
+		DEBUG_MSG("removing request_list");
+		request_list.reset(nullptr);
+
+		DEBUG_MSG("io_destroy(ctx)");
+		ret = io_destroy(ctx);
+		if (ret < 0) {
+			spdlog::error("io_destroy returned error {}:{}", ret, E2S(ret));
 		}
 	}
 
-	bool wait_ready() {
-		if (stop != nullptr && *stop)
-			return false;
-		if (in_progress < iodepth)
-			return true;
-
-		io_event events[max_iodepth];
-		while (1) {
-			if (stop != nullptr && *stop)
-				return false;
-
-			auto nevents = io_getevents(ctx, 0, iodepth, events, nullptr);
-			if (stop != nullptr && *stop)
-				return false;
-			if (nevents == 0) {
-				continue;
-			} else if (nevents < 0) {
-				if (nevents != -EAGAIN && nevents != -EINTR) {
-					spdlog::warn("io_getevents returned {}:{}", nevents, E2S(nevents));
-				} else {
-					throw std::runtime_error(fmt::format("io_getevents returned error: {}:{}", nevents, E2S(nevents)).c_str());
-				}
+	void make_requests(bool& stop_) {
+		for (int i = 0; i < iodepth; i++ ){
+			if (! request_list[i]->active) {
+				request_list[i]->request();
 			}
+		}
+
+		if (stop_) return;
+
+		timespec timeout = {.tv_sec  = 0, .tv_nsec = 200 * 1000 * 1000 };
+		io_event events[max_iodepth];
+
+		auto nevents = io_getevents(ctx, 1, max_iodepth, events, &timeout);
+
+		if (stop_) return;
+
+		if (nevents < 0) {
+			if (nevents != -EAGAIN && nevents != -EINTR) {
+				spdlog::warn("io_getevents returned {}:{}", nevents, E2S(nevents));
+			} else {
+				throw std::runtime_error(fmt::format("io_getevents returned error: {}:{}", nevents, E2S(nevents)).c_str());
+			}
+		} else if (nevents > 0) {
 			Stats stats_sum;
-			uint32_t nevents_under_iodepth = 0;
 			for (int i = 0; i < nevents; i++) {
 				if (events[i].data) {
-					in_progress--;
 					auto req = ((AIORequest*) events[i].data);
 					assert(req->pos >= 0 && req->pos < max_iodepth);
-					assert(req->active);
-					req->active = false;
-					stats_sum.increment(req->stats);
-					if (req->pos < iodepth) {
-						nevents_under_iodepth++;
-					}
+					req->request_finished();
+					stats_sum += req->stats;
+
+					if (req->pos < iodepth)
+						req->request();
 				}
 			}
-			if (stats != nullptr) {
-				stats->increment(stats_sum);
-			}
-			if (nevents > 0 && nevents_under_iodepth > 0)
-				break;
-			std::this_thread::sleep_for(std::chrono::milliseconds(50));
+			increment_stats(stats_sum);
 		}
-		return true;
-	}
-
-	bool overlap(size_t size, long long offset) {
-		for (int i = 0; i < max_iodepth; i++) {
-			if (request_list[i].overlap(size, offset)) {
-				return true;
-			}
-		}
-		return false;
-	}
-
-	int get_free_request_number() {
-		if (wait_ready()) {
-			for (int i = 0; i < iodepth; i++) {
-				if (!request_list[i].active) {
-					return i;
-				}
-			}
-		}
-		return -1;
-	}
-
-	void request_read(int number, void* buffer, size_t size, long long offset) {
-		assert(number >= 0 && number < iodepth);
-		request_list[number].request(false, buffer, size, offset);
-		if (request_list[number].active) {
-			in_progress++;
-		}
-	}
-
-	void request_write(int number, void* buffer, size_t size, long long offset) {
-		assert(number >= 0 && number < iodepth);
-		request_list[number].request(true, buffer, size, offset);
-		if (request_list[number].active) {
-			in_progress++;
-		}
-	}
-
-	void update_iodepth(uint32_t new_iodepth) {
-		DEBUG_MSG("iodepth changed from {} to {}", iodepth, new_iodepth);
-		iodepth = new_iodepth;
 	}
 };
 
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
-#define __CLASS__ "Worker::"
+#define __CLASS__ "PosixEngine::"
 
-class Worker {
+class PosixEngine : public GenericEngine {
+	bool wait_ = true;
+	bool stop = false;
+
+	std::unique_ptr<std::unique_ptr<std::thread>[]> threads;
+	std::exception_ptr thread_exception;
+
+	int fd;
+	uint32_t& iodepth;
+	increment_stats_t increment_stats;
+
+	randomize_buffer_t randomize_buffer;
+	access_params_t    access_params;
+	offset_released_t  offset_released;
+
+	public: //---------------------------------------------------------------------
+	PosixEngine(int fd_, uint32_t& iodepth_, increment_stats_t increment_stats_, randomize_buffer_t randomize_buffer_,
+	            access_params_t access_params_, offset_released_t offset_released_)
+	          : fd(fd_), iodepth(iodepth_), increment_stats(increment_stats_),
+	            randomize_buffer(randomize_buffer_), access_params(access_params_),
+				offset_released(offset_released_)
+	{
+		DEBUG_MSG("constructor");
+
+		threads.reset(new std::unique_ptr<std::thread>[max_iodepth]);
+		for (int i = 0; i < max_iodepth; i++) {
+			threads[i].reset(new std::thread( [this, i]{this->worker_thread(i);} ));
+		}
+	}
+
+	~PosixEngine() {
+		DEBUG_MSG("destructor");
+		stop = true;
+		for (int i = 0; i < max_iodepth; i++) {
+			if (threads[i]->joinable())
+				threads[i]->join();
+		}
+		threads.reset(nullptr);
+	}
+
+	void make_requests(bool& stop_) {
+		if (thread_exception) {
+			stop = true;
+			std::rethrow_exception(thread_exception);
+		}
+
+		if (stop != stop_)
+			stop = stop_;
+		if (wait_)
+			wait_ = false;
+
+		std::this_thread::sleep_for(std::chrono::milliseconds(200));
+	}
+
+	void wait() {
+		wait_ = true;
+	}
+
+	void worker_thread(int pos) {
+		try {
+			size_t cur_size = -1;
+			std::unique_ptr<aligned_buffer_t[]> buffer_mem;
+			char* buffer = nullptr;
+
+			while (!stop) {
+				while (!stop && wait_) {
+					std::this_thread::sleep_for(std::chrono::milliseconds(200));
+				}
+				if (stop) break;
+
+				if (pos < iodepth) {
+					auto params = access_params();
+
+					assert(params.size > 0);
+					if (cur_size != params.size) {
+						DEBUG_MSG("(posix thread[{}]) request size changed from {} to {}", pos, cur_size, params.size);
+						cur_size = params.size;
+						buffer_mem.reset(new aligned_buffer_t[cur_size/sizeof(aligned_buffer_t)]);
+						buffer = buffer_mem[0].data;
+						randomize_buffer(buffer, cur_size);
+					}
+
+					iovec prw = { .iov_base = buffer, .iov_len = cur_size };
+					ssize_t ret;
+
+					if (params.write) {
+						ret = pwritev(fd, &prw, 1, params.offset);
+					} else {
+						ret = preadv(fd, &prw, 1, params.offset);
+					}
+
+					if (stop) break;
+
+					offset_released(params.offset);
+
+					if (ret > 0) {
+						Stats st = {
+							.blocks = 1,
+							.blocks_read  = static_cast<uint64_t>( (!params.write) ? 1 : 0 ),
+							.blocks_write = static_cast<uint64_t>( ( params.write) ? 1 : 0 ),
+							.KB_read  = (!params.write) ? params.block_size : 0,
+							.KB_write = ( params.write) ? params.block_size : 0,
+						};
+						//DEBUG_MSG("st: KB_read={}, KB_write={}", st.KB_read, st.KB_write);
+						increment_stats(st);
+					} else if (ret == 0) {
+						spdlog::error("(posix thread[{}]) read/write returned zero", pos);
+					} else {
+						if (errno != EAGAIN && errno != EINTR)
+							throw std::runtime_error(fmt::format("(posix thread[{}]) read/write error: {}",
+									pos, alutils::strerror2(errno)).c_str());
+					}
+				} else {
+					std::this_thread::sleep_for(std::chrono::milliseconds(500));
+				}
+			}
+		} catch (std::exception &e) {
+			DEBUG_MSG("(posix thread[{}]) exception received: {}", pos, e.what());
+			thread_exception = std::current_exception();
+		}
+	}
+};
+
+////////////////////////////////////////////////////////////////////////////////////
+#undef __CLASS__
+#define __CLASS__ "Lock::"
+
+class Lock {
+	bool active = false;
+	std::atomic_flag lock_flag = ATOMIC_FLAG_INIT;
+
+	public: //---------------------------------------------------------------------
+
+	Lock() {}
+	Lock(bool active_) : active(active_) {}
+	void activate() {active = true;}
+
+	// https://en.cppreference.com/w/cpp/atomic/atomic_flag
+	void lock() {
+		if (!active) return;
+
+		while (lock_flag.test_and_set(std::memory_order_acquire)) {  // acquire lock
+#			if defined(__cpp_lib_atomic_flag_test)
+			while (lock_flag.test(std::memory_order_relaxed))        // test lock
+#			endif
+			{
+				std::this_thread::yield(); // yield
+			}
+		}
+	}
+	void unlock() {
+		if (!active) return;
+		lock_flag.clear(std::memory_order_release);
+	}
+};
+
+////////////////////////////////////////////////////////////////////////////////////
+#undef __CLASS__
+#define __CLASS__ "SimpleSet::"
+
+template<typename T> class SimpleSet {
+	std::vector<T> list;
+
+	public: //---------------------------------------------------------------------
+
+	void clear() {
+		list.clear();
+	}
+
+	size_t size() {
+		return list.size();
+	}
+
+	bool not_found_and_insert(T val) {
+		for (auto& i : list) {
+			if (i == val) {
+				return false; // found
+			}
+		}
+		// not found. Inserting:
+		list.push_back(val);
+		return true;
+	}
+
+	bool find_and_remove(T val) {
+		for (auto& i : list) {
+			if (i == val) { // found
+				if (i != list[list.size()-1]) {
+					i = list[list.size()-1];
+				}
+				list.pop_back();
+				return true;
+			}
+		}
+		return false; // not found
+	}
+
+	std::string dump() {
+		std::string ret2;
+		for (auto& v: list) {
+			if (ret2.length()) ret2 += ", ";
+			ret2 += std::to_string(v);
+		}
+		return fmt::format("SimpleSet: size={}, list={{ {} }}", list.size(), ret2);
+	}
+};
+
+////////////////////////////////////////////////////////////////////////////////////
+#undef __CLASS__
+#define __CLASS__ "EngineController::"
+
+class EngineController {
 	Args*       args;
 	int         filed = -1;
 
@@ -283,51 +526,26 @@ class Worker {
 	std::exception_ptr thread_exception;
 	bool               stop_ = false;
 
-	std::unique_ptr<AIOController> iocontroller;
-
-	std::default_random_engine rand_eng;
-
 	public: //---------------------------------------------------------------------
 	Stats stats;
 
-	Worker(Args* args_) : args(args_) {
+	EngineController(Args* args_) : args(args_) {
 		DEBUG_MSG("constructor");
+		assert(args != nullptr);
 
 		if (args->create_file)
 			createFile();
 
-		struct stat st;
-		DEBUG_MSG("get file stats");
-		if (stat(args->filename.c_str(), &st) == EOF)
-			throw std::runtime_error("can't read file stats");
-		if ((args->block_size * 1024) % st.st_blksize != 0)
-			throw std::runtime_error("block size must be multiple of filesystem's block size");
-		if (!args->create_file) {
-			uint64_t size = st.st_size / 1024 / 1024;
-			spdlog::info("File already created. Set --filesize={}", size);
-			if (size < 10)
-				throw std::runtime_error("invalid --filesize");
-			args->filesize = size;
-		}
-		DEBUG_MSG("open file");
-		int flags = O_RDWR;
-		if (args->direct_io)
-			flags = flags|O_DIRECT;
-		filed = open(args->filename.c_str(), flags, 0640);
-		if (filed < 0)
-			throw std::runtime_error("can't open file");
-
-		iocontroller.reset(new AIOController(filed, args->iodepth, &stop_, &stats));
+		openFile();
 
 		thread = std::thread( [this]{this->threadMain();} );
 	}
 
-	~Worker() {
+	~EngineController() {
 		DEBUG_MSG("destructor");
 		stop_ = true;
 		if (thread.joinable())
 			thread.join();
-		iocontroller.reset(nullptr);
 		if (filed >= 0) {
 			DEBUG_MSG("close file");
 			close(filed);
@@ -336,119 +554,6 @@ class Worker {
 				std::remove(args->filename.c_str());
 			}
 		}
-	}
-
-	void threadMain() noexcept {
-		spdlog::info("initiating worker thread");
-		try {
-			uint64_t flush_count = 0;
-			uint64_t sleep_count = 0;
-			const uint32_t random_scale = 10000;
-
-			std::uniform_int_distribution<uint32_t> rand_ratio(0,random_scale -1);
-			std::unique_ptr<std::uniform_int_distribution<uint64_t>> rand_block;
-
-			typeof(Args::block_size) cur_block_size  = 0;
-			uint64_t buffer_size = 0;
-			uint64_t file_blocks = 0;
-			uint64_t cur_block   = 0;
-			uint32_t cur_iodepth = args->iodepth;
-
-			std::unique_ptr<aligned_buffer_t[]> buffer_list[max_iodepth];
-			uint64_t buffer_size_list[max_iodepth];
-			memset(buffer_size_list, 0, sizeof(uint64_t) * max_iodepth);
-
-			while (!stop_) {
-				if (args->wait)
-					spdlog::info("worker thread in wait mode");
-				while (!stop_ && args->wait) {
-					std::this_thread::sleep_for(std::chrono::milliseconds(200));
-					if (! args->wait) {
-						spdlog::info("exit wait mode");
-						break;
-					}
-				}
-				if (stop_) break;
-
-				if (cur_block_size != args->block_size) { // check block size
-					DEBUG_MSG("cur_block_size changed from {} to {}", cur_block_size, args->block_size);
-					cur_block_size = args->block_size;
-					buffer_size = cur_block_size * 1024; // KiB to B;
-					file_blocks = (args->filesize * 1024) / cur_block_size;
-
-					rand_block.reset(new std::uniform_int_distribution<uint64_t>(0, file_blocks -1));
-
-					cur_block = file_blocks; // seek 0 if next sequential I/O
-				}
-
-				uint32_t write_ratio_uint = (uint32_t) (args->write_ratio * random_scale);
-				uint32_t random_ratio_uint = (uint32_t) (args->random_ratio * random_scale);
-
-				long long offset;
-				do {
-					if (rand_ratio(rand_eng) < random_ratio_uint) { //random access
-						cur_block = (*rand_block)(rand_eng);
-					} else {                                        //sequential access
-						cur_block++;
-						if (cur_block >= file_blocks) {
-							cur_block = 0;
-						}
-					}
-					offset = cur_block * buffer_size;
-				} while(iocontroller->overlap(buffer_size, offset));
-
-				if (cur_iodepth != args->iodepth) {
-					cur_iodepth = args->iodepth;
-					iocontroller->update_iodepth(cur_iodepth);
-				}
-
-				auto n = iocontroller->get_free_request_number();
-				if (stop_) break;
-
-				if (n >= 0) {
-					assert( n < max_iodepth );
-					char* buffer;
-
-					// check for buffer_size update in buffer_size_list
-					if (buffer_size != buffer_size_list[n]) {
-						DEBUG_MSG("buffer_size_list[{}] changed from {} to {}", n, buffer_size_list[n], buffer_size);
-						buffer_list[n].reset(new aligned_buffer_t[buffer_size/sizeof(aligned_buffer_t)]);
-						buffer = buffer_list[n][0].data;
-						randomize_buffer(buffer, buffer_size);
-						buffer_size_list[n] = buffer_size;
-					} else {
-						buffer = buffer_list[n][0].data;
-					}
-
-					// request read/write
-					if (rand_ratio(rand_eng) < write_ratio_uint) { //write
-						iocontroller->request_write(n, buffer, buffer_size, offset);
-
-						if (args->flush_blocks) {
-							if (++flush_count >= args->flush_blocks) {
-								fdatasync(filed);
-								flush_count = 0;
-							}
-						}
-					} else {                                       //read
-						iocontroller->request_read(n, buffer, buffer_size, offset);
-					}
-				} else {
-					spdlog::warn("Invalid free request number ({}). Try again in the next loop.", n);
-				}
-
-				if (!stop_ && args->sleep_interval > 0) {
-					if (++sleep_count > args->sleep_count) {
-						sleep_count = 0;
-						std::this_thread::sleep_for(std::chrono::microseconds(args->sleep_interval));
-					}
-				}
-			}
-		} catch (std::exception &e) {
-			DEBUG_MSG("exception received: {}", e.what());
-			thread_exception = std::current_exception();
-		}
-		spdlog::info("worker thread finished");
 	}
 
 	bool isActive() {
@@ -465,15 +570,17 @@ class Worker {
 	}
 
 	private: //--------------------------------------------------------------------
+
 	void createFile() {
+		spdlog::info("creating file {}", args->filename);
+
 		const uint32_t buffer_size = 1024 * 1024;
 		alignas(aligned_buffer_size) char buffer[buffer_size];
 		randomize_buffer(buffer, buffer_size);
 
-		spdlog::info("creating file {}", args->filename);
 		auto fd = open(args->filename.c_str(), O_CREAT|O_RDWR|O_DIRECT, 0640);
 		if (fd < 0)
-			throw std::runtime_error("can't create file");
+			throw std::runtime_error(fmt::format("can't create file: {}:{}", fd, E2S(fd)).c_str());
 		try {
 			size_t write_ret;
 			for (uint64_t i=0; i<args->filesize; i++) {
@@ -490,9 +597,213 @@ class Worker {
 		close(fd);
 	}
 
+	void checkFile() {
+		struct stat st;
+		DEBUG_MSG("get file stats");
+		if (stat(args->filename.c_str(), &st) == EOF)
+			throw std::runtime_error("can't read file stats");
+		if ((args->block_size * 1024) % st.st_blksize != 0)
+			throw std::runtime_error("block size must be multiple of filesystem's block size");
+		if (!args->create_file) {
+			uint64_t size = st.st_size / 1024 / 1024;
+			spdlog::info("File already created. Set --filesize={}.", size);
+			if (size < 10)
+				throw std::runtime_error("invalid --filesize");
+			args->filesize = size;
+		}
+	}
+
+	void openFile() {
+		DEBUG_MSG("open file");
+
+		checkFile();
+
+		int flags = 0;
+		std::string flags_str;
+#		define useFlag(flagname) flags = flags|flagname; flags_str += fmt::format("{}{}", flags_str.length() == 0 ? "" : "|", #flagname)
+		useFlag(O_RDWR);
+		if (args->direct_io) {
+			useFlag(O_DIRECT);
+		} else if (args->io_engine == "libaio") {
+			throw std::runtime_error("I/O engine libaio only supports direct_io (O_DIRECT)");
+		}
+#		undef useFlag
+
+		spdlog::info("opening file '{}' with flags {}", args->filename, flags_str);
+		filed = open(args->filename.c_str(), flags, 0640);
+		if (filed < 0) {
+			throw std::runtime_error(fmt::format("can't open file: {}:{}", filed, E2S(filed)).c_str());
+		}
+	}
+
+	std::default_random_engine rand_eng;
+	const uint32_t random_scale = 10000;
+
+	Lock block_size_lock;
+	typeof(Args::block_size) cur_block_size  = 0;
+	uint64_t buffer_size = 0;
+	uint64_t file_blocks = 0;
+	uint64_t cur_block   = 0;
+
+	std::unique_ptr<std::uniform_int_distribution<uint64_t>> rand_block;
+	std::unique_ptr<std::uniform_int_distribution<uint32_t>> rand_ratio;
+
+	void check_arg_updates() {
+		if (cur_block_size != args->block_size) { // check block size
+			DEBUG_MSG("cur_block_size changed from {} to {}", cur_block_size, args->block_size);
+
+			block_size_lock.lock();
+
+			cur_block_size = args->block_size;
+			buffer_size = cur_block_size * 1024; // KiB to B;
+			file_blocks = (args->filesize * 1024) / cur_block_size;
+			cur_block = file_blocks; // seek 0 if next sequential I/O
+
+			rand_block.reset(new std::uniform_int_distribution<uint64_t>(0, file_blocks -1));
+
+			block_size_lock.unlock();
+		}
+	}
+
+	Lock                 increment_stats_lock;
+	increment_stats_t    increment_stats_lambda  = nullptr;
+
+	randomize_buffer_t   randomize_buffer_lambda = nullptr;
+	access_params_t      access_params_lambda    = nullptr;
+	offset_released_t    offset_released_lambda  = nullptr;
+	SimpleSet<long long> used_offsets;
+
+	void init_lambdas() {
+		DEBUG_MSG("initiating lambdas");
+		check_arg_updates();
+
+		//-----------------------------------------------------
+		increment_stats_lambda = [this](const Stats& val)->void{
+			increment_stats_lock.lock();
+			stats += val;
+			//DEBUG_MSG("main stats: KB_read={}, KB_write={}", stats.KB_read, stats.KB_write);
+			increment_stats_lock.unlock();
+		};
+
+		//-----------------------------------------------------
+		rand_ratio.reset(new std::uniform_int_distribution<uint32_t>(0,random_scale -1));
+
+		//-----------------------------------------------------
+		randomize_buffer_lambda = [this](char* buffer, uint32_t size)->void{randomize_buffer(buffer, size);};
+
+		//-----------------------------------------------------
+		access_params_lambda = [this]()->AccessParams {
+			AccessParams ret;
+
+			ret.write = ((*rand_ratio)(rand_eng) < (uint32_t)(args->write_ratio * random_scale));
+
+			block_size_lock.lock();
+
+			ret.block_size = cur_block_size;
+			ret.size       = buffer_size;
+
+			do {
+				if ((*rand_ratio)(rand_eng) < (uint32_t)(args->random_ratio * random_scale)) { //random access
+					cur_block = (*rand_block)(rand_eng);
+				} else { //sequential access
+					cur_block++;
+					if (cur_block >= file_blocks) {
+						cur_block = 0;
+					}
+				}
+				ret.offset = cur_block * buffer_size;
+			} while (!used_offsets.not_found_and_insert(ret.offset));
+
+			if (used_offsets.size() > max_iodepth) { // sanity check
+				block_size_lock.unlock();
+				throw std::runtime_error("BUG: the number of used offsets exceeds max_iodepth");
+			}
+
+			block_size_lock.unlock();
+
+			return ret;
+		};
+
+		//-----------------------------------------------------
+		offset_released_lambda = [this](long long offset)->void {
+			block_size_lock.lock();
+			used_offsets.find_and_remove(offset);
+			block_size_lock.unlock();
+		};
+		//-----------------------------------------------------
+	}
+
+	void threadMain() noexcept {
+		spdlog::info("initiating worker thread");
+		try {
+			init_lambdas();
+
+			uint64_t flush_count = 0;
+			uint64_t last_writes = 0;
+
+			std::unique_ptr<GenericEngine> engine;
+
+			spdlog::info("using {} engine", args->io_engine);
+			if (args->io_engine == "libaio") {
+				engine.reset(new AIOEngine(
+				                      filed,
+				                      args->iodepth,
+				                      increment_stats_lambda,
+				                      randomize_buffer_lambda,
+				                      access_params_lambda,
+				                      offset_released_lambda));
+			} else if (args->io_engine == "posix") {
+				increment_stats_lock.activate();
+				block_size_lock.activate();
+
+				engine.reset(new PosixEngine(
+				                      filed,
+				                      args->iodepth,
+				                      increment_stats_lambda,
+				                      randomize_buffer_lambda,
+				                      access_params_lambda,
+				                      offset_released_lambda));
+			} else {
+				throw std::runtime_error("invalid engine");
+			}
+
+			while (!stop_) {
+				if (args->wait)
+					spdlog::info("engine controller thread in wait mode");
+				while (!stop_ && args->wait) {
+					engine->wait();
+					std::this_thread::sleep_for(std::chrono::milliseconds(200));
+					if (! args->wait) {
+						spdlog::info("exit wait mode");
+						break;
+					}
+				}
+				if (stop_) break;
+
+				check_arg_updates();
+
+				engine->make_requests(stop_);
+
+				if (!stop_ && args->flush_blocks) {
+					auto cur_blocks_write = stats.blocks_write;
+					if ((cur_blocks_write - last_writes) >= args->flush_blocks) {
+						fdatasync(filed);
+					}
+					last_writes = cur_blocks_write;
+				}
+
+			} // while (!stop_)
+
+		} catch (std::exception &e) {
+			DEBUG_MSG("exception received: {}", e.what());
+			thread_exception = std::current_exception();
+		}
+		spdlog::info("engine controller thread finished");
+	}
+
 	void randomize_buffer(char* buffer, uint32_t size) {
-		if (buffer == nullptr) throw std::runtime_error("invalid buffer");
-		if (size == 0) throw std::runtime_error("invalid size");
+		assert(buffer != nullptr);
+		assert(size > 0);
 
 		std::uniform_int_distribution<char> dist(0,255);
 
@@ -573,7 +884,7 @@ class Reader {
 class Program {
 	static Program* this_;
 	std::unique_ptr<Args>   args;
-	std::unique_ptr<Worker> worker;
+	std::unique_ptr<EngineController> engine_controller;
 	std::unique_ptr<Reader> reader;
 
 	public: //---------------------------------------------------------------------
@@ -605,11 +916,11 @@ class Program {
 			uint64_t elapsed_ms;
 			uint64_t stats_interval_ms = args->stats_interval * 1000;
 
-			worker.reset(new Worker(args.get()));
+			engine_controller.reset(new EngineController(args.get()));
 			reader.reset(new Reader(args.get()));
 
 			bool stop = false;
-			while (worker->isActive() && reader->isActive()) {
+			while (engine_controller->isActive() && reader->isActive()) {
 
 				auto cur_sec = duration_cast<seconds>(system_clock::now() - time_init).count();
 				while (args->command_script.size() > 0 && args->command_script[0].time < cur_sec) {
@@ -619,7 +930,7 @@ class Program {
 					if (c.command == "stop") {
 						stop = true;
 						reader->stop();
-						worker->stop();
+						engine_controller->stop();
 					} else {
 						args->executeCommand(c.command);
 					}
@@ -629,7 +940,7 @@ class Program {
 				if (args->duration > 0 && duration_cast<seconds>(system_clock::now() - time_init).count() > args->duration) {
 					spdlog::info("duration time exceeded: {} seconds", args->duration);
 					reader->stop();
-					worker->stop();
+					engine_controller->stop();
 					break;
 				}
 
@@ -639,15 +950,17 @@ class Program {
 				time_aux = system_clock::now();
 				elapsed_ms = duration_cast<milliseconds>(time_aux - time_elapsed).count();
 				if (elapsed_ms > stats_interval_ms) {
-					auto cur_stats = worker->stats;
+					auto cur_stats = engine_controller->stats;
+					//DEBUG_MSG("cur_stats: KB_read={}, KB_write={}", cur_stats.KB_read, cur_stats.KB_write);
 					if (! args->changed) {
 						std::string aux_args = args->strStat();
 						auto delta = cur_stats - elapsed_stats;
+						//DEBUG_MSG("delta: KB_read={}, KB_write={}", delta.KB_read, delta.KB_write);
 						std::string aux_str =
 							fmt::format("\"time\":\"{}\"", duration_cast<seconds>(time_aux - time_init).count()) +
-							fmt::format(", \"total_MiB/s\":\"{:.1f}\"", static_cast<double>((delta.KB_read + delta.KB_write) * 1000)/static_cast<double>(elapsed_ms * 1024) ) +
-							fmt::format(", \"read_MiB/s\":\"{:.1f}\"",  static_cast<double>(delta.KB_read  * 1000)/static_cast<double>(elapsed_ms * 1024) ) +
-							fmt::format(", \"write_MiB/s\":\"{:.1f}\"", static_cast<double>(delta.KB_write * 1000)/static_cast<double>(elapsed_ms * 1024) ) +
+							fmt::format(", \"total_MiB/s\":\"{:.2f}\"", static_cast<double>((delta.KB_read + delta.KB_write) * 1000)/static_cast<double>(elapsed_ms * 1024) ) +
+							fmt::format(", \"read_MiB/s\":\"{:.2f}\"",  static_cast<double>(delta.KB_read  * 1000)/static_cast<double>(elapsed_ms * 1024) ) +
+							fmt::format(", \"write_MiB/s\":\"{:.2f}\"", static_cast<double>(delta.KB_write * 1000)/static_cast<double>(elapsed_ms * 1024) ) +
 							fmt::format(", \"blocks/s\":\"{:.1f}\"",    static_cast<double>(delta.blocks   * 1000)/static_cast<double>(elapsed_ms) ) +
 							fmt::format(", \"blocks_read/s\":\"{:.1f}\"",  static_cast<double>(delta.blocks_read  * 1000)/static_cast<double>(elapsed_ms) ) +
 							fmt::format(", \"blocks_write/s\":\"{:.1f}\"", static_cast<double>(delta.blocks_write * 1000)/static_cast<double>(elapsed_ms) ) ;
@@ -674,7 +987,7 @@ class Program {
 
 	private: //--------------------------------------------------------------------
 	void resetAll() noexcept {
-		worker.reset(nullptr);
+		engine_controller.reset(nullptr);
 		reader.reset(nullptr);
 	}
 

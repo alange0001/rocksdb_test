@@ -54,6 +54,11 @@ const uint32_t max_iodepth = 128;
 		"file size (MiB)",                                        \
 		value >= 10 || !FLAGS_create_file,                        \
 		nullptr)                                                  \
+	_f(io_engine, string, DEFINE_string,                          \
+		"posix",                                                  \
+		"I/O engine (posix,libaio)",                              \
+		value == "posix" || value == "libaio",                    \
+		nullptr)                                                  \
 	_f(block_size, uint64_t, DEFINE_uint64,                       \
 		4,                                                        \
 		"block size (KiB)",                                       \
@@ -61,7 +66,7 @@ const uint32_t max_iodepth = 128;
 		nullptr)                                                  \
 	_f(flush_blocks, uint64_t, DEFINE_uint64,                     \
 		0,                                                        \
-		"blocks written before a flush (0 = no flush)",           \
+		"blocks written before a fdatasync (0 = no flush)",       \
 		true,                                                     \
 		nullptr)                                                  \
 	_f(write_ratio, double, DEFINE_double,                        \
@@ -73,16 +78,6 @@ const uint32_t max_iodepth = 128;
 		0.0,                                                      \
 		"random ratio (0-1)",                                     \
 		value >= 0.0 && value <= 1.0,                             \
-		nullptr)                                                  \
-	_f(sleep_interval, uint64_t, DEFINE_uint64,                   \
-		0,                                                        \
-		"sleep interval (us)",                                    \
-		true,                                                     \
-		nullptr)                                                  \
-	_f(sleep_count, uint64_t, DEFINE_uint64,                      \
-		1,                                                        \
-		"number of IOs before sleep",                             \
-		value > 0,                                                \
 		nullptr)                                                  \
 	_f(direct_io, bool, DEFINE_bool,                              \
 		true,                                                     \
