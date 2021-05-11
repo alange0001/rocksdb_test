@@ -558,7 +558,7 @@ class ExpYcsbAt3 (GenericExperiment):
 			args_d['at_block_size'] = at_bs
 			for ydb_workload in args_d['ydb_workload_list'].split(' '):
 				args_d['ydb_workload'] = ydb_workload
-				self.output_filename = f'ycsb_{ydb_workload}-at3_bs{at_bs}_depth{coalesce(args_d.get("at_iodepth"),"default")}_eng_{coalesce(args_d.get("at_io_engine"),"default")}'
+				self.output_filename = f'ycsb_{ydb_workload}-at3_pres{coalesce(args_d.get("at_script_gen"), 1)}_bs{at_bs}_depth{coalesce(args_d.get("at_iodepth"),"default")}_eng_{coalesce(args_d.get("at_io_engine"),"default")}'
 				super(self.__class__, self).run(args_d)
 
 
@@ -690,7 +690,7 @@ class ExpDbbenchAt3 (GenericExperiment):
 
 		for at_bs in args_d['at_block_size_list'].split(' '):
 			args_d['at_block_size'] = at_bs
-			self.output_filename = f'dbbench_{args_d.get("db_benchmark")}-at3_bs{at_bs}_depth{coalesce(args_d.get("at_iodepth"),"default")}_eng_{coalesce(args_d.get("at_io_engine"),"default")}'
+			self.output_filename = f'dbbench_{args_d.get("db_benchmark")}-at3_pres{coalesce(args_d.get("at_script_gen"), 1)}_bs{at_bs}_depth{coalesce(args_d.get("at_iodepth"),"default")}_eng_{coalesce(args_d.get("at_io_engine"),"default")}'
 			super(self.__class__, self).run(args_d)
 
 
