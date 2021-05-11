@@ -1611,20 +1611,25 @@ def getFiles(dirname: str, str_filter: str = None, list_filter: list = None, lam
 	files = []
 	for fn in os.listdir(dirname):
 		if File.accept_file(fn):
-			if str_filter is None and list_filter is None and lambda_filter is None:
+			found_str = str_filter is None
+			found_list = list_filter is None
+			found_lambda = lambda_filter is None
+			
+			if str_filter is not None and fn.find(str_filter) >= 0:
+				found_str = True
+
+			if list_filter is not None:
+				found_list = True
+				for list_i in list_filter:
+					if fn.find(list_i) < 0:
+						found_list = False
+						break
+
+			if lambda_filter is not None and lambda_filter(fn):
+				found_lambda = True
+				
+			if (found_str, found_list, found_lambda) == (True, True, True):
 				files.append(f'{dirname}/{fn}')
-			else:
-				if str_filter is not None and fn.find(str_filter) >= 0:
-					files.append(f'{dirname}/{fn}')
-
-				if list_filter is not None:
-					for list_i in list_filter:
-						if fn.find(list_i) >= 0:
-							files.append(f'{dirname}/{fn}')
-							break
-
-				if lambda_filter is not None and lambda_filter(fn):
-					files.append(f'{dirname}/{fn}')
 
 	return sort_method(files)
 
