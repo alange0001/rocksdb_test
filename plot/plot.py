@@ -249,10 +249,11 @@ class AllFiles:
 
 
 class File:
-	_filename = None
-	_options  = None
-	_allfiles = None
-	_params   = None
+	_filename    = None
+	_options     = None
+	_description = None
+	_allfiles    = None
+	_params      = None
 
 	_stats_interval = None
 	_data           = None
@@ -264,9 +265,10 @@ class File:
 	_num_at       = None
 	_at_direct_io = None
 
-	def __init__(self, filename, options, allfiles=None):
+	def __init__(self, filename, options, description=None, allfiles=None):
 		self._filename = filename
 		self._options = options
+		self._description = description
 		self._allfiles = allfiles
 		if allfiles is not None:
 			allfiles.check_options(options)
@@ -1443,20 +1445,49 @@ class File:
 			ax.grid(which='minor', color='#CCCCCC', linestyle=':')
 
 	def graph_all(self):
+		description = self._filename
+		if self._description is not None:
+			if isinstance(self._description, str):
+				description = self._description
+			elif callable(self._description):
+				description = self._description(self)
 		if self._options.print_params:
 			self.print_params()
+			
 		## Generic Graphs:
-		if self._options.plot_db:                self.graph_db()
-		if self._options.plot_io:                self.graph_io()
-		if self._options.plot_cpu:               self.graph_cpu()
-		if self._options.plot_at3:               self.graph_at3()
-		if self._options.plot_at3_script:        self.graph_at3_script()
-		if self._options.plot_pressure:          self.graph_pressure()
-		if self._options.plot_containers_io:     self.graph_containers_io()
-		if self._options.plot_ycsb_lsm_size:     self.graph_ycsb_lsm_size()
-		if self._options.plot_ycsb_lsm_details:  self.graph_ycsb_lsm_details()
-		if self._options.plot_ycsb_lsm_summary:  self.graph_ycsb_lsm_summary()
-		if self._options.plot_smart_utilization: self.graph_smart_utilization()
+		if self._options.plot_db:
+			print(f'Database Performance: {description}')
+			self.graph_db()
+		if self._options.plot_io:
+			print(f'I/O Performance: {description}')
+			self.graph_io()
+		if self._options.plot_cpu:
+			print(f'CPU Utilization: {description}')
+			self.graph_cpu()
+		if self._options.plot_at3:
+			print(f'access_time3 Performance: {description}')
+			self.graph_at3()
+		if self._options.plot_at3_script:
+			print(f'Concurrent Workloads (at3_script): {description}')
+			self.graph_at3_script()
+		if self._options.plot_pressure:
+			print(f'Pressure: {description}')
+			self.graph_pressure()
+		if self._options.plot_containers_io:
+			print(f'Containers I/O: {description}')
+			self.graph_containers_io()
+		if self._options.plot_ycsb_lsm_size:
+			print(f'LSM-tree level sizes: {description}')
+			self.graph_ycsb_lsm_size()
+		if self._options.plot_ycsb_lsm_details:
+			print(f'LSM-tree details: {description}')
+			self.graph_ycsb_lsm_details()
+		if self._options.plot_ycsb_lsm_summary:
+			print(f'LSM-tree summary: {description}')
+			self.graph_ycsb_lsm_summary()
+		if self._options.plot_smart_utilization:
+			print(f'Occupied flash pages: {description}')
+			self.graph_smart_utilization()
 
 		## Special case graphs:
 		# exp_at3_rww:
@@ -1602,12 +1633,17 @@ def binary_suffix(value):
 
 
 def getFiles(dirname: str, str_filter: str = None, list_filter: list = None, lambda_filter=None) -> list:
+	if not os.path.isdir(dirname):
+		print(f'WARNING: "{dirname}" is not a directory')
+		return []
+	
 	try:
 		from natsort import natsorted
 		sort_method = natsorted
 	except:
 		print('WARNING: natsort not installed, using sorted')
 		sort_method = sorted
+		
 	files = []
 	for fn in os.listdir(dirname):
 		if File.accept_file(fn):
@@ -1634,7 +1670,7 @@ def getFiles(dirname: str, str_filter: str = None, list_filter: list = None, lam
 	return sort_method(files)
 
 
-def plotFiles(filenames, options, allfiles=None):
+def plotFiles(filenames, options, description=None, allfiles=None):
 	if isinstance(allfiles, str):
 		allfiles = AllFiles(allfiles, options)
 
@@ -1643,7 +1679,7 @@ def plotFiles(filenames, options, allfiles=None):
 			'######################################################\n' +
 			'Graphs from file "{}":'.format(name) +
 			'\n')
-		f = File(name, options, allfiles)
+		f = File(name, options, description=description, allfiles=allfiles)
 		f.graph_all()
 		del f
 
