@@ -622,10 +622,13 @@ class EngineController {
 		std::string flags_str;
 #		define useFlag(flagname) flags = flags|flagname; flags_str += fmt::format("{}{}", flags_str.length() == 0 ? "" : "|", #flagname)
 		useFlag(O_RDWR);
-		if (args->direct_io) {
+		if (args->o_direct) {
 			useFlag(O_DIRECT);
 		} else if (args->io_engine == "libaio") {
 			throw std::runtime_error("I/O engine libaio only supports direct_io (O_DIRECT)");
+		}
+		if (args->o_dsync) {
+			useFlag(O_DSYNC);
 		}
 #		undef useFlag
 

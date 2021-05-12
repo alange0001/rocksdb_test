@@ -259,21 +259,37 @@ using std::function;
 		uint32_t,                                                 \
 		value >= 4,                                               \
 		num_at)                                                   \
-	_f(at_iodepth, VectorParser<uint32_t>, DEFINE_string,         \
-		"1",                                                      \
-		"access_time3 --iodepth (list)",                          \
-		true,                                                     \
-		nullptr,                                                  \
-		uint32_t,                                                 \
-		value > 0,                                                \
-		num_at)                                                   \
 	_f(at_io_engine, VectorParser<string>, DEFINE_string,         \
-		"posix",                                                  \
+		"",                                                       \
 		"access_time3 --io_engine (list)",                        \
 		true,                                                     \
 		nullptr,                                                  \
 		string,                                                   \
-		value.length() > 0,                                       \
+		true,                                                     \
+		num_at)                                                   \
+	_f(at_iodepth, VectorParser<string>, DEFINE_string,           \
+		"",                                                       \
+		"access_time3 --iodepth (list)",                          \
+		true,                                                     \
+		nullptr,                                                  \
+		string,                                                   \
+		true,                                                     \
+		num_at)                                                   \
+	_f(at_o_direct, VectorParser<string>, DEFINE_string,          \
+		"",                                                       \
+		"access_time3 --o_direct (list)",                         \
+		true,                                                     \
+		nullptr,                                                  \
+		string,                                                   \
+		true,                                                     \
+		num_at)                                                   \
+	_f(at_o_dsync, VectorParser<string>, DEFINE_string,           \
+		"",                                                       \
+		"access_time3 --o_dsync (list)",                          \
+		true,                                                     \
+		nullptr,                                                  \
+		string,                                                   \
+		true,                                                     \
 		num_at)                                                   \
 	_f(at_params, VectorParser<string>, DEFINE_string,            \
 		"--random_ratio=0.1 --write_ratio=0.3",                   \

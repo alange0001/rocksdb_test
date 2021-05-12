@@ -629,24 +629,30 @@ class AccessTime3 : public ExperimentTask {
 
 	private:    //------------------------------------------------------------------
 	string getCmd() {
-		string ret =
-			format("docker run --name=\"{}\" -t --rm                  \\\n", container_name) +
-			format("  --user=\"{}\"                                   \\\n", getuid()) +
-			format("  -v \"{}\":/workdata                             \\\n", args->at_dir[number]) +
-			format("  -v {}:/tmp/host                                 \\\n", tmpdir->getContainerDir(container_name).c_str())+
-			format("  {}                                              \\\n", args->docker_params) +
-			format("  {}                                              \\\n", args->docker_image) +
-			format("  access_time3                                    \\\n") +
-			format("    --duration={}                                 \\\n", args->duration * 60) +
-			format("    --stats_interval={}                           \\\n", args->stats_interval) +
-			format("    --log_time_prefix=false                       \\\n") +
-			format("    --filename=\"/workdata/{}\"                   \\\n", args->at_file[number]) +
-			format("    --create_file=false                           \\\n") +
-			format("    --block_size={}                               \\\n", args->at_block_size[number]) +
-			format("    --iodepth={}                                  \\\n", args->at_iodepth[number]) +
-			format("    --io_engine={}                                \\\n", args->at_io_engine[number]) +
-			format("    --command_script=\"{}\"                       \\\n", args->at_script[number]) +
-			format("    {} 2>&1 ", args->at_params[number]);
+		string ret;
+		ret += format("docker run --name=\"{}\" -t --rm                  \\\n", container_name);
+		ret += format("  --user=\"{}\"                                   \\\n", getuid());
+		ret += format("  -v \"{}\":/workdata                             \\\n", args->at_dir[number]);
+		ret += format("  -v {}:/tmp/host                                 \\\n", tmpdir->getContainerDir(container_name).c_str());
+		ret += format("  {}                                              \\\n", args->docker_params);
+		ret += format("  {}                                              \\\n", args->docker_image);
+		ret +=        "  access_time3                                    \\\n" ;
+		ret += format("    --duration={}                                 \\\n", args->duration * 60);
+		ret += format("    --stats_interval={}                           \\\n", args->stats_interval);
+		ret +=        "    --log_time_prefix=false                       \\\n";
+		ret += format("    --filename=\"/workdata/{}\"                   \\\n", args->at_file[number]);
+		ret +=        "    --create_file=false                           \\\n";
+		ret += format("    --block_size={}                               \\\n", args->at_block_size[number]);
+		ret += (args->at_io_engine[number].length() > 0) ?
+		       format("    --io_engine=\"{}\"                            \\\n", args->at_io_engine[number]) : "";
+		ret += (args->at_iodepth[number].length() > 0) ?
+		       format("    --iodepth=\"{}\"                              \\\n", args->at_iodepth[number]) : "";
+		ret += (args->at_o_direct[number].length() > 0) ?
+		       format("    --o_direct=\"{}\"                             \\\n", args->at_o_direct[number]) : "";
+		ret += (args->at_o_dsync[number].length() > 0) ?
+		       format("    --o_dsync=\"{}\"                              \\\n", args->at_o_dsync[number]) : "";
+		ret += format("    --command_script=\"{}\"                       \\\n", args->at_script[number]);
+		ret += format("    {} 2>&1 ", args->at_params[number]);
 
 		return ret;
 	}
