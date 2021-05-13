@@ -29,6 +29,7 @@ import pandas as pd
 class Options:
 	formats = ['png', 'pdf']
 	print_params = False
+	file_description = None
 	save = False
 	savePlotData = False
 	graphTickMajor = 5
@@ -58,6 +59,7 @@ class Options:
 	fio_folder = None
 	plot_all_dbmean = True
 	plot_all_pressure = True
+	all_pressure_label = None
 
 	def __init__(self, **kargs):
 		if self.file_start_time is None:
@@ -251,7 +253,6 @@ class AllFiles:
 class File:
 	_filename    = None
 	_options     = None
-	_description = None
 	_allfiles    = None
 	_params      = None
 
@@ -263,12 +264,13 @@ class File:
 
 	_file_id      = None
 	_num_at       = None
+	_num_dbs      = None
+	_num_ydbs     = None
 	_at_direct_io = None
 
-	def __init__(self, filename, options, description=None, allfiles=None):
+	def __init__(self, filename, options, allfiles=None):
 		self._filename = filename
 		self._options = options
-		self._description = description
 		self._allfiles = allfiles
 		if allfiles is not None:
 			allfiles.check_options(options)
@@ -334,6 +336,8 @@ class File:
 				del self._data[e][0]
 
 		self._num_at = self._params['num_at']
+		self._num_dbs = self._params['num_dbs']
+		self._num_ydbs = self._params['num_ydbs']
 		self._stats_interval = self._params['stats_interval']
 		if self._num_at > 0:
 			self._at_direct_io = (self._params['at_params[0]'].find('--direct_io') >= 0)
@@ -403,16 +407,7 @@ class File:
 			self._plotdata[name] = data
 
 	def count_dbs(self):
-		num_dbbench, num_ycsb = 0, 0
-		for i in range(0, 1024):
-			if self._data.get('db_bench[{}]'.format(i)) is None:
-				break
-			num_dbbench += 1
-		for i in range(0,1024):
-			if self._data.get('ycsb[{}]'.format(i)) is None:
-				break
-			num_ycsb += 1
-		return (num_dbbench, num_ycsb)
+		return (self._num_dbs, self._num_ydbs)
 
 	_at3_changes = None
 
@@ -1064,44 +1059,63 @@ class File:
 					fig.savefig(save_name, bbox_inches="tight")
 			plt.show()
 
+	_pressure_data = None
+
 	def get_pressure_data(self):
-		num_dbbench, num_ycsb = self.count_dbs()
-		num_at3 = self._num_at
-		if num_dbbench == 0 and num_ycsb == 0: return None
-		if num_at3 == 0: return None
+		if self._pressure_data is None:
+			ret = dict()
 
-		target_attribute = 'ops_per_s'
-		if num_ycsb > 0:
-			target_db = self._data['ycsb[0]']
-		else:
-			target_db = self._data['db_bench[0]']
+			num_dbbench, num_ycsb = self.count_dbs()
+			num_at3 = self._num_at
+			if num_dbbench == 0 and num_ycsb == 0: return None
+			if num_at3 == 0: return None
 
-		target_data = collections.OrderedDict()
-		for i in target_db:
-			target_data[i['time']] = collections.OrderedDict()
-			target_data[i['time']]['db'] = i
+			target_attribute = 'ops_per_s'
+			if num_ycsb > 0:
+				target_db = self._data['ycsb[0]']
+			else:
+				target_db = self._data['db_bench[0]']
 
-			w = self.last_at3(i['time'])
-			target_data[i['time']]['at3'] = w['name']
-			target_data[i['time']]['at3_counter'] = w['number']
+			target_data = collections.OrderedDict()
+			for i in target_db:
+				target_data[i['time']] = collections.OrderedDict()
+				target_data[i['time']]['db'] = i
 
-		timelist = list(target_data.keys()); timelist.sort()
+				w = self.last_at3(i['time'])
+				target_data[i['time']]['at3'] = w['name']
+				target_data[i['time']]['at3_counter'] = w['number']
 
-		pd1 = pd.DataFrame({
-			'time'      : timelist,
-			'ops_per_s' : [ target_data[t]['db'][target_attribute] for t in timelist ],
-			'w'         : [ target_data[t]['at3'] for t in timelist ],
-			'w_counter' : [ target_data[t]['at3_counter'] for t in timelist ],
-			})
-		return pd1
+			timelist = list(target_data.keys()); timelist.sort()
+
+			pd1 = pd.DataFrame({
+				'time'      : timelist,
+				'ops_per_s' : [ target_data[t]['db'][target_attribute] for t in timelist ],
+				'w'         : [ target_data[t]['at3'] for t in timelist ],
+				'w_counter' : [ target_data[t]['at3_counter'] for t in timelist ],
+				})
+			ret['pd1'] = pd1
+
+			if self._options.use_at3_counters:
+				pd2 = pd1.groupby(['w', 'w_counter']).agg({'ops_per_s':'mean'}).sort_values('w_counter')
+			else:
+				pd2 = pd1.groupby(['w', 'w_counter']).agg({'ops_per_s':'mean'}).sort_values('ops_per_s', ascending=False)
+
+			ret['pd2'] = pd2
+
+			ret['W_names'] = [x[0] for x in pd2.index]
+			w0 = pd2.loc['w0', 0][0]
+			ret['w0'] = w0
+			ret['W_pressure'] = [i[0] for i in pd2.values]
+			ret['W_normalized'] = [(w0 - i) / w0 for i in ret['W_pressure']]
+
+			self._pressure_data = ret
+
+		return self._pressure_data
 
 	def graph_pressure(self):
-		pd = self.get_pressure_data()
-		if pd is None: return
-		if self._options.use_at3_counters:
-			pd2 = pd.groupby(['w', 'w_counter']).agg({'ops_per_s':'mean'}).sort_values('w_counter')
-		else:
-			pd2 = pd.groupby(['w', 'w_counter']).agg({'ops_per_s':'mean'}).sort_values('ops_per_s', ascending=False)
+		data = self.get_pressure_data()
+		if data is None: return
+		pd2 = data['pd2']
 
 		fig = plt.figure()
 		fig.set_figheight(2.8)
@@ -1109,9 +1123,9 @@ class File:
 
 		ax = fig.add_axes([0,1,1,1])
 
-		X_labels = [ x[0] for x in pd2.index ]
+		X_labels = data['W_names']
 		X = range(len(X_labels))
-		Y = [ i[0] for i in pd2.values ]
+		Y = data['W_pressure']
 		ax.bar(X, Y, label='throughput')
 		ax.set_xticks(X)
 		ax.set_xticklabels(X_labels, rotation=90)
@@ -1125,8 +1139,8 @@ class File:
 		ax2.yaxis.set_visible(True)
 		ax2.xaxis.set_visible(False)
 
-		w0 = pd2.loc['w0', 0][0]
-		Y2 = [ (w0 - i[0])/w0  for i in pd2.values ]
+		w0 = data['w0']
+		Y2 = data['W_normalized']
 		ax2.plot(X, Y2, '-', label='normalized pressure', color='red')
 
 		X3, Y3 = [], []
@@ -1148,8 +1162,8 @@ class File:
 		######################################################
 		ax = fig.add_axes([0,0.62,1,0.16])
 
-		X = [ (w0 - i[0])/w0  for i in pd2.values ]
-		Y = [ 0  for i in pd2.values ]
+		X = data['W_normalized']
+		Y = [0 for i in X]
 		ax.plot(X, Y, 'o', label='pressure')
 
 		if self._options.print_pressure_values:
@@ -1169,12 +1183,6 @@ class File:
 		ax.grid(which='minor', color='#CCCCCC', linestyle=':')
 
 		ax.set(xlabel="normalized pressure: $(\\rho(w_0)-\\rho(w_i)) / \\rho(w_0)$")
-
-		global a
-		a = ax
-
-		if self._allfiles:
-			self._allfiles.add_pressure_data(f'bs = {self._params["at_block_size[0]"]}', X, X_labels)
 
 		if self._options.save:
 			for f in self._options.formats:
@@ -1444,13 +1452,24 @@ class File:
 			ax.grid(which='major', color='#CCCCCC', linestyle='--')
 			ax.grid(which='minor', color='#CCCCCC', linestyle=':')
 
+	def save_allfiles_data(self):
+		pressure_data = self.get_pressure_data()
+		if pressure_data is not None:
+			if callable(self._options.all_pressure_label):
+				pressure_label = self._options.all_pressure_label(self)
+			else:
+				pressure_label = f'bs = {self._params["at_block_size[0]"]}'
+			self._allfiles.add_pressure_data(pressure_label,
+			                                 pressure_data['W_normalized'],
+			                                 pressure_data['W_names'])
+
 	def graph_all(self):
 		description = self._filename
-		if self._description is not None:
-			if isinstance(self._description, str):
-				description = self._description
-			elif callable(self._description):
-				description = self._description(self)
+		if self._options.file_description is not None:
+			if isinstance(self._options.file_description, str):
+				description = self._options.file_description
+			elif callable(self._options.file_description):
+				description = self._options.file_description(self)
 		if self._options.print_params:
 			self.print_params()
 			
@@ -1494,6 +1513,9 @@ class File:
 		if self._options.plot_io_norm: self.graph_io_norm()
 		# exp_at3:
 		if self._options.plot_at3_write_ratio: self.graph_at3_write_ratio()
+
+		if self._allfiles is not None:
+			self.save_allfiles_data()
 
 
 def graph_at3_script(filename, num_at3, max_w):
@@ -1670,23 +1692,18 @@ def getFiles(dirname: str, str_filter: str = None, list_filter: list = None, lam
 	return sort_method(files)
 
 
-def plotFiles(filenames, options, description=None, allfiles=None):
+def plotFiles(filenames, options, allfiles=None):
 	if isinstance(allfiles, str):
 		allfiles = AllFiles(allfiles, options)
 
 	for name in filenames:
-		print(
-			'######################################################\n' +
-			'Graphs from file "{}":'.format(name) +
-			'\n')
-		f = File(name, options, description=description, allfiles=allfiles)
+		print('Graphs from file "{}":'.format(name))
+		f = File(name, options, allfiles=allfiles)
 		f.graph_all()
 		del f
 
 	if allfiles is not None:
-		print(
-			'######################################################\n' +
-			'AllFiles Graphs:\n')
+		print('AllFiles Graphs:')
 		allfiles.graph_all()
 
 
