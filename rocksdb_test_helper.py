@@ -193,6 +193,7 @@ class GenericExperiment:
 		('backup_ycsb',         {'group': 'ydb', 'type': str,  'default': None,        'register': True,  'help': 'Restore the database backup used by the YCSB instances from this .tar file (don\'t use subdirs).' }),
 		('ydb_workload_list',   {'group': 'ydb', 'type': str,  'default': 'workloadb', 'register': False, 'help': 'List of YCSB workloads (space separated).' }),
 		('at_block_size_list',  {'group': 'at3', 'type': str,  'default': '512',       'register': False, 'help': 'List of block sizes used in the experiments with access_time3 (space separated).' }),
+		('at_iodepth_list',     {'group': 'at3', 'type': str,  'default': '1',         'register': False, 'help': 'List of iodepths used in the experiments with access_time3 (space separated).' }),
 		('at_script_gen',       {'group': 'at3', 'type': int,  'default': 1,           'register': True,  'help': 'Access_time3 script generator (1 or 2).' }),
 		('at_interval',         {'group': 'at3', 'type': int,  'default': 2,           'register': False, 'help': 'Interval between changes in the access pattern of the access_time3 instances.' }),
 		('at_file_size',        {'group': 'at3', 'type': int,  'default': 10000,       'register': False, 'help': 'Interval between changes in the access pattern of the access_time3 instances.' }),
@@ -225,7 +226,7 @@ class GenericExperiment:
 		('at_file',             {'group': 'at3', 'type': str,  'default': None,         'register':False, 'help': 'Files used by the access_time3 instances (separated by #). Also configured automatically.' }),
 		('at_block_size',       {'group': 'at3', 'type': str,  'default': None,         'register':False, 'help': 'Block size used by the access_time3 instances (default=512).' }),
 		('at_io_engine',        {'group': 'at3', 'type': str,  'default': None,         'register':True,  'help': 'I/O engine used by the access_time3 instances.' }),
-		('at_iodepth',          {'group': 'at3', 'type': str,  'default': 1,            'register':True,  'help': 'I/O depth used by the access_time3 instances (default=1).' }),
+		('at_iodepth',          {'group': 'at3', 'type': str,  'default': None,         'register':False, 'help': 'I/O depth used by the access_time3 instances (default=1).' }),
 		('at_o_direct',         {'group': 'at3', 'type': str,  'default': None,         'register':True,  'help': 'Use O_DIRECT in the access_time3 instances.' }),
 		('at_o_dsync',          {'group': 'at3', 'type': str,  'default': None,         'register':True,  'help': 'Use O_DSYNC in the access_time3 instances.' }),
 		('at_params',           {'group': 'at3', 'type': str,  'default': None,         'register':True,  'help': 'Extra access_time3 arguments, if necessary.' }),
@@ -535,6 +536,7 @@ class ExpYcsbAt3 (GenericExperiment):
 		log.debug(f'Exp_ycsb_at3.change_args()')
 		cls.helper_params['ydb_workload_list']['register']  = True
 		cls.helper_params['at_block_size_list']['register'] = True
+		cls.helper_params['at_iodepth_list']['register']    = True
 		cls.helper_params['at_interval']['register']        = True
 
 		cls.exp_params['duration']['default']     = -1
@@ -549,7 +551,8 @@ class ExpYcsbAt3 (GenericExperiment):
 		log.debug(f'Exp_ycsb_at3.run()')
 		args_d = self.get_args_d()
 
-		args_d['at_script'], at_duration = get_at3_script(script_gen=coalesce(args_d.get('at_script_gen'), 1),
+		cur_at_script_gen = coalesce(args_d.get('at_script_gen'), 1)
+		args_d['at_script'], at_duration = get_at3_script(script_gen=cur_at_script_gen,
 		                                                  warm=int(args_d['warm_period']),
 		                                                  instances=int(args_d['num_at']),
 		                                                  interval=int(args_d['at_interval']))
@@ -560,8 +563,18 @@ class ExpYcsbAt3 (GenericExperiment):
 			args_d['at_block_size'] = at_bs
 			for ydb_workload in args_d['ydb_workload_list'].split(' '):
 				args_d['ydb_workload'] = ydb_workload
-				self.output_filename = f'ycsb_{ydb_workload}-at3_pres{coalesce(args_d.get("at_script_gen"), 1)}n{args_d["num_at"]}i{args_d["at_interval"]}_depth{coalesce(args_d.get("at_iodepth"),"default")}_eng_{coalesce(args_d.get("at_io_engine"),"default")}_bs{at_bs}'
-				super(self.__class__, self).run(args_d)
+				for iodepth in args_d['at_iodepth_list'].split(' '):
+					args_d['at_iodepth'] = iodepth
+
+					cur_at_io_engine = coalesce(args_d.get("at_io_engine"),"default")
+					self.output_filename = \
+						f'ycsb_{ydb_workload}' + \
+						f'-at3' +\
+						f'_pres{cur_at_script_gen}' +\
+						f'n{args_d["num_at"]}i{args_d["at_interval"]}' + \
+						f'_depth{iodepth}_eng_{cur_at_io_engine}' + \
+						f'_bs{at_bs}'
+					super(self.__class__, self).run(args_d)
 
 
 experiment_list.register(ExpYcsbAt3)
@@ -671,6 +684,7 @@ class ExpDbbenchAt3 (GenericExperiment):
 	def change_args(cls, load_args):
 		log.debug(f'Exp_dbbench_at3.change_args()')
 		cls.helper_params['at_block_size_list']['register'] = True
+		cls.helper_params['at_iodepth_list']['register']    = True
 		cls.helper_params['at_interval']['register']        = True
 
 		cls.exp_params['duration']['default']     = -1
@@ -683,7 +697,8 @@ class ExpDbbenchAt3 (GenericExperiment):
 		log.debug(f'Exp_dbbench_at3.run()')
 		args_d = self.get_args_d()
 
-		args_d['at_script'], at_duration = get_at3_script(script_gen=coalesce(args_d.get('at_script_gen'), 1),
+		cur_at_script_gen = coalesce(args_d.get('at_script_gen'), 1)
+		args_d['at_script'], at_duration = get_at3_script(script_gen=cur_at_script_gen,
 		                                                  warm=int(args_d['warm_period']),
 		                                                  instances=int(args_d['num_at']),
 		                                                  interval=int(args_d['at_interval']))
@@ -692,8 +707,18 @@ class ExpDbbenchAt3 (GenericExperiment):
 
 		for at_bs in args_d['at_block_size_list'].split(' '):
 			args_d['at_block_size'] = at_bs
-			self.output_filename = f'dbbench_{args_d.get("db_benchmark")}-at3_pres{coalesce(args_d.get("at_script_gen"), 1)}n{args_d["num_at"]}i{args_d["at_interval"]}_depth{coalesce(args_d.get("at_iodepth"),"default")}_eng_{coalesce(args_d.get("at_io_engine"),"default")}_bs{at_bs}'
-			super(self.__class__, self).run(args_d)
+			for iodepth in args_d['at_iodepth_list'].split(' '):
+				args_d['at_iodepth'] = iodepth
+
+				cur_at_io_engine = coalesce(args_d.get("at_io_engine"), "default")
+				self.output_filename = \
+					f'dbbench_{args_d.get("db_benchmark")}' + \
+					f'-at3' + \
+					f'_pres{cur_at_script_gen}' + \
+					f'n{args_d["num_at"]}i{args_d["at_interval"]}' + \
+					f'_depth{iodepth}_eng_{cur_at_io_engine}' + \
+					f'_bs{at_bs}'
+				super(self.__class__, self).run(args_d)
 
 
 experiment_list.register(ExpDbbenchAt3)
