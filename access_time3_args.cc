@@ -30,7 +30,7 @@ using fmt::format;
 #define declareFlag(ARG_name, ARG_type, ARG_flag_type, ARG_flag_default, ARG_help, ARG_condition, ARG_set_event, ...) \
 	ARG_flag_type (ARG_name, ARG_flag_default, ARG_help);                          \
 	static bool validate_##ARG_name(const char* flagname, const ARG_flag_type##_t value) { \
-		DEBUG_MSG("flagname={}, value={}", flagname, value);              \
+		DEBUG_MSG("flagname={}, value={}", flagname, value);                       \
 		if (!(ARG_condition)) {                                                    \
 			throw std::invalid_argument(fmt::format(                               \
 				"Invalid value for the parameter {}: \"{}\". "                     \
@@ -103,6 +103,11 @@ Args::Args(int argc, char** argv) {
 
 	validate_filename("filename", FLAGS_filename);
 	validate_filesize("filesize", FLAGS_filesize);
+
+	if (direct_io) {
+		o_direct = true;
+		o_dsync = true;
+	}
 
 	if (FLAGS_log_level == "debug") {
 		for (int i=0; i<command_script.size(); i++) {

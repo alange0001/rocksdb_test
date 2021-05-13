@@ -625,7 +625,7 @@ class EngineController {
 		if (args->o_direct) {
 			useFlag(O_DIRECT);
 		} else if (args->io_engine == "libaio") {
-			throw std::runtime_error("I/O engine libaio only supports direct_io (O_DIRECT)");
+			throw std::runtime_error("libaio engine only supports --o_direct=true (O_DIRECT)");
 		}
 		if (args->o_dsync) {
 			useFlag(O_DSYNC);

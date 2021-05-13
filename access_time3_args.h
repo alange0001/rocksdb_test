@@ -84,6 +84,11 @@ const uint32_t max_iodepth = 128;
 		"random ratio (0-1)",                                     \
 		value >= 0.0 && value <= 1.0,                             \
 		nullptr)                                                  \
+	_f(direct_io, bool, DEFINE_bool,                              \
+		false,                                                    \
+		"same that -o_direct -o_dsync (backward compatibility)",  \
+		true,                                                     \
+		nullptr)                                                  \
 	_f(o_direct, bool, DEFINE_bool,                               \
 		true,                                                     \
 		"use O_DIRECT",                                           \
