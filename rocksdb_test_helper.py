@@ -566,13 +566,15 @@ class ExpYcsbAt3 (GenericExperiment):
 				for iodepth in args_d['at_iodepth_list'].split(' '):
 					args_d['at_iodepth'] = iodepth
 
-					cur_at_io_engine = coalesce(args_d.get("at_io_engine"),"default")
+					cur_at_io_engine = coalesce(args_d.get("at_io_engine"), "def")
+					cur_at_o_dsync = coalesce(args_d.get("at_o_dsync"), "def")
 					self.output_filename = \
 						f'ycsb_{ydb_workload}' + \
-						f'-at3' +\
-						f'_pres{cur_at_script_gen}' +\
+						f'-at3' + \
+						f'_pres{cur_at_script_gen}' + \
 						f'n{args_d["num_at"]}i{args_d["at_interval"]}' + \
 						f'_depth{iodepth}_eng_{cur_at_io_engine}' + \
+						f'_dsync_{cur_at_o_dsync}' + \
 						f'_bs{at_bs}'
 					super(self.__class__, self).run(args_d)
 
@@ -710,13 +712,15 @@ class ExpDbbenchAt3 (GenericExperiment):
 			for iodepth in args_d['at_iodepth_list'].split(' '):
 				args_d['at_iodepth'] = iodepth
 
-				cur_at_io_engine = coalesce(args_d.get("at_io_engine"), "default")
+				cur_at_io_engine = coalesce(args_d.get("at_io_engine"), "def")
+				cur_at_o_dsync = coalesce(args_d.get("at_o_dsync"), "def")
 				self.output_filename = \
 					f'dbbench_{args_d.get("db_benchmark")}' + \
 					f'-at3' + \
 					f'_pres{cur_at_script_gen}' + \
 					f'n{args_d["num_at"]}i{args_d["at_interval"]}' + \
 					f'_depth{iodepth}_eng_{cur_at_io_engine}' + \
+					f'_dsync_{cur_at_o_dsync}' + \
 					f'_bs{at_bs}'
 				super(self.__class__, self).run(args_d)
 
