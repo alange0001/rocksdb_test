@@ -1,0 +1,84 @@
+[Version]
+  rocksdb_version=6.15.5
+  options_file_version=1.1
+
+[DBOptions]
+  bytes_per_sync=0
+  create_if_missing=true
+  create_missing_column_families=true
+  db_write_buffer_size=0
+  delayed_write_rate=16777216
+  enable_pipelined_write=false
+  max_background_compactions=24
+  max_background_flushes=-1
+  max_background_jobs=24
+  max_open_files=-1
+  new_table_reader_for_compaction_inputs=false
+  table_cache_numshardbits=6
+
+[CFOptions "default"]
+  bottommost_compression=kDisableCompressionOption
+  compaction_pri=kMinOverlappingRatio
+  compaction_style=kCompactionStyleLevel
+  compression=kSnappyCompression
+  compression_per_level=kNoCompression:kNoCompression:kLZ4Compression:kLZ4Compression:kLZ4Compression:kLZ4Compression:kLZ4Compression
+  force_consistency_checks=false
+  hard_pending_compaction_bytes_limit=274877906944
+  level0_file_num_compaction_trigger=2
+  level0_slowdown_writes_trigger=20
+  level0_stop_writes_trigger=36
+  level_compaction_dynamic_level_bytes=false
+  max_bytes_for_level_base=536870912
+  max_bytes_for_level_multiplier=10
+  max_compaction_bytes=1073741824
+  max_write_buffer_number=6
+  min_write_buffer_number_to_merge=2
+  num_levels=7
+  table_factory=BlockBasedTable
+  target_file_size_base=67108864
+  write_buffer_size=134217728
+
+[TableOptions/BlockBasedTable "default"]
+  block_cache=2147483648
+  block_size=4096
+  cache_index_and_filter_blocks=false
+  cache_index_and_filter_blocks_with_high_priority=true
+  filter_policy=nullptr
+  metadata_block_size=4096
+  no_block_cache=false
+  optimize_filters_for_memory=true
+  pin_l0_filter_and_index_blocks_in_cache=false
+
+[CFOptions "usertable"]
+  bottommost_compression=kDisableCompressionOption
+  compaction_pri=kMinOverlappingRatio
+  compaction_style=kCompactionStyleLevel
+  compression=kSnappyCompression
+  compression_per_level=kNoCompression:kNoCompression:kLZ4Compression:kLZ4Compression:kLZ4Compression:kLZ4Compression:kLZ4Compression
+  force_consistency_checks=false
+  hard_pending_compaction_bytes_limit=274877906944
+  level0_file_num_compaction_trigger=2
+  level0_slowdown_writes_trigger=20
+  level0_stop_writes_trigger=36
+  level_compaction_dynamic_level_bytes=false
+  max_bytes_for_level_base=536870912
+  max_bytes_for_level_multiplier=10
+  max_compaction_bytes=1073741824
+  max_write_buffer_number=6
+  min_write_buffer_number_to_merge=2
+  num_levels=7
+  table_factory=BlockBasedTable
+  target_file_size_base=67108864
+  write_buffer_size=134217728
+
+[TableOptions/BlockBasedTable "usertable"]
+  block_cache=2147483648
+  block_size=4096
+  cache_index_and_filter_blocks=false
+  cache_index_and_filter_blocks_with_high_priority=true
+  filter_policy=nullptr
+  metadata_block_size=4096
+  no_block_cache=false
+  optimize_filters_for_memory=true
+  pin_l0_filter_and_index_blocks_in_cache=false
+

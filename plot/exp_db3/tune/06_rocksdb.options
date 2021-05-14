@@ -1,0 +1,75 @@
+[Version]
+  rocksdb_version=6.15.5
+  options_file_version=1.1
+
+[DBOptions]
+  bytes_per_sync=8388608
+  create_if_missing=true
+  create_missing_column_families=true
+  db_write_buffer_size=0
+  delayed_write_rate=8388608
+  enable_pipelined_write=true
+  max_background_compactions=6
+  max_background_flushes=6
+  max_open_files=-1
+  new_table_reader_for_compaction_inputs=true
+  table_cache_numshardbits=4
+
+[CFOptions "default"]
+  bottommost_compression=kLZ4Compression
+  compaction_pri=kMinOverlappingRatio
+  compaction_style=kCompactionStyleLevel
+  compression=kLZ4Compression
+  level0_file_num_compaction_trigger=4
+  level0_slowdown_writes_trigger=20
+  level_compaction_dynamic_level_bytes=false
+  max_bytes_for_level_base=1073741824
+  max_bytes_for_level_multiplier=8
+  max_write_buffer_number=8
+  merge_operator=PutOperator
+  min_write_buffer_number_to_merge=1
+  num_levels=4
+  target_file_size_base=134217728
+  ttl=0
+  write_buffer_size=134217728
+
+[TableOptions/BlockBasedTable "default"]
+  block_cache=2147483648
+  block_size=8192
+  cache_index_and_filter_blocks=true
+  cache_index_and_filter_blocks_with_high_priority=true
+  filter_policy=bloomfilter:10:false
+  metadata_block_size=4096
+  no_block_cache=false
+  optimize_filters_for_memory=true
+  pin_l0_filter_and_index_blocks_in_cache=true
+
+[CFOptions "usertable"]
+  bottommost_compression=kLZ4Compression
+  compaction_pri=kMinOverlappingRatio
+  compaction_style=kCompactionStyleLevel
+  compression=kLZ4Compression
+  level0_file_num_compaction_trigger=4
+  level0_slowdown_writes_trigger=20
+  level_compaction_dynamic_level_bytes=false
+  max_bytes_for_level_base=1073741824
+  max_bytes_for_level_multiplier=8
+  max_write_buffer_number=8
+  merge_operator=PutOperator
+  min_write_buffer_number_to_merge=1
+  num_levels=4
+  target_file_size_base=134217728
+  ttl=0
+  write_buffer_size=134217728
+
+[TableOptions/BlockBasedTable "usertable"]
+  block_cache=2147483648
+  block_size=8192
+  cache_index_and_filter_blocks=true
+  cache_index_and_filter_blocks_with_high_priority=true
+  filter_policy=bloomfilter:10:false
+  metadata_block_size=4096
+  no_block_cache=false
+  optimize_filters_for_memory=true
+  pin_l0_filter_and_index_blocks_in_cache=true
+
