@@ -109,6 +109,10 @@ Args::Args(int argc, char** argv) {
 		o_dsync = true;
 	}
 
+	if (io_engine == "posix" && iodepth > 1) {
+		throw invalid_argument("io_engine posix only supports iodepth 1");
+	}
+
 	if (FLAGS_log_level == "debug") {
 		for (int i=0; i<command_script.size(); i++) {
 			spdlog::debug("command_script[{}]: {}:{}", i, command_script[i].time, command_script[i].command);
@@ -143,8 +147,9 @@ void Args::executeCommand(const string& command_line) {
 				spdlog::info("set {}={}", command, name); \
 				return; \
 		}
-#	define parseLineCommandValidate(name, parser) \
+#	define parseLineCommandValidate(name, parser, immutable_condition) \
 		if (command == #name) { \
+				if (immutable_condition) throw invalid_argument("parameter " #name " is immutable due to condition: " #immutable_condition); \
 				auto aux = parser(value, true); \
 				validate_##name(command.c_str(), aux); \
 				name = aux; \
@@ -153,10 +158,10 @@ void Args::executeCommand(const string& command_line) {
 				return; \
 		}
 	parseLineCommand(wait, alutils::parseBool, false, true);
-	parseLineCommandValidate(block_size, alutils::parseUint64);
-	parseLineCommandValidate(iodepth, alutils::parseUint32);
-	parseLineCommandValidate(write_ratio, alutils::parseDouble);
-	parseLineCommandValidate(random_ratio, alutils::parseDouble);
+	parseLineCommandValidate(block_size, alutils::parseUint64, false);
+	parseLineCommandValidate(iodepth, alutils::parseUint32, io_engine == "posix");
+	parseLineCommandValidate(write_ratio, alutils::parseDouble, false);
+	parseLineCommandValidate(random_ratio, alutils::parseDouble, false);
 	parseLineCommand(flush_blocks, alutils::parseUint64, true, 0);
 #	undef parseLineCommand
 #	undef parseLineCommandValidate

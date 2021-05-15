@@ -56,8 +56,8 @@ const uint32_t max_iodepth = 128;
 		nullptr)                                                  \
 	_f(io_engine, string, DEFINE_string,                          \
 		"posix",                                                  \
-		"I/O engine (posix,libaio)",                              \
-		value == "posix" || value == "libaio",                    \
+		"I/O engine (posix,prwv2,libaio)",                        \
+		value == "posix" || value == "prwv2" || value == "libaio",\
 		nullptr)                                                  \
 	_f(iodepth, uint32_t, DEFINE_uint32,                          \
 		1,                                                        \

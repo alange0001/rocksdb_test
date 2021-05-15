@@ -84,6 +84,7 @@ class GenericEngine {
 	virtual ~GenericEngine() {}
 	virtual void make_requests(bool& stop_) {}
 	virtual void wait() {}
+	virtual bool is_multithread() {return false;}
 };
 
 ////////////////////////////////////////////////////////////////////////////////////
@@ -95,16 +96,88 @@ struct AccessParams {
 	size_t     size;
 	long long  offset;
 	bool       write;
+	bool       dsync;
 };
 
 typedef std::function<AccessParams()> access_params_t;
+typedef std::function<void(char* buffer, uint32_t size)> randomize_buffer_t;
+typedef std::function<void(long long offset)> offset_released_t;
+
+////////////////////////////////////////////////////////////////////////////////////
+#undef __CLASS__
+#define __CLASS__ "PosixEngine::"
+
+class PosixEngine : public GenericEngine {
+	int fd;
+
+	increment_stats_t increment_stats;
+	randomize_buffer_t randomize_buffer;
+	access_params_t access_params;
+	offset_released_t offset_released;
+
+	std::unique_ptr<aligned_buffer_t[]> buffer_mem;
+	char*      buffer = nullptr;
+	size_t     cur_size = 0;
+	long long  cur_offset = 0;
+
+	public:  // ------------------------------------------------------------
+	PosixEngine(int fd_, increment_stats_t increment_stats_, randomize_buffer_t randomize_buffer_,
+	          access_params_t access_params_, offset_released_t offset_released_)
+	          : fd(fd_), increment_stats(increment_stats_), randomize_buffer(randomize_buffer_),
+	            access_params(access_params_), offset_released(offset_released_)
+	{
+		DEBUG_MSG("constructor");
+	}
+
+	~PosixEngine() {
+		DEBUG_MSG("destructor");
+	}
+
+	void make_requests(bool& stop_) {
+		if (stop_) return;
+
+		auto params = access_params();
+		assert(params.size > 0);
+		if (cur_size != params.size) {
+			DEBUG_MSG("request size changed from {} to {}", cur_size, params.size);
+			cur_size = params.size;
+			buffer_mem.reset(new aligned_buffer_t[cur_size/sizeof(aligned_buffer_t)]);
+			buffer = buffer_mem[0].data;
+			randomize_buffer(buffer, cur_size);
+		}
+
+		auto stats = Stats{
+			.blocks = 1,
+			.blocks_read  = static_cast<uint64_t>( (!params.write) ? 1 : 0 ),
+			.blocks_write = static_cast<uint64_t>( ( params.write) ? 1 : 0 ),
+			.KB_read  = (!params.write) ? params.block_size : 0,
+			.KB_write = ( params.write) ? params.block_size : 0,
+		};
+
+		if (cur_offset + cur_size != params.offset) {
+			if (lseek(fd, params.offset, SEEK_SET) == -1)
+				throw std::runtime_error(fmt::format("seek error: {}", strerror(errno)).c_str());
+		}
+		cur_offset = params.offset;
+
+		if (stop_) return;
+
+		if (params.write) {
+			if (write(fd, buffer, cur_size) == -1)
+				throw std::runtime_error(fmt::format("write error: {}", strerror(errno)).c_str());
+		} else {
+			if (read(fd, buffer, cur_size) == -1)
+				throw std::runtime_error(fmt::format("read error: {}", strerror(errno)).c_str());
+		}
+
+		offset_released(cur_offset);
+		increment_stats(stats);
+	}
+};
 
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
 #define __CLASS__ "AIORequest::"
-
-typedef std::function<void(char* buffer, uint32_t size)> randomize_buffer_t;
-typedef std::function<void(long long offset)> offset_released_t;
 
 class AIORequest {
 	public:  // ------------------------------------------------------------
@@ -179,6 +252,9 @@ class AIORequest {
 
 		if (params.write) {
 			io_prep_pwrite(&cb, options->fd, buffer, size, offset);
+			if (params.dsync) {
+				cb.aio_rw_flags |= RWF_DSYNC;
+			}
 		} else { //read
 			io_prep_pread(&cb, options->fd, buffer, size, offset);
 		}
@@ -305,25 +381,25 @@ class AIOEngine : public GenericEngine {
 
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
-#define __CLASS__ "PosixEngine::"
+#define __CLASS__ "Prwv2Engine::"
 
-class PosixEngine : public GenericEngine {
+class Prwv2Engine : public GenericEngine {
 	bool wait_ = true;
 	bool stop = false;
 
 	std::unique_ptr<std::unique_ptr<std::thread>[]> threads;
 	std::exception_ptr thread_exception;
 
-	int fd;
+	int       fd;
 	uint32_t& iodepth;
-	increment_stats_t increment_stats;
 
+	increment_stats_t  increment_stats;
 	randomize_buffer_t randomize_buffer;
 	access_params_t    access_params;
 	offset_released_t  offset_released;
 
 	public: //---------------------------------------------------------------------
-	PosixEngine(int fd_, uint32_t& iodepth_, increment_stats_t increment_stats_, randomize_buffer_t randomize_buffer_,
+	Prwv2Engine(int fd_, uint32_t& iodepth_, increment_stats_t increment_stats_, randomize_buffer_t randomize_buffer_,
 	            access_params_t access_params_, offset_released_t offset_released_)
 	          : fd(fd_), iodepth(iodepth_), increment_stats(increment_stats_),
 	            randomize_buffer(randomize_buffer_), access_params(access_params_),
@@ -337,7 +413,7 @@ class PosixEngine : public GenericEngine {
 		}
 	}
 
-	~PosixEngine() {
+	~Prwv2Engine() {
 		DEBUG_MSG("destructor");
 		stop = true;
 		for (int i = 0; i < max_iodepth; i++) {
@@ -346,6 +422,8 @@ class PosixEngine : public GenericEngine {
 		}
 		threads.reset(nullptr);
 	}
+
+	bool is_multithread() {return true;}
 
 	void make_requests(bool& stop_) {
 		if (thread_exception) {
@@ -393,7 +471,7 @@ class PosixEngine : public GenericEngine {
 					ssize_t ret;
 
 					if (params.write) {
-						ret = pwritev(fd, &prw, 1, params.offset);
+						ret = pwritev2(fd, &prw, 1, params.offset, params.dsync ? RWF_DSYNC : 0);
 					} else {
 						ret = preadv(fd, &prw, 1, params.offset);
 					}
@@ -627,15 +705,19 @@ class EngineController {
 		} else if (args->io_engine == "libaio") {
 			throw std::runtime_error("libaio engine only supports --o_direct=true (O_DIRECT)");
 		}
-		if (args->o_dsync) {
+		if (args->io_engine == "posix" && args->o_dsync) {
 			useFlag(O_DSYNC);
 		}
 #		undef useFlag
 
 		spdlog::info("opening file '{}' with flags {}", args->filename, flags_str);
+		if (args->o_dsync && (args->io_engine == "libaio" || args->io_engine == "prwv2")) {
+			spdlog::info("write requests will use flag RWF_DSYNC");
+		}
+
 		filed = open(args->filename.c_str(), flags, 0640);
 		if (filed < 0) {
-			throw std::runtime_error(fmt::format("can't open file: {}:{}", filed, E2S(filed)).c_str());
+			throw std::runtime_error(fmt::format("can't open file: {}", filed, alutils::strerror2(errno)).c_str());
 		}
 	}
 
@@ -702,6 +784,7 @@ class EngineController {
 
 			block_size_lock.lock();
 
+			ret.dsync      = args->o_dsync;
 			ret.block_size = cur_block_size;
 			ret.size       = buffer_size;
 
@@ -747,7 +830,14 @@ class EngineController {
 			std::unique_ptr<GenericEngine> engine;
 
 			spdlog::info("using {} engine", args->io_engine);
-			if (args->io_engine == "libaio") {
+			if (args->io_engine == "posix") {
+				engine.reset(new PosixEngine(
+				                      filed,
+				                      increment_stats_lambda,
+				                      randomize_buffer_lambda,
+				                      access_params_lambda,
+				                      offset_released_lambda));
+			} else if (args->io_engine == "libaio") {
 				engine.reset(new AIOEngine(
 				                      filed,
 				                      args->iodepth,
@@ -755,11 +845,8 @@ class EngineController {
 				                      randomize_buffer_lambda,
 				                      access_params_lambda,
 				                      offset_released_lambda));
-			} else if (args->io_engine == "posix") {
-				increment_stats_lock.activate();
-				block_size_lock.activate();
-
-				engine.reset(new PosixEngine(
+			} else if (args->io_engine == "prwv2") {
+				engine.reset(new Prwv2Engine(
 				                      filed,
 				                      args->iodepth,
 				                      increment_stats_lambda,
@@ -767,7 +854,12 @@ class EngineController {
 				                      access_params_lambda,
 				                      offset_released_lambda));
 			} else {
-				throw std::runtime_error("invalid engine");
+				throw std::runtime_error("invalid or not implemented engine");
+			}
+
+			if (engine->is_multithread()) {
+				increment_stats_lock.activate();
+				block_size_lock.activate();
 			}
 
 			while (!stop_) {
