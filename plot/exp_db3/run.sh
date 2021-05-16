@@ -115,10 +115,11 @@ function main() {
 		save_config04
 
 		if [ "$2" == 'create' ]; then
+			duration=${duration:-70}        \
 			save_args
 			./rocksdb_test_helper --load_args="$args_file" create_ycsb --duration=20
 			sleep 1m
-			./rocksdb_test_helper --load_args="$args_file" ycsb --duration=70
+			./rocksdb_test_helper --load_args="$args_file" ycsb
 			
 			shift 1
 		fi
@@ -131,8 +132,9 @@ function main() {
 		fi
 
 		if [ "$2" == 'steady' ]; then
+			duration=${duration:-70}        \
 			save_args
-			./rocksdb_test_helper --load_args="$args_file" ycsb --duration=70
+			./rocksdb_test_helper --load_args="$args_file" ycsb
 			shift 1
 		fi
 
@@ -186,6 +188,7 @@ local at_script_gen=${at_script_gen:-1}
 local at_interval=${at_interval:-2}
 local at_block_size_list=${at_block_size_list:-4 8 16 32 64 128 256 512}
 local at_o_dsync=${at_o_dsync:-true}
+local ydb_rocksdb_jni=${ydb_rocksdb_jni:-../rocksdb.dev/java/target/rocksdbjni-6.15.5-linux64.jar}
 
 cat <<EOB >"$args_file"
 {
@@ -208,7 +211,7 @@ cat <<EOB >"$args_file"
 	"at_script_gen": $at_script_gen,
 	"at_interval": $at_interval,
 	"at_block_size_list": "$at_block_size_list",
-	"params": "--perfmon --ydb_rocksdb_jni=../rocksdb.dev/java/target/rocksdbjni-6.15.5-linux64.jar --ydb_socket=true",
+	"params": "--perfmon --ydb_rocksdb_jni=$ydb_rocksdb_jni --ydb_socket=true",
 	"__docker_params": "-e ROCKSDB_TR_SOCKET=/tmp/host/rocksdb.sock"
 }
 EOB
