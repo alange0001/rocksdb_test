@@ -16,6 +16,9 @@ ENV PATH /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/rocks
 ENV LD_LIBRARY_PATH /opt/rocksdb/lib
 ENV YCSB_PATH /opt/YCSB
 
-ENV HOME /root
-WORKDIR /root
+RUN cp -a /root /home/user
+RUN chmod 777 /home/user
+ENV HOME /home/user
+WORKDIR /home/user
+
 CMD ["bash"]
