@@ -1,0 +1,52 @@
+diff --git a/db/db_impl/db_impl_open.cc b/db/db_impl/db_impl_open.cc
+index 9d82a0a..5b6dccc 100644
+--- a/db/db_impl/db_impl_open.cc
++++ b/db/db_impl/db_impl_open.cc
+@@ -7,6 +7,7 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file. See the AUTHORS file for names of contributors.
+ #include <cinttypes>
++#include <regex>
+ 
+ #include "db/builder.h"
+ #include "db/db_impl/db_impl.h"
+@@ -23,6 +24,8 @@
+ #include "test_util/sync_point.h"
+ #include "util/rate_limiter.h"
+ 
++#include "rocksdb_test/thread_report_impl.h"
++
+ namespace ROCKSDB_NAMESPACE {
+ Options SanitizeOptions(const std::string& dbname, const Options& src) {
+   auto db_options = SanitizeOptions(dbname, DBOptions(src));
+@@ -1444,8 +1447,7 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
+                 std::vector<ColumnFamilyHandle*>* handles, DB** dbptr) {
+   const bool kSeqPerBatch = true;
+   const bool kBatchPerTxn = true;
+-  return DBImpl::Open(db_options, dbname, column_families, handles, dbptr,
+-                      !kSeqPerBatch, kBatchPerTxn);
++  THREADREPORT_OPEN;
+ }
+ 
+ IOStatus DBImpl::CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
+diff --git a/include/rocksdb/db.h b/include/rocksdb/db.h
+index 840e1b4..871d3c0 100644
+--- a/include/rocksdb/db.h
++++ b/include/rocksdb/db.h
+@@ -26,6 +26,8 @@
+ #include "rocksdb/types.h"
+ #include "rocksdb/version.h"
+ 
++#include "rocksdb_test/thread_report.h"
++
+ #ifdef _WIN32
+ // Windows API macro interference
+ #undef DeleteFile
+@@ -1655,6 +1657,7 @@ class DB {
+     return Status::NotSupported("Supported only by secondary instance");
+   }
+ #endif  // !ROCKSDB_LITE
++  DECLARE_THREADREPORT_POINTER;
+ };
+ 
+ // Destroy the contents of the specified database.
