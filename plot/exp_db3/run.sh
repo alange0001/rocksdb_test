@@ -188,7 +188,6 @@ local at_script_gen=${at_script_gen:-1}
 local at_interval=${at_interval:-2}
 local at_block_size_list=${at_block_size_list:-4 8 16 32 64 128 256 512}
 local at_o_dsync=${at_o_dsync:-true}
-local ydb_rocksdb_jni=${ydb_rocksdb_jni:-../rocksdb.dev/java/target/rocksdbjni-6.15.5-linux64.jar}
 
 cat <<EOB >"$args_file"
 {
@@ -211,7 +210,7 @@ cat <<EOB >"$args_file"
 	"at_script_gen": $at_script_gen,
 	"at_interval": $at_interval,
 	"at_block_size_list": "$at_block_size_list",
-	"params": "--perfmon --ydb_rocksdb_jni=$ydb_rocksdb_jni --ydb_socket=true",
+	"params": "--perfmon --ydb_socket=true",
 	"__docker_params": "-e ROCKSDB_TR_SOCKET=/tmp/host/rocksdb.sock"
 }
 EOB
