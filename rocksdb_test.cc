@@ -458,7 +458,7 @@ class YCSB : public ExperimentTask {
 			if (! std::filesystem::is_regular_file(p, ec) ) {
 				throw runtime_error(format("parameter ydb_rocksdb_jni=\"{}\" is not a regular file: {}", args->ydb_rocksdb_jni, ec.message()).c_str());
 			}
-			ret += format("  -v {}:/opt/YCSB/rocksdb-binding/lib/rocksdbjni-linux64.jar:ro \\\n", std::filesystem::absolute(p).string());
+			ret += format("  -v {}:/opt/YCSB/rocksdb/target/dependency/rocksdbjni-linux64.jar:ro \\\n", std::filesystem::absolute(p).string());
 		}
 		return ret;
 	}
