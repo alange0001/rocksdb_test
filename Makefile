@@ -112,9 +112,9 @@ rocksdb: 3rd-party/rocksdb/db_bench
 
 ROCKSDB_DEPS += $(shell ls rocksdb_patches/*.h)
 ROCKSDB_DEPS += 3rd-party/rocksdb/db/db_impl/db_impl_open.cc.orig
-3rd-party/rocksdb/db/db_impl/db_impl_open.cc.orig: 3rd-party/rocksdb/.dir_ok rocksdb_patches/thread_report.patch
+3rd-party/rocksdb/db/db_impl/db_impl_open.cc.orig: 3rd-party/rocksdb/.dir_ok rocksdb_patches/rcm.patch
 	$(info Executing target $@)
-	cd 3rd-party/rocksdb && patch -b -p 1 <../../rocksdb_patches/thread_report.patch
+	cd 3rd-party/rocksdb && patch -b -p 1 <../../rocksdb_patches/rcm.patch
 	touch $@
 
 ROCKSDB_DEPS += 3rd-party/rocksdb/include/.rocksdb_test_ok
@@ -139,6 +139,10 @@ ROCKSDB_EXTRA_LDFLAGS = "-l alutils -L $(shell pwd)/3rd-party/alutils/build -l p
 3rd-party/rocksdb/db_bench: $(ROCKSDB_DEPS)
 	$(info Executing target $@)
 	+cd 3rd-party/rocksdb && PLATFORM_LDFLAGS=$(ROCKSDB_EXTRA_LDFLAGS) make DEBUG_LEVEL=0 shared_lib db_bench rocksdbjava
+
+rocksdb-java:
+	touch 3rd-party/rocksdb/db/db_impl/db_impl_open.cc
+	+cd 3rd-party/rocksdb && PLATFORM_LDFLAGS=$(ROCKSDB_EXTRA_LDFLAGS) make DEBUG_LEVEL=0 rocksdbjava
 
 rocksdb-install: rocksdb
 	$(info Executing target $@)

@@ -434,10 +434,10 @@ class YCSB : public ExperimentTask {
 		ret += get_jni_param();
 		ret += workload_docker;
 		if (loglevel.level == LogLevel::LOG_DEBUG_OUT || loglevel.level == LogLevel::LOG_DEBUG) { ret +=
-			format("  -e ROCKSDB_TR_DEBUG=1                           \\\n");
+			format("  -e ROCKSDB_RCM_DEBUG=1                           \\\n");
 		}
 		if (args->ydb_socket) { ret +=
-			format("  -e ROCKSDB_TR_SOCKET=/tmp/host/rocksdb.sock     \\\n");
+			format("  -e ROCKSDB_RCM_SOCKET=/tmp/host/rocksdb.sock     \\\n");
 		}
 		if (sleep > 0) { ret +=
 			format("  -e YCSB_SLEEP={}m                               \\\n", sleep);
@@ -583,7 +583,7 @@ class YCSB : public ExperimentTask {
 				data2["socket_report"] = nlohmann::ordered_json::parse(cm.str(1));
 				print(data2);
 			} else {
-				throw std::runtime_error(format("invalid message: {}", data->msg).c_str());
+				spdlog::info("Task {}, socket output: {}", name, alutils::str_replace(data->msg, '\n', ' '));
 			}
 		} catch (std::exception& e) {
 			spdlog::error("exception received in the socket handler of task {}: {}", name, e.what());

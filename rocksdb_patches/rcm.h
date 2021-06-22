@@ -5,16 +5,20 @@
 
 #pragma once
 
+namespace RCM {
+
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
 #define __CLASS__ ""
 
-class ThreadReport {
+class Controller {
 	public:
-	ThreadReport(){}
-	virtual ~ThreadReport(){}
+	Controller(){}
+	virtual ~Controller(){}
 };
 
-#define DECLARE_THREADREPORT_POINTER             \
-  private:                                       \
-  std::unique_ptr<ThreadReport> thread_report
+} // namespace RCM
+
+#define DECLARE_RCM_POINTER \
+  private: \
+  std::unique_ptr<RCM::Controller> rcm_controller
