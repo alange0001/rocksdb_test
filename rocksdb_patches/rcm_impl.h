@@ -479,7 +479,7 @@ class ControllerImpl : public Controller {
 			return true;
 		}
 
-		RCM_REPORT("Column family metadata: %s", json.dump().c_str());
+		RCM_REPORT("Column family metadata.json: %s", json.dump().c_str());
 		return true;
 	}
 
@@ -538,7 +538,7 @@ class ControllerImpl : public Controller {
 		}
 
 		{
-			RCM_PRINT("Column Family %s: compacting %s files of %s from level %s", cfname.c_str(), v2s(files), v2s(l.files.size()), v2s(level));
+			RCM_PRINT("Column Family %s: compacting %s files of %s from level %s to level %s", cfname.c_str(), v2s(files), v2s(l.files.size()), v2s(level), v2s(target_level));
 			ROCKSDB_NAMESPACE::CompactionOptions compact_options;
 			auto s = db->CompactFiles(compact_options, cfhandle, input_file_names, target_level);
 			if (s.ok()) {
