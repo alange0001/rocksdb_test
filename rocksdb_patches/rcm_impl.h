@@ -442,8 +442,9 @@ class ControllerImpl : public Controller {
 			json["name"] = metadata.name;
 			json["size"] = metadata.size;
 			json["file_count"] = metadata.file_count;
+			json["level_count"] = metadata.levels.size();
 			for (auto &l: metadata.levels) {
-				std::string level_prefix = alutils::sprintf("level%s.", v2s(l.level));
+				std::string level_prefix = alutils::sprintf("L%s.", v2s(l.level));
 				json[level_prefix + "size"] = l.size;
 				json[level_prefix + "file_count"] = l.files.size();
 
