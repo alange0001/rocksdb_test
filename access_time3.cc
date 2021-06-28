@@ -45,6 +45,53 @@ struct alignas(aligned_buffer_size) aligned_buffer_t {
 
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
+#define __CLASS__ "Randomizer::"
+
+class Randomizer {
+	public:
+	std::random_device  rd;
+	std::mt19937        rand_eng;
+	std::mt19937_64     rand_eng64;
+	const uint32_t      ratio_precision = 1024;
+	std::unique_ptr<std::uniform_int_distribution<uint32_t>> dist_ratio;
+
+	Randomizer() {
+		auto seed = rd();
+		rand_eng.seed(seed);
+		rand_eng64.seed(seed);
+		dist_ratio.reset(new std::uniform_int_distribution<uint32_t>(0, ratio_precision -1));
+	}
+
+	bool randomize_ratio(double ratio) {
+		return ((*dist_ratio)(rand_eng) < static_cast<uint32_t>(ratio * ratio_precision));
+	}
+
+	void randomize_buffer(char* buffer, uint64_t size, uint64_t step=1) {
+		assert(buffer != nullptr);
+		assert(size > 0);
+		assert(step > 0);
+
+		const uint64_t size_ratio = sizeof(uint64_t) / sizeof(char);
+		uint64_t size_type = size / size_ratio;
+		std::uniform_int_distribution<uint64_t> dist;
+
+		uint64_t first_i = 0;
+		if (step > 1) {
+			std::uniform_int_distribution<uint64_t> dist_step(0, step-1);
+			first_i = dist_step(rand_eng64);
+		}
+
+		uint64_t* b = reinterpret_cast<uint64_t*>(buffer);
+		for (uint64_t i = first_i; i < size_type; i += step) {
+			b[i] = dist(rand_eng64);
+		}
+	}
+
+} randomizer;
+
+
+////////////////////////////////////////////////////////////////////////////////////
+#undef __CLASS__
 #define __CLASS__ "Stats::"
 
 struct Stats {
@@ -100,7 +147,6 @@ struct AccessParams {
 };
 
 typedef std::function<AccessParams()> access_params_t;
-typedef std::function<void(char* buffer, uint32_t size)> randomize_buffer_t;
 typedef std::function<void(long long offset)> offset_released_t;
 
 ////////////////////////////////////////////////////////////////////////////////////
@@ -111,7 +157,6 @@ class PosixEngine : public GenericEngine {
 	int fd;
 
 	increment_stats_t increment_stats;
-	randomize_buffer_t randomize_buffer;
 	access_params_t access_params;
 	offset_released_t offset_released;
 
@@ -119,11 +164,12 @@ class PosixEngine : public GenericEngine {
 	char*      buffer = nullptr;
 	size_t     cur_size = 0;
 	long long  cur_offset = 0;
+	bool       cur_write = false;
 
 	public:  // ------------------------------------------------------------
-	PosixEngine(int fd_, increment_stats_t increment_stats_, randomize_buffer_t randomize_buffer_,
+	PosixEngine(int fd_, increment_stats_t increment_stats_,
 	          access_params_t access_params_, offset_released_t offset_released_)
-	          : fd(fd_), increment_stats(increment_stats_), randomize_buffer(randomize_buffer_),
+	          : fd(fd_), increment_stats(increment_stats_),
 	            access_params(access_params_), offset_released(offset_released_)
 	{
 		DEBUG_MSG("constructor");
@@ -143,7 +189,9 @@ class PosixEngine : public GenericEngine {
 			cur_size = params.size;
 			buffer_mem.reset(new aligned_buffer_t[cur_size/sizeof(aligned_buffer_t)]);
 			buffer = buffer_mem[0].data;
-			randomize_buffer(buffer, cur_size);
+			randomizer.randomize_buffer(buffer, cur_size);
+		} else if (params.write && cur_write) { // randomize 5% of the buffer due to repeated writes
+			randomizer.randomize_buffer(buffer, cur_size, 20);
 		}
 
 		auto stats = Stats{
@@ -159,6 +207,7 @@ class PosixEngine : public GenericEngine {
 				throw std::runtime_error(fmt::format("seek error: {}", strerror(errno)).c_str());
 		}
 		cur_offset = params.offset;
+		cur_write = params.write;
 
 		if (stop_) return;
 
@@ -185,14 +234,12 @@ class AIORequest {
 		int                 pos_count = 0;
 		int                 fd;
 		io_context_t*       ctx;
-		randomize_buffer_t  randomize_buffer;
 		access_params_t     access_params;
 		offset_released_t   offset_released;
 
-		Options(int fd_, io_context_t* ctx_, randomize_buffer_t randomize_buffer_, access_params_t access_params_,
+		Options(int fd_, io_context_t* ctx_, access_params_t access_params_,
 		        offset_released_t offset_released_)
 		        : fd(fd_), ctx(ctx_),
-		          randomize_buffer(randomize_buffer_),
 				  access_params(access_params_),
 				  offset_released(offset_released_) {}
 	};
@@ -236,7 +283,9 @@ class AIORequest {
 			size = params.size;
 			buffer_mem.reset(new aligned_buffer_t[size/sizeof(aligned_buffer_t)]);
 			buffer = buffer_mem[0].data;
-			options->randomize_buffer(buffer, size);
+			randomizer.randomize_buffer(buffer, size);
+		} else if (params.write && write) { // randomize 5% of the buffer due to repeated writes
+			randomizer.randomize_buffer(buffer, size, 20);
 		}
 
 		stats = Stats{
@@ -296,7 +345,7 @@ class AIOEngine : public GenericEngine {
 	increment_stats_t increment_stats;
 
 	public:  // ------------------------------------------------------------
-	AIOEngine(int fd, uint32_t& iodepth_, increment_stats_t increment_stats_, randomize_buffer_t randomize_buffer_,
+	AIOEngine(int fd, uint32_t& iodepth_, increment_stats_t increment_stats_,
 	          access_params_t access_params_, offset_released_t offset_released_)
 	          : iodepth(iodepth_), increment_stats(increment_stats_)
 	{
@@ -308,7 +357,7 @@ class AIOEngine : public GenericEngine {
 			throw std::runtime_error(fmt::format("io_setup returned error {}:{}", ret, E2S(ret)).c_str());
 		}
 
-		request_options.reset(new AIORequest::Options(fd, &ctx, randomize_buffer_, access_params_, offset_released_));
+		request_options.reset(new AIORequest::Options(fd, &ctx, access_params_, offset_released_));
 
 		request_list.reset(new std::unique_ptr<AIORequest>[max_iodepth]);
 		for (int i = 0; i < max_iodepth; i++) {
@@ -394,15 +443,14 @@ class Prwv2Engine : public GenericEngine {
 	uint32_t& iodepth;
 
 	increment_stats_t  increment_stats;
-	randomize_buffer_t randomize_buffer;
 	access_params_t    access_params;
 	offset_released_t  offset_released;
 
 	public: //---------------------------------------------------------------------
-	Prwv2Engine(int fd_, uint32_t& iodepth_, increment_stats_t increment_stats_, randomize_buffer_t randomize_buffer_,
+	Prwv2Engine(int fd_, uint32_t& iodepth_, increment_stats_t increment_stats_,
 	            access_params_t access_params_, offset_released_t offset_released_)
 	          : fd(fd_), iodepth(iodepth_), increment_stats(increment_stats_),
-	            randomize_buffer(randomize_buffer_), access_params(access_params_),
+	            access_params(access_params_),
 				offset_released(offset_released_)
 	{
 		DEBUG_MSG("constructor");
@@ -448,6 +496,7 @@ class Prwv2Engine : public GenericEngine {
 			size_t cur_size = -1;
 			std::unique_ptr<aligned_buffer_t[]> buffer_mem;
 			char* buffer = nullptr;
+			bool write = false;
 
 			while (!stop) {
 				while (!stop && wait_) {
@@ -464,8 +513,12 @@ class Prwv2Engine : public GenericEngine {
 						cur_size = params.size;
 						buffer_mem.reset(new aligned_buffer_t[cur_size/sizeof(aligned_buffer_t)]);
 						buffer = buffer_mem[0].data;
-						randomize_buffer(buffer, cur_size);
+						randomizer.randomize_buffer(buffer, cur_size);
+					} else if (params.write && write) { // randomize 5% of the buffer due to repeated writes
+						randomizer.randomize_buffer(buffer, cur_size, 20);
 					}
+
+					write = params.write;
 
 					iovec prw = { .iov_base = buffer, .iov_len = cur_size };
 					ssize_t ret;
@@ -541,56 +594,6 @@ class Lock {
 	}
 };
 
-////////////////////////////////////////////////////////////////////////////////////
-#undef __CLASS__
-#define __CLASS__ "SimpleSet::"
-
-template<typename T> class SimpleSet {
-	std::vector<T> list;
-
-	public: //---------------------------------------------------------------------
-
-	void clear() {
-		list.clear();
-	}
-
-	size_t size() {
-		return list.size();
-	}
-
-	bool not_found_and_insert(T val) {
-		for (auto& i : list) {
-			if (i == val) {
-				return false; // found
-			}
-		}
-		// not found. Inserting:
-		list.push_back(val);
-		return true;
-	}
-
-	bool find_and_remove(T val) {
-		for (auto& i : list) {
-			if (i == val) { // found
-				if (i != list[list.size()-1]) {
-					i = list[list.size()-1];
-				}
-				list.pop_back();
-				return true;
-			}
-		}
-		return false; // not found
-	}
-
-	std::string dump() {
-		std::string ret2;
-		for (auto& v: list) {
-			if (ret2.length()) ret2 += ", ";
-			ret2 += std::to_string(v);
-		}
-		return fmt::format("SimpleSet: size={}, list={{ {} }}", list.size(), ret2);
-	}
-};
 
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
@@ -654,7 +657,7 @@ class EngineController {
 
 		const uint32_t buffer_size = 1024 * 1024;
 		alignas(aligned_buffer_size) char buffer[buffer_size];
-		randomize_buffer(buffer, buffer_size);
+		randomizer.randomize_buffer(buffer, buffer_size);
 
 		auto fd = open(args->filename.c_str(), O_CREAT|O_RDWR|O_DIRECT, 0640);
 		if (fd < 0)
@@ -721,8 +724,7 @@ class EngineController {
 		}
 	}
 
-	std::default_random_engine rand_eng;
-	const uint32_t random_scale = 10000;
+	const uint32_t  random_scale = 10000;
 
 	Lock block_size_lock;
 	typeof(Args::block_size) cur_block_size  = 0;
@@ -731,7 +733,6 @@ class EngineController {
 	uint64_t cur_block   = 0;
 
 	std::unique_ptr<std::uniform_int_distribution<uint64_t>> rand_block;
-	std::unique_ptr<std::uniform_int_distribution<uint32_t>> rand_ratio;
 
 	void check_arg_updates() {
 		if (cur_block_size != args->block_size) { // check block size
@@ -753,10 +754,8 @@ class EngineController {
 	Lock                 increment_stats_lock;
 	increment_stats_t    increment_stats_lambda  = nullptr;
 
-	randomize_buffer_t   randomize_buffer_lambda = nullptr;
 	access_params_t      access_params_lambda    = nullptr;
 	offset_released_t    offset_released_lambda  = nullptr;
-	SimpleSet<long long> used_offsets;
 
 	void init_lambdas() {
 		DEBUG_MSG("initiating lambdas");
@@ -771,16 +770,10 @@ class EngineController {
 		};
 
 		//-----------------------------------------------------
-		rand_ratio.reset(new std::uniform_int_distribution<uint32_t>(0,random_scale -1));
-
-		//-----------------------------------------------------
-		randomize_buffer_lambda = [this](char* buffer, uint32_t size)->void{randomize_buffer(buffer, size);};
-
-		//-----------------------------------------------------
 		access_params_lambda = [this]()->AccessParams {
 			AccessParams ret;
 
-			ret.write = ((*rand_ratio)(rand_eng) < (uint32_t)(args->write_ratio * random_scale));
+			ret.write = randomizer.randomize_ratio(args->write_ratio);
 
 			block_size_lock.lock();
 
@@ -788,22 +781,15 @@ class EngineController {
 			ret.block_size = cur_block_size;
 			ret.size       = buffer_size;
 
-			do {
-				if ((*rand_ratio)(rand_eng) < (uint32_t)(args->random_ratio * random_scale)) { //random access
-					cur_block = (*rand_block)(rand_eng);
-				} else { //sequential access
-					cur_block++;
-					if (cur_block >= file_blocks) {
-						cur_block = 0;
-					}
+			if (randomizer.randomize_ratio(args->random_ratio)) { //random access
+				cur_block = (*rand_block)(randomizer.rand_eng64);
+			} else { //sequential access
+				cur_block++;
+				if (cur_block >= file_blocks) {
+					cur_block = 0;
 				}
-				ret.offset = cur_block * buffer_size;
-			} while (!used_offsets.not_found_and_insert(ret.offset));
-
-			if (used_offsets.size() > max_iodepth) { // sanity check
-				block_size_lock.unlock();
-				throw std::runtime_error("BUG: the number of used offsets exceeds max_iodepth");
 			}
+			ret.offset = cur_block * buffer_size;
 
 			block_size_lock.unlock();
 
@@ -811,11 +797,7 @@ class EngineController {
 		};
 
 		//-----------------------------------------------------
-		offset_released_lambda = [this](long long offset)->void {
-			block_size_lock.lock();
-			used_offsets.find_and_remove(offset);
-			block_size_lock.unlock();
-		};
+		offset_released_lambda = [this](long long offset)->void {};
 		//-----------------------------------------------------
 	}
 
@@ -834,7 +816,6 @@ class EngineController {
 				engine.reset(new PosixEngine(
 				                      filed,
 				                      increment_stats_lambda,
-				                      randomize_buffer_lambda,
 				                      access_params_lambda,
 				                      offset_released_lambda));
 			} else if (args->io_engine == "libaio") {
@@ -842,7 +823,6 @@ class EngineController {
 				                      filed,
 				                      args->iodepth,
 				                      increment_stats_lambda,
-				                      randomize_buffer_lambda,
 				                      access_params_lambda,
 				                      offset_released_lambda));
 			} else if (args->io_engine == "prwv2") {
@@ -850,7 +830,6 @@ class EngineController {
 				                      filed,
 				                      args->iodepth,
 				                      increment_stats_lambda,
-				                      randomize_buffer_lambda,
 				                      access_params_lambda,
 				                      offset_released_lambda));
 			} else {
@@ -894,19 +873,6 @@ class EngineController {
 			thread_exception = std::current_exception();
 		}
 		spdlog::info("engine controller thread finished");
-	}
-
-	void randomize_buffer(char* buffer, uint32_t size) {
-		assert(buffer != nullptr);
-		assert(size > 0);
-
-		std::uniform_int_distribution<char> dist(0,255);
-
-		char* b = buffer;
-		for (uint32_t i=0; i<size; i++) {
-			*b = dist(rand_eng);
-			b++;
-		}
 	}
 };
 
