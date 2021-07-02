@@ -196,6 +196,7 @@ class GenericExperiment:
 		('at_iodepth_list',     {'group': 'at3', 'type': str,  'default': '1',         'register': False, 'help': 'List of iodepths used in the experiments with access_time3 (space separated).' }),
 		('at_script_gen',       {'group': 'at3', 'type': int,  'default': 1,           'register': True,  'help': 'Access_time3 script generator (1 or 2).' }),
 		('at_interval',         {'group': 'at3', 'type': int,  'default': 2,           'register': False, 'help': 'Interval between changes in the access pattern of the access_time3 instances.' }),
+		('at_random_ratio',     {'group': 'at3', 'type': float,'default': 0.5,         'register': False, 'help': 'Random ratio (--random_ratio) used by access_time3 instances.' }),
 		('at_file_size',        {'group': 'at3', 'type': int,  'default': 10000,       'register': False, 'help': 'Interval between changes in the access pattern of the access_time3 instances.' }),
 		])
 
@@ -538,6 +539,7 @@ class ExpYcsbAt3 (GenericExperiment):
 		cls.helper_params['at_block_size_list']['register'] = True
 		cls.helper_params['at_iodepth_list']['register']    = True
 		cls.helper_params['at_interval']['register']        = True
+		cls.helper_params['at_random_ratio']['register']    = True
 
 		cls.exp_params['duration']['default']     = -1
 		cls.exp_params['warm_period']['default']  = 30
@@ -545,7 +547,7 @@ class ExpYcsbAt3 (GenericExperiment):
 		cls.exp_params['rocksdb_config_file']['register'] = True
 		cls.exp_params['rocksdb_config_file']['default']  = ''
 		cls.exp_params['num_at']['default']       = 4
-		cls.exp_params['at_params']['default']    = '--flush_blocks=0 --random_ratio=0.5 --wait'
+		cls.exp_params['at_params']['default']    = '--flush_blocks=0 --wait'
 
 	def run(self):
 		log.debug(f'Exp_ycsb_at3.run()')
@@ -558,6 +560,9 @@ class ExpYcsbAt3 (GenericExperiment):
 		                                                  interval=int(args_d['at_interval']))
 		if coalesce(args_d.get('duration'), -1) < 0:
 			args_d['duration'] = at_duration
+
+		if args_d.get('at_random_ratio') is not None:
+			args_d['at_params'] = coalesce(args_d.get('at_params'), '') + f" --random_ratio={args_d['at_random_ratio']}"
 
 		for at_bs in args_d['at_block_size_list'].split(' '):
 			args_d['at_block_size'] = at_bs
@@ -688,12 +693,13 @@ class ExpDbbenchAt3 (GenericExperiment):
 		cls.helper_params['at_block_size_list']['register'] = True
 		cls.helper_params['at_iodepth_list']['register']    = True
 		cls.helper_params['at_interval']['register']        = True
+		cls.helper_params['at_random_ratio']['register']    = True
 
 		cls.exp_params['duration']['default']     = -1
 		cls.exp_params['warm_period']['default']  = 30
 		cls.exp_params['num_dbs']['default']      = 1
 		cls.exp_params['num_at']['default']       = 4
-		cls.exp_params['at_params']['default']    = '--flush_blocks=0 --random_ratio=0.5 --wait'
+		cls.exp_params['at_params']['default']    = '--flush_blocks=0 --wait'
 
 	def run(self):
 		log.debug(f'Exp_dbbench_at3.run()')
@@ -706,6 +712,9 @@ class ExpDbbenchAt3 (GenericExperiment):
 		                                                  interval=int(args_d['at_interval']))
 		if coalesce(args_d.get('duration'), -1) < 0:
 			args_d['duration'] = at_duration
+
+		if args_d.get('at_random_ratio') is not None:
+			args_d['at_params'] = coalesce(args_d.get('at_params'), '') + f" --random_ratio={args_d['at_random_ratio']}"
 
 		for at_bs in args_d['at_block_size_list'].split(' '):
 			args_d['at_block_size'] = at_bs
