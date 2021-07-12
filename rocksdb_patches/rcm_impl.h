@@ -106,7 +106,9 @@ struct CommandLine {
 	bool valid = false;
 	std::string command;
 	std::string params_str;
-	std::map<std::string, std::string> params;
+	std::map<std::string, std::string> global_params;
+	std::map<std::string, std::string> specific_params;
+	std::map<std::string, std::string> tags;
 
 	CommandLine(Env& env, const std::string& line) : debug(env.debug) {
 		std::smatch sm;
@@ -124,29 +126,46 @@ struct CommandLine {
 		params_str = sm.str(2);
 		std::string tail = params_str;
 
+		std::map<std::string, std::string> aux_params;
+
 		while (true) {
 			std::regex_search(tail, sm, std::regex("(\\w+)\\s*=\\s*'([^']+)'"));
 			RCM_DEBUG_SM(sm);
 			if (sm.size() >= 3) {
-				params[sm.str(1)] = sm.str(2);
+				aux_params[sm.str(1)] = sm.str(2);
 				tail.replace(tail.find(sm.str(0)), sm.str(0).length(), "");
 				continue;
 			}
 			std::regex_search(tail, sm, std::regex("(\\w+)\\s*=\\s*\"([^\"]+)\""));
 			RCM_DEBUG_SM(sm);
 			if (sm.size() >= 3) {
-				params[sm.str(1)] = sm.str(2);
+				aux_params[sm.str(1)] = sm.str(2);
 				tail.replace(tail.find(sm.str(0)), sm.str(0).length(), "");
 				continue;
 			}
 			std::regex_search(tail, sm, std::regex("(\\w+)\\s*=\\s*(\\w+)"));
 			RCM_DEBUG_SM(sm);
 			if (sm.size() >= 3) {
-				params[sm.str(1)] = sm.str(2);
+				aux_params[sm.str(1)] = sm.str(2);
 				tail.replace(tail.find(sm.str(0)), sm.str(0).length(), "");
 				continue;
 			}
 			break;
+		}
+
+		std::set<std::string> global_param_names = {"output", "debug"};
+		for (const auto& i : aux_params) {
+			std::regex_search(i.first, sm, std::regex("^tag\\.(\\w+)"));
+			if (sm.size() >= 2) {
+				tags[sm.str(1)] = i.second;
+				RCM_DEBUG("tags[%s] = %s", sm.str(1).c_str(), i.second.c_str());
+			} else if (global_param_names.count(i.first) > 0) {
+				global_params[i.first] = i.second;
+				RCM_DEBUG("global_params[%s] = %s", i.first.c_str(), i.second.c_str());
+			} else {
+				specific_params[i.first] = i.second;
+				RCM_DEBUG("specific_params[%s] = %s", i.first.c_str(), i.second.c_str());
+			}
 		}
 
 		valid = true;
@@ -176,18 +195,22 @@ class OutputHandler {
 		debug = env.debug;
 		output_socket = true;
 		output_stderr = false;
-		if (cmd.params.count("output") > 0) {
-			output_socket = (cmd.params["output"] == "socket");
-			output_stderr = (cmd.params["output"] == "stderr");
-			if (!output_socket && !output_stderr) {
-				output_socket = true;
-			}
+		if (cmd.global_params.count("output") > 0) {
+			const std::set<std::string> stderr_vals  = {"stderr", "both", "all"};
+			const std::set<std::string> socket_vals  = {"socket", "both", "all"};
+			output_stderr = (stderr_vals.count(cmd.global_params["output"]) > 0);
+			output_socket = (socket_vals.count(cmd.global_params["output"]) > 0) || !output_stderr;
 		}
-		if (cmd.params.count("debug") > 0) {
-			if (cmd.params["debug"] == "1")
+		if (cmd.global_params.count("debug") > 0) {
+			const std::set<std::string> true_vals  = {"1", "yes", "true"};
+			const std::set<std::string> false_vals = {"0", "no",  "false"};
+			if (true_vals.count(cmd.global_params["debug"]) > 0) {
 				debug = true;
-			if (cmd.params["debug"] == "0")
+			} else if (false_vals.count(cmd.global_params["debug"]) > 0) {
 				debug = false;
+			} else {
+				RCM_ERROR("invalid debug value: %s", cmd.global_params["debug"].c_str());
+			}
 		}
 		RCM_DEBUG("debug = %s, output_socket = %s, output_stderr = %s", v2s(debug), v2s(output_socket), v2s(output_stderr));
 	}
@@ -202,6 +225,23 @@ class OutputHandler {
 		}
 		if (output_stderr) {
 			fprintf(stderr, "%s\n", msg.c_str());
+		}
+	}
+};
+
+class OutputLogger: public ROCKSDB_NAMESPACE::Logger {
+	OutputHandler* output = nullptr;
+
+	public:
+	explicit OutputLogger(OutputHandler* output_)
+	      : Logger(ROCKSDB_NAMESPACE::InfoLogLevel::INFO_LEVEL), output(output_) {}
+
+    using ROCKSDB_NAMESPACE::Logger::Logv;
+
+	void Logv(const char* format, va_list arg_list) override {
+		if (output != nullptr) {
+			std::string aux(alutils::vsprintf(format, arg_list));
+			output->print("%s", aux.c_str());
 		}
 	}
 };
@@ -222,6 +262,8 @@ class ControllerImpl : public Controller {
 	ROCKSDB_NAMESPACE::DB*      db;
 	std::map<std::string, ROCKSDB_NAMESPACE::ColumnFamilyHandle*> cfmap;
 	std::unique_ptr<alutils::Socket>           socket_server;
+
+	std::map<std::string, std::string> tags;
 
 	public: //-----------------------------------------------------------------
 
@@ -371,14 +413,34 @@ class ControllerImpl : public Controller {
 		OutputHandler output2(env, data, cmd);
 		RCM_DEBUG("message received: %s", data->msg.c_str());
 
+		for (const auto &i : cmd.tags) {
+			tags[i.first] = i.second;
+		}
+
 		if (cmd.valid) {
 			if (handle_report(cmd, output2)) return;
 			if (handle_metadata(cmd, output2)) return;
+			if (handle_getoptions(cmd, output2)) return;
+			if (handle_setoptions(cmd, output2)) return;
 			if (handle_compact_level(cmd, output2)) return;
 			if (handle_test(cmd, output2)) return;
 		}
 
 		RCM_ERROR("invalid socket command: %s", data->msg.c_str());
+	}
+
+	ROCKSDB_NAMESPACE::ColumnFamilyHandle* get_cfhandle(CommandLine& cmd, OutputHandler& output2) {
+		ROCKSDB_NAMESPACE::ColumnFamilyHandle* cfhandle = db->DefaultColumnFamily();
+		std::string cfname(cmd.specific_params["column_family"]);
+		if (cfname != "") {
+			if (cfmap.count(cfname) > 0) {
+				cfhandle = cfmap[cfname];
+			} else {
+				RCM_ERROR("invalid column family name: %s", cfname.c_str());
+				return nullptr;
+			}
+		}
+		return cfhandle;
 	}
 
 	bool handle_report(CommandLine& cmd, OutputHandler& output2) {
@@ -390,7 +452,7 @@ class ControllerImpl : public Controller {
 		std::map<std::string, std::string> mstats;
 		std::string stats_name = "rocksdb.cfstats";
 
-		std::string column_family = cmd.params["column_family"];
+		std::string column_family = cmd.specific_params["column_family"];
 
 		if (column_family == "") {
 			RCM_DEBUG("reading database statistics: %s", stats_name.c_str());
@@ -417,6 +479,8 @@ class ControllerImpl : public Controller {
 			rep[stats_name] = mstats;
 		}
 
+		rep["tags"] = tags;
+
 		RCM_DEBUG("reporting stats");
 		RCM_REPORT("socket_server.json: %s", rep.dump().c_str());
 		return true;
@@ -426,60 +490,91 @@ class ControllerImpl : public Controller {
 		if (cmd.command != "metadata")
 			return false;
 
-		std::string cfname(cmd.params["column_family"]);
-		ROCKSDB_NAMESPACE::ColumnFamilyHandle* cfhandle = nullptr;
-		if (cfname.length() == 0) {
-			cfhandle = db->DefaultColumnFamily();
-		} else if (cfmap.count(cfname) > 0) {
-			cfhandle = cfmap[cfname];
-		}
+		auto cfhandle = get_cfhandle(cmd, output2);
+		if (cfhandle == nullptr) return true;
+		std::string cfname(cmd.specific_params.count("column_family") > 0 ? cmd.specific_params["column_family"] : "default");
 
 		nlohmann::ordered_json json;
 
-		if (cfhandle != nullptr) {
-			ROCKSDB_NAMESPACE::ColumnFamilyMetaData metadata;
-			db->GetColumnFamilyMetaData(cfhandle, &metadata);
-			json["name"] = metadata.name;
-			json["size"] = metadata.size;
-			json["file_count"] = metadata.file_count;
-			json["level_count"] = metadata.levels.size();
-			for (auto &l: metadata.levels) {
-				std::string level_prefix = alutils::sprintf("L%s.", v2s(l.level));
-				json[level_prefix + "size"] = l.size;
-				json[level_prefix + "file_count"] = l.files.size();
+		ROCKSDB_NAMESPACE::ColumnFamilyMetaData metadata;
+		db->GetColumnFamilyMetaData(cfhandle, &metadata);
+		json["name"] = metadata.name;
+		json["size"] = metadata.size;
+		json["file_count"] = metadata.file_count;
+		json["level_count"] = metadata.levels.size();
+		for (auto &l: metadata.levels) {
+			std::string level_prefix = alutils::sprintf("L%s.", v2s(l.level));
+			json[level_prefix + "size"] = l.size;
+			json[level_prefix + "file_count"] = l.files.size();
 
-#				define FileAttrs( _f )                     \
-					_f(name, std::string);                 \
-					_f(size, std::to_string);              \
-					_f(num_reads_sampled, std::to_string); \
-					_f(num_entries, std::to_string);       \
-					_f(num_deletions, std::to_string);     \
-					_f(being_compacted, std::to_string)
-#				define f_declare(a_name, ...) \
-					std::string file_##a_name
-#				define f_append(a_name, convf) \
-					file_##a_name += (file_##a_name.length() > 0) ? ", " : ""; \
-					file_##a_name += convf(f.a_name)
-#				define f_add(a_name, ...) \
-					json[level_prefix + "files." #a_name] = file_##a_name
+#			define FileAttrs( _f )                     \
+				_f(name, std::string);                 \
+				_f(size, std::to_string);              \
+				_f(num_reads_sampled, std::to_string); \
+				_f(num_entries, std::to_string);       \
+				_f(num_deletions, std::to_string);     \
+				_f(being_compacted, std::to_string)
+#			define f_declare(a_name, ...) \
+				std::string file_##a_name
+#			define f_append(a_name, convf) \
+				file_##a_name += (file_##a_name.length() > 0) ? ", " : ""; \
+				file_##a_name += convf(f.a_name)
+#			define f_add(a_name, ...) \
+				json[level_prefix + "files." #a_name] = file_##a_name
 
-				FileAttrs(f_declare);
-				for (auto &f: l.files) {
-					FileAttrs(f_append);
-				}
-				FileAttrs(f_add);
-
-#				undef FileAttrs
-#				undef f_declare
-#				undef f_append
-#				undef f_add
+			FileAttrs(f_declare);
+			for (auto &f: l.files) {
+				FileAttrs(f_append);
 			}
-		} else {
-			RCM_ERROR("column family '%s' not found", cfname.c_str());
-			return true;
+			FileAttrs(f_add);
+
+#			undef FileAttrs
+#			undef f_declare
+#			undef f_append
+#			undef f_add
 		}
 
 		RCM_REPORT("Column family metadata.json: %s", json.dump().c_str());
+		return true;
+	}
+
+	bool handle_getoptions(CommandLine& cmd, OutputHandler& output2) {
+		if (cmd.command != "getoptions")
+			return false;
+
+		auto cfhandle = get_cfhandle(cmd, output2);
+		if (cfhandle == nullptr) return true;
+		std::string cfname(cmd.specific_params.count("column_family") > 0 ? cmd.specific_params["column_family"] : "default");
+
+		auto options = db->GetOptions(cfhandle);
+		OutputLogger logger(&output2);
+		options.Dump(&logger);
+
+		return true;
+	}
+
+	bool handle_setoptions(CommandLine& cmd, OutputHandler& output2) {
+		if (cmd.command != "setoptions")
+			return false;
+
+		auto cfhandle = get_cfhandle(cmd, output2);
+		if (cfhandle == nullptr) return true;
+		std::string cfname(cmd.specific_params.count("column_family") > 0 ? cmd.specific_params["column_family"] : "default");
+
+		std::unordered_map<std::string, std::string> options;
+		for (const auto& i : cmd.specific_params) {
+			if (i.first != "column_family") {
+				options[i.first] = i.second;
+			}
+		}
+
+		auto s = db->SetOptions(cfhandle, options);
+		if (!s.ok()) {
+			RCM_ERROR("SetOptions returned error");
+			return true;
+		}
+		RCM_PRINT("done!");
+
 		return true;
 	}
 
@@ -487,22 +582,16 @@ class ControllerImpl : public Controller {
 		if (cmd.command != "compact_level")
 			return false;
 
-		ROCKSDB_NAMESPACE::ColumnFamilyHandle* cfhandle = db->DefaultColumnFamily();
-		std::string cfname(cmd.params["column_family"]);
-		if (cfname != "") {
-			if (cfmap.count(cfname) > 0) {
-				cfhandle = cfmap[cfname];
-			} else {
-				RCM_ERROR("invalid column family: %s", cfname.c_str());
-				return true;
-			}
-		}
+		auto cfhandle = get_cfhandle(cmd, output2);
+		if (cfhandle == nullptr) return true;
+		std::string cfname(cmd.specific_params.count("column_family") > 0 ? cmd.specific_params["column_family"] : "default");
+
 		ROCKSDB_NAMESPACE::ColumnFamilyMetaData metadata;
 		db->GetColumnFamilyMetaData(cfhandle, &metadata);
 
 		std::vector<int>::size_type level = 1;
-		if (cmd.params.count("level") > 0) {
-			std::istringstream auxs(cmd.params["level"]);
+		if (cmd.specific_params.count("level") > 0) {
+			std::istringstream auxs(cmd.specific_params["level"]);
 			auxs >> level;
 		}
 		if (level >= metadata.levels.size()) {
@@ -511,8 +600,8 @@ class ControllerImpl : public Controller {
 		}
 
 		std::vector<int>::size_type target_level = level + 1;
-		if (cmd.params.count("target_level") > 0) {
-			std::istringstream auxs(cmd.params["target_level"]);
+		if (cmd.specific_params.count("target_level") > 0) {
+			std::istringstream auxs(cmd.specific_params["target_level"]);
 			auxs >> target_level;
 		}
 		if (target_level >= metadata.levels.size()) {
@@ -522,8 +611,8 @@ class ControllerImpl : public Controller {
 
 		auto &l = metadata.levels[level];
 		std::vector<int>::size_type files = 0;
-		if (cmd.params.count("files") > 0) {
-			std::istringstream auxs(cmd.params["files"]);
+		if (cmd.specific_params.count("files") > 0) {
+			std::istringstream auxs(cmd.specific_params["files"]);
 			auxs >> files;
 		}
 		if (files == 0 || files > l.files.size()) {
@@ -555,7 +644,7 @@ class ControllerImpl : public Controller {
 		if (cmd.command != "test")
 			return false;
 
-		RCM_REPORT("test response: OK!");
+		RCM_PRINT("test response: OK!");
 		return true;
 	}
 };
