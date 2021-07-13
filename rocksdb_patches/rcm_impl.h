@@ -99,121 +99,17 @@ struct Env {
 
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
-#define __CLASS__ "RCM::CommandLine::"
-
-struct CommandLine {
-	bool debug = false;
-	bool valid = false;
-	std::string command;
-	std::string params_str;
-	std::map<std::string, std::string> global_params;
-	std::map<std::string, std::string> specific_params;
-	std::map<std::string, std::string> tags;
-
-	CommandLine(Env& env, const std::string& line) : debug(env.debug) {
-		std::smatch sm;
-
-		std::regex_search(line, sm, std::regex("^(.+)"));
-		RCM_DEBUG_SM(sm);
-		if (sm.size() == 0) return;
-		std::string line_aux = sm.str(0);
-		if (line_aux.length() == 0) return;
-
-		std::regex_search(line_aux, sm, std::regex("^(\\w+)(|\\s+.+)$"));
-		RCM_DEBUG_SM(sm);
-		if (sm.size() < 3) return;
-		command = sm.str(1);
-		params_str = sm.str(2);
-		std::string tail = params_str;
-
-		std::map<std::string, std::string> aux_params;
-
-		while (true) {
-			std::regex_search(tail, sm, std::regex("(\\w+)\\s*=\\s*'([^']+)'"));
-			RCM_DEBUG_SM(sm);
-			if (sm.size() >= 3) {
-				aux_params[sm.str(1)] = sm.str(2);
-				tail.replace(tail.find(sm.str(0)), sm.str(0).length(), "");
-				continue;
-			}
-			std::regex_search(tail, sm, std::regex("(\\w+)\\s*=\\s*\"([^\"]+)\""));
-			RCM_DEBUG_SM(sm);
-			if (sm.size() >= 3) {
-				aux_params[sm.str(1)] = sm.str(2);
-				tail.replace(tail.find(sm.str(0)), sm.str(0).length(), "");
-				continue;
-			}
-			std::regex_search(tail, sm, std::regex("(\\w+)\\s*=\\s*(\\w+)"));
-			RCM_DEBUG_SM(sm);
-			if (sm.size() >= 3) {
-				aux_params[sm.str(1)] = sm.str(2);
-				tail.replace(tail.find(sm.str(0)), sm.str(0).length(), "");
-				continue;
-			}
-			break;
-		}
-
-		std::set<std::string> global_param_names = {"output", "debug"};
-		for (const auto& i : aux_params) {
-			std::regex_search(i.first, sm, std::regex("^tag\\.(\\w+)"));
-			if (sm.size() >= 2) {
-				tags[sm.str(1)] = i.second;
-				RCM_DEBUG("tags[%s] = %s", sm.str(1).c_str(), i.second.c_str());
-			} else if (global_param_names.count(i.first) > 0) {
-				global_params[i.first] = i.second;
-				RCM_DEBUG("global_params[%s] = %s", i.first.c_str(), i.second.c_str());
-			} else {
-				specific_params[i.first] = i.second;
-				RCM_DEBUG("specific_params[%s] = %s", i.first.c_str(), i.second.c_str());
-			}
-		}
-
-		valid = true;
-	}
-
-	bool operator== (bool val) {
-		return val == valid;
-	}
-};
-
-////////////////////////////////////////////////////////////////////////////////////
-#undef __CLASS__
 #define __CLASS__ "RCM::OutputHandler::"
 
 class OutputHandler {
+	public:
+	bool debug = false;
 	bool output_socket = false;
 	bool output_stderr = true;
 	alutils::Socket::HandlerData* data = nullptr;
 
-	public: //-----------------------------------------------------------------
-	bool debug = false;
-
 	OutputHandler() {}
 	OutputHandler(Env& env) : debug(env.debug) {}
-
-	OutputHandler(Env& env, alutils::Socket::HandlerData* data_, CommandLine& cmd) : data(data_) {
-		debug = env.debug;
-		output_socket = true;
-		output_stderr = false;
-		if (cmd.global_params.count("output") > 0) {
-			const std::set<std::string> stderr_vals  = {"stderr", "both", "all"};
-			const std::set<std::string> socket_vals  = {"socket", "both", "all"};
-			output_stderr = (stderr_vals.count(cmd.global_params["output"]) > 0);
-			output_socket = (socket_vals.count(cmd.global_params["output"]) > 0) || !output_stderr;
-		}
-		if (cmd.global_params.count("debug") > 0) {
-			const std::set<std::string> true_vals  = {"1", "yes", "true"};
-			const std::set<std::string> false_vals = {"0", "no",  "false"};
-			if (true_vals.count(cmd.global_params["debug"]) > 0) {
-				debug = true;
-			} else if (false_vals.count(cmd.global_params["debug"]) > 0) {
-				debug = false;
-			} else {
-				RCM_ERROR("invalid debug value: %s", cmd.global_params["debug"].c_str());
-			}
-		}
-		RCM_DEBUG("debug = %s, output_socket = %s, output_stderr = %s", v2s(debug), v2s(output_socket), v2s(output_stderr));
-	}
 
 	void print(const char* format, ...) {
 		va_list args;
@@ -248,6 +144,97 @@ class OutputLogger: public ROCKSDB_NAMESPACE::Logger {
 
 #undef RCM_PRINT_F
 #define RCM_PRINT_F(format, ...) output.print(format, ##__VA_ARGS__)
+
+////////////////////////////////////////////////////////////////////////////////////
+#undef __CLASS__
+#define __CLASS__ "RCM::CommandLine::"
+
+struct CommandLine {
+	OutputHandler output;
+	bool debug = false;
+	bool valid = false;
+	std::string command;
+	std::string params_str;
+	std::map<std::string, std::string> params;
+	std::map<std::string, std::string> tags;
+
+	CommandLine(Env& env, alutils::Socket::HandlerData* data) : output(env), debug(env.debug) {
+		std::string line = data->msg;
+		std::smatch sm;
+		output.data = data;
+		output.output_socket = (data != nullptr);
+		output.output_stderr = (data == nullptr);
+
+		std::regex_search(line, sm, std::regex("^(.+)"));
+		RCM_DEBUG_SM(sm);
+		if (sm.size() == 0) return;
+		std::string line_aux = sm.str(0);
+		if (line_aux.length() == 0) return;
+
+		std::regex_search(line_aux, sm, std::regex("^(\\w+)(|\\s+.+)$"));
+		RCM_DEBUG_SM(sm);
+		if (sm.size() < 3) return;
+		command = sm.str(1);
+		params_str = sm.str(2);
+		std::string tail = params_str;
+
+		const std::vector<std::string> regex_list = {
+				"([\\w.:-_]+)\\s*=\\s*'([^']+)'",
+				"([\\w.:-_]+)\\s*=\\s*\"([^\"]+)\"",
+				"([\\w.:-_]+)\\s*=\\s*(\\w+)"};
+		while (true) {
+			bool found = false;
+			for (const auto &r : regex_list) {
+				std::regex_search(tail, sm, std::regex(r.c_str()));
+				RCM_DEBUG_SM(sm);
+				if (sm.size() >= 3) {
+					std::string key = sm.str(1);
+					std::string value = sm.str(2);
+					RCM_DEBUG("param parsed: %s = %s", key.c_str(), value.c_str());
+					tail.replace(tail.find(sm.str(0)), sm.str(0).length(), "");
+
+					std::regex_search(key, sm, std::regex("tag\\.(\\w+)")); // tags
+
+					if (key == "output") {
+						const std::set<std::string> stderr_vals  = {"stderr", "both", "all"};
+						const std::set<std::string> socket_vals  = {"socket", "both", "all"};
+						output.output_stderr = (stderr_vals.count(value) > 0);
+						output.output_socket = (socket_vals.count(value) > 0) || !output.output_stderr;
+						RCM_DEBUG("output_socket = %s, output_stderr = %s", v2s(output.output_socket), v2s(output.output_stderr));
+					} else if (key == "debug") {
+						const std::set<std::string> true_vals  = {"1", "yes", "true"};
+						const std::set<std::string> false_vals = {"0", "no",  "false"};
+						if (true_vals.count(value) > 0) {
+							output.debug = true;
+						} else if (false_vals.count(value) > 0) {
+							output.debug = false;
+						} else {
+							RCM_ERROR("invalid debug value: %s", value.c_str());
+						}
+						debug = output.debug;
+						RCM_DEBUG("debug = %s", v2s(debug));
+					} else if (sm.size() >= 2) { // tags
+						tags[sm.str(1)] = value;
+						RCM_DEBUG("tags[%s] = %s", sm.str(1).c_str(), value.c_str());
+					} else {
+						params[key] = value;
+						RCM_DEBUG("params[%s] = %s", key.c_str(), value.c_str());
+					}
+
+					found = true;
+					break;
+				}
+			}
+			if (!found) break;
+		}
+
+		valid = true;
+	}
+
+	bool operator== (bool val) {
+		return val == valid;
+	}
+};
 
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
@@ -404,34 +391,34 @@ class ControllerImpl : public Controller {
 	}
 
 #	undef  RCM_PRINT_F
-#	define RCM_PRINT_F(format, ...) output2.print(format, ##__VA_ARGS__)
+#	define RCM_PRINT_F(format, ...) cmd.output.print(format, ##__VA_ARGS__)
 #	undef  RCM_DEBUG_CONDITION
-#	define RCM_DEBUG_CONDITION output2.debug
+#	define RCM_DEBUG_CONDITION cmd.output.debug
 
 	void socket_handler(alutils::Socket::HandlerData* data) {
-		CommandLine cmd(env, data->msg);
-		OutputHandler output2(env, data, cmd);
+		CommandLine cmd(env, data);
 		RCM_DEBUG("message received: %s", data->msg.c_str());
 
 		for (const auto &i : cmd.tags) {
 			tags[i.first] = i.second;
+			RCM_DEBUG("tags[%s] = %s", i.first.c_str(), i.second.c_str());
 		}
 
 		if (cmd.valid) {
-			if (handle_report(cmd, output2)) return;
-			if (handle_metadata(cmd, output2)) return;
-			if (handle_getoptions(cmd, output2)) return;
-			if (handle_setoptions(cmd, output2)) return;
-			if (handle_compact_level(cmd, output2)) return;
-			if (handle_test(cmd, output2)) return;
+			if (handle_report(cmd)) return;
+			if (handle_metadata(cmd)) return;
+			if (handle_getoptions(cmd)) return;
+			if (handle_setoptions(cmd)) return;
+			if (handle_compact_level(cmd)) return;
+			if (handle_test(cmd)) return;
 		}
 
 		RCM_ERROR("invalid socket command: %s", data->msg.c_str());
 	}
 
-	ROCKSDB_NAMESPACE::ColumnFamilyHandle* get_cfhandle(CommandLine& cmd, OutputHandler& output2) {
+	ROCKSDB_NAMESPACE::ColumnFamilyHandle* get_cfhandle(CommandLine& cmd) {
 		ROCKSDB_NAMESPACE::ColumnFamilyHandle* cfhandle = db->DefaultColumnFamily();
-		std::string cfname(cmd.specific_params["column_family"]);
+		std::string cfname(cmd.params["column_family"]);
 		if (cfname != "") {
 			if (cfmap.count(cfname) > 0) {
 				cfhandle = cfmap[cfname];
@@ -443,7 +430,7 @@ class ControllerImpl : public Controller {
 		return cfhandle;
 	}
 
-	bool handle_report(CommandLine& cmd, OutputHandler& output2) {
+	bool handle_report(CommandLine& cmd) {
 		if (cmd.command != "report")
 			return false;
 
@@ -452,7 +439,7 @@ class ControllerImpl : public Controller {
 		std::map<std::string, std::string> mstats;
 		std::string stats_name = "rocksdb.cfstats";
 
-		std::string column_family = cmd.specific_params["column_family"];
+		std::string column_family = cmd.params["column_family"];
 
 		if (column_family == "") {
 			RCM_DEBUG("reading database statistics: %s", stats_name.c_str());
@@ -479,20 +466,20 @@ class ControllerImpl : public Controller {
 			rep[stats_name] = mstats;
 		}
 
-		rep["tags"] = tags;
+		rep["tag"] = tags;
 
 		RCM_DEBUG("reporting stats");
 		RCM_REPORT("socket_server.json: %s", rep.dump().c_str());
 		return true;
 	}
 
-	bool handle_metadata(CommandLine& cmd, OutputHandler& output2) {
+	bool handle_metadata(CommandLine& cmd) {
 		if (cmd.command != "metadata")
 			return false;
 
-		auto cfhandle = get_cfhandle(cmd, output2);
+		auto cfhandle = get_cfhandle(cmd);
 		if (cfhandle == nullptr) return true;
-		std::string cfname(cmd.specific_params.count("column_family") > 0 ? cmd.specific_params["column_family"] : "default");
+		std::string cfname(cmd.params.count("column_family") > 0 ? cmd.params["column_family"] : "default");
 
 		nlohmann::ordered_json json;
 
@@ -538,31 +525,31 @@ class ControllerImpl : public Controller {
 		return true;
 	}
 
-	bool handle_getoptions(CommandLine& cmd, OutputHandler& output2) {
+	bool handle_getoptions(CommandLine& cmd) {
 		if (cmd.command != "getoptions")
 			return false;
 
-		auto cfhandle = get_cfhandle(cmd, output2);
+		auto cfhandle = get_cfhandle(cmd);
 		if (cfhandle == nullptr) return true;
-		std::string cfname(cmd.specific_params.count("column_family") > 0 ? cmd.specific_params["column_family"] : "default");
+		std::string cfname(cmd.params.count("column_family") > 0 ? cmd.params["column_family"] : "default");
 
 		auto options = db->GetOptions(cfhandle);
-		OutputLogger logger(&output2);
+		OutputLogger logger(&cmd.output);
 		options.Dump(&logger);
 
 		return true;
 	}
 
-	bool handle_setoptions(CommandLine& cmd, OutputHandler& output2) {
+	bool handle_setoptions(CommandLine& cmd) {
 		if (cmd.command != "setoptions")
 			return false;
 
-		auto cfhandle = get_cfhandle(cmd, output2);
+		auto cfhandle = get_cfhandle(cmd);
 		if (cfhandle == nullptr) return true;
-		std::string cfname(cmd.specific_params.count("column_family") > 0 ? cmd.specific_params["column_family"] : "default");
+		std::string cfname(cmd.params.count("column_family") > 0 ? cmd.params["column_family"] : "default");
 
 		std::unordered_map<std::string, std::string> options;
-		for (const auto& i : cmd.specific_params) {
+		for (const auto& i : cmd.params) {
 			if (i.first != "column_family") {
 				options[i.first] = i.second;
 			}
@@ -578,20 +565,20 @@ class ControllerImpl : public Controller {
 		return true;
 	}
 
-	bool handle_compact_level(CommandLine& cmd, OutputHandler& output2) {
+	bool handle_compact_level(CommandLine& cmd) {
 		if (cmd.command != "compact_level")
 			return false;
 
-		auto cfhandle = get_cfhandle(cmd, output2);
+		auto cfhandle = get_cfhandle(cmd);
 		if (cfhandle == nullptr) return true;
-		std::string cfname(cmd.specific_params.count("column_family") > 0 ? cmd.specific_params["column_family"] : "default");
+		std::string cfname(cmd.params.count("column_family") > 0 ? cmd.params["column_family"] : "default");
 
 		ROCKSDB_NAMESPACE::ColumnFamilyMetaData metadata;
 		db->GetColumnFamilyMetaData(cfhandle, &metadata);
 
 		std::vector<int>::size_type level = 1;
-		if (cmd.specific_params.count("level") > 0) {
-			std::istringstream auxs(cmd.specific_params["level"]);
+		if (cmd.params.count("level") > 0) {
+			std::istringstream auxs(cmd.params["level"]);
 			auxs >> level;
 		}
 		if (level >= metadata.levels.size()) {
@@ -600,8 +587,8 @@ class ControllerImpl : public Controller {
 		}
 
 		std::vector<int>::size_type target_level = level + 1;
-		if (cmd.specific_params.count("target_level") > 0) {
-			std::istringstream auxs(cmd.specific_params["target_level"]);
+		if (cmd.params.count("target_level") > 0) {
+			std::istringstream auxs(cmd.params["target_level"]);
 			auxs >> target_level;
 		}
 		if (target_level >= metadata.levels.size()) {
@@ -611,8 +598,8 @@ class ControllerImpl : public Controller {
 
 		auto &l = metadata.levels[level];
 		std::vector<int>::size_type files = 0;
-		if (cmd.specific_params.count("files") > 0) {
-			std::istringstream auxs(cmd.specific_params["files"]);
+		if (cmd.params.count("files") > 0) {
+			std::istringstream auxs(cmd.params["files"]);
 			auxs >> files;
 		}
 		if (files == 0 || files > l.files.size()) {
@@ -640,11 +627,20 @@ class ControllerImpl : public Controller {
 		return true;
 	}
 
-	bool handle_test(CommandLine& cmd, OutputHandler& output2) {
+	bool handle_test(CommandLine& cmd) {
 		if (cmd.command != "test")
 			return false;
 
 		RCM_PRINT("test response: OK!");
+		for (const auto &i : cmd.params) {
+			RCM_PRINT("\tcmd.params[%s] = %s", i.first.c_str(), i.second.c_str());
+		}
+		for (const auto &i : cmd.tags) {
+			RCM_PRINT("\tcmd.tags[%s] = %s", i.first.c_str(), i.second.c_str());
+		}
+		for (const auto &i : tags) {
+			RCM_PRINT("\ttags[%s] = %s", i.first.c_str(), i.second.c_str());
+		}
 		return true;
 	}
 };
