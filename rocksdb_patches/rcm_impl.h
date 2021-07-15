@@ -153,9 +153,11 @@ struct CommandLine {
 	OutputHandler output;
 	bool debug = false;
 	bool valid = false;
+	std::string command_line;
 	std::string command;
 	std::string params_str;
 	std::map<std::string, std::string> params;
+	std::map<std::string, std::string> tags_before;
 	std::map<std::string, std::string> tags;
 
 	CommandLine(Env& env, alutils::Socket::HandlerData* data) : output(env), debug(env.debug) {
@@ -167,11 +169,11 @@ struct CommandLine {
 
 		std::regex_search(line, sm, std::regex("^(.+)"));
 		RCM_DEBUG_SM(sm);
-		if (sm.size() == 0) return;
-		std::string line_aux = sm.str(0);
-		if (line_aux.length() == 0) return;
+		if (sm.size() < 2) return;
+		command_line = sm.str(1);
+		if (command_line.length() == 0) return;
 
-		std::regex_search(line_aux, sm, std::regex("^(\\w+)(|\\s+.+)$"));
+		std::regex_search(command_line, sm, std::regex("^(\\w+)(|\\s+.+)$"));
 		RCM_DEBUG_SM(sm);
 		if (sm.size() < 3) return;
 		command = sm.str(1);
@@ -181,7 +183,7 @@ struct CommandLine {
 		const std::vector<std::string> regex_list = {
 				"([\\w.:-_]+)\\s*=\\s*'([^']+)'",
 				"([\\w.:-_]+)\\s*=\\s*\"([^\"]+)\"",
-				"([\\w.:-_]+)\\s*=\\s*(\\w+)"};
+				"([\\w.:-_]+)\\s*=\\s*(\\w+)"}; // TODO possible problems special characters
 		while (true) {
 			bool found = false;
 			for (const auto &r : regex_list) {
@@ -193,7 +195,7 @@ struct CommandLine {
 					RCM_DEBUG("param parsed: %s = %s", key.c_str(), value.c_str());
 					tail.replace(tail.find(sm.str(0)), sm.str(0).length(), "");
 
-					std::regex_search(key, sm, std::regex("tag\\.(\\w+)")); // tags
+					std::regex_search(key, sm, std::regex("(tag|tag_before)\\.(\\w+)")); // tags
 
 					if (key == "output") {
 						const std::set<std::string> stderr_vals  = {"stderr", "both", "all"};
@@ -213,9 +215,14 @@ struct CommandLine {
 						}
 						debug = output.debug;
 						RCM_DEBUG("debug = %s", v2s(debug));
-					} else if (sm.size() >= 2) { // tags
-						tags[sm.str(1)] = value;
-						RCM_DEBUG("tags[%s] = %s", sm.str(1).c_str(), value.c_str());
+					} else if (sm.size() >= 3) { // tags
+						if (sm.str(1) == "tag_before") {
+							tags_before[sm.str(2)] = value;
+							RCM_DEBUG("tags_before[%s] = %s", sm.str(2).c_str(), value.c_str());
+						} else {
+							tags[sm.str(2)] = value;
+							RCM_DEBUG("tags[%s] = %s", sm.str(2).c_str(), value.c_str());
+						}
 					} else {
 						params[key] = value;
 						RCM_DEBUG("params[%s] = %s", key.c_str(), value.c_str());
@@ -395,30 +402,60 @@ class ControllerImpl : public Controller {
 #	undef  RCM_DEBUG_CONDITION
 #	define RCM_DEBUG_CONDITION cmd.output.debug
 
+	std::string last_command;
+	uint32_t    last_command_count = 0;
+	bool        last_command_sucess = true;
+
 	void socket_handler(alutils::Socket::HandlerData* data) {
 		CommandLine cmd(env, data);
 		RCM_DEBUG("message received: %s", data->msg.c_str());
-
-		for (const auto &i : cmd.tags) {
-			tags[i.first] = i.second;
-			RCM_DEBUG("tags[%s] = %s", i.first.c_str(), i.second.c_str());
-		}
+		RCM_DEBUG("cmd.valid = %s", v2s(cmd.valid));
 
 		if (cmd.valid) {
-			if (handle_report(cmd)) return;
-			if (handle_metadata(cmd)) return;
-			if (handle_getoptions(cmd)) return;
-			if (handle_setoptions(cmd)) return;
-			if (handle_compact_level(cmd)) return;
-			if (handle_test(cmd)) return;
-		}
+			for (const auto &i : cmd.tags_before) {
+				tags[i.first] = i.second;
+				RCM_DEBUG("tags[%s] = %s", i.first.c_str(), i.second.c_str());
+			}
 
-		RCM_ERROR("invalid socket command: %s", data->msg.c_str());
+			bool handled = false;
+			bool success = false;
+			bool update_last = false;
+
+#			define handle_cmd(name, ulast) if (!handled && cmd.command == #name) {handled = true; update_last = ulast; success = handle_##name(cmd);}
+			handle_cmd(report,        false);
+			handle_cmd(metadata,      false);
+			handle_cmd(getoptions,    false);
+			handle_cmd(setoptions,    true);
+			handle_cmd(compact_level, true);
+			handle_cmd(test,          false);
+#			undef handle_cmd
+
+			RCM_DEBUG("handled = %s, success = %s", v2s(handled), v2s(success));
+
+			if (handled) {
+				if (success) {
+					for (const auto &i : cmd.tags) {
+						tags[i.first] = i.second;
+						RCM_DEBUG("tags[%s] = %s", i.first.c_str(), i.second.c_str());
+					}
+				}
+				if (update_last) {
+					last_command = cmd.command_line;
+					last_command_count++;
+					last_command_sucess = success;
+				}
+			} else {
+				RCM_ERROR("command not found: %s", cmd.command.c_str());
+			}
+
+		} else {
+			RCM_ERROR("invalid socket command line: %s", data->msg.c_str());
+		}
 	}
 
 	ROCKSDB_NAMESPACE::ColumnFamilyHandle* get_cfhandle(CommandLine& cmd) {
 		ROCKSDB_NAMESPACE::ColumnFamilyHandle* cfhandle = db->DefaultColumnFamily();
-		std::string cfname(cmd.params["column_family"]);
+		std::string cfname(cmd.params.count("column_family") > 0 ? cmd.params["column_family"] : "");
 		if (cfname != "") {
 			if (cfmap.count(cfname) > 0) {
 				cfhandle = cfmap[cfname];
@@ -431,8 +468,7 @@ class ControllerImpl : public Controller {
 	}
 
 	bool handle_report(CommandLine& cmd) {
-		if (cmd.command != "report")
-			return false;
+		RCM_DEBUG("start command handler");
 
 		nlohmann::ordered_json rep;
 		std::string aux;
@@ -445,7 +481,7 @@ class ControllerImpl : public Controller {
 			RCM_DEBUG("reading database statistics: %s", stats_name.c_str());
 			if (! db->GetMapProperty(stats_name.c_str(), &mstats)) {
 				RCM_ERROR("failed to retrieve %s", stats_name.c_str());
-				return true;
+				return false;
 			}
 			rep[stats_name] = mstats;
 
@@ -455,18 +491,21 @@ class ControllerImpl : public Controller {
 				cfhandle = cfmap[column_family];
 			} else {
 				RCM_ERROR("column_family=\"%s\" not found", column_family.c_str());
-				return true;
+				return false;
 			}
 			rep["column_family"] = column_family;
 			RCM_DEBUG("reading database statistics: %s, column_family=%s", stats_name.c_str(), column_family.c_str());
 			if (! db->GetMapProperty(cfhandle, stats_name.c_str(), &mstats)) {
 				RCM_ERROR("failed to retrieve %s from column_family=%s", stats_name.c_str(), column_family.c_str());
-				return true;
+				return false;
 			}
 			rep[stats_name] = mstats;
 		}
 
 		rep["tag"] = tags;
+		rep["last_command"] = last_command;
+		rep["last_command_count"] = last_command_count;
+		rep["last_command_status"] = last_command_sucess ? "success" : "fail";
 
 		RCM_DEBUG("reporting stats");
 		RCM_REPORT("socket_server.json: %s", rep.dump().c_str());
@@ -474,11 +513,10 @@ class ControllerImpl : public Controller {
 	}
 
 	bool handle_metadata(CommandLine& cmd) {
-		if (cmd.command != "metadata")
-			return false;
+		RCM_DEBUG("start command handler");
 
 		auto cfhandle = get_cfhandle(cmd);
-		if (cfhandle == nullptr) return true;
+		if (cfhandle == nullptr) return false;
 		std::string cfname(cmd.params.count("column_family") > 0 ? cmd.params["column_family"] : "default");
 
 		nlohmann::ordered_json json;
@@ -526,11 +564,10 @@ class ControllerImpl : public Controller {
 	}
 
 	bool handle_getoptions(CommandLine& cmd) {
-		if (cmd.command != "getoptions")
-			return false;
+		RCM_DEBUG("start command handler");
 
 		auto cfhandle = get_cfhandle(cmd);
-		if (cfhandle == nullptr) return true;
+		if (cfhandle == nullptr) return false;
 		std::string cfname(cmd.params.count("column_family") > 0 ? cmd.params["column_family"] : "default");
 
 		auto options = db->GetOptions(cfhandle);
@@ -541,11 +578,10 @@ class ControllerImpl : public Controller {
 	}
 
 	bool handle_setoptions(CommandLine& cmd) {
-		if (cmd.command != "setoptions")
-			return false;
+		RCM_DEBUG("start command handler");
 
 		auto cfhandle = get_cfhandle(cmd);
-		if (cfhandle == nullptr) return true;
+		if (cfhandle == nullptr) return false;
 		std::string cfname(cmd.params.count("column_family") > 0 ? cmd.params["column_family"] : "default");
 
 		std::unordered_map<std::string, std::string> options;
@@ -558,19 +594,18 @@ class ControllerImpl : public Controller {
 		auto s = db->SetOptions(cfhandle, options);
 		if (!s.ok()) {
 			RCM_ERROR("SetOptions returned error");
-			return true;
+			return false;
 		}
-		RCM_PRINT("done!");
 
+		RCM_PRINT("done!");
 		return true;
 	}
 
 	bool handle_compact_level(CommandLine& cmd) {
-		if (cmd.command != "compact_level")
-			return false;
+		RCM_DEBUG("start command handler");
 
 		auto cfhandle = get_cfhandle(cmd);
-		if (cfhandle == nullptr) return true;
+		if (cfhandle == nullptr) return false;
 		std::string cfname(cmd.params.count("column_family") > 0 ? cmd.params["column_family"] : "default");
 
 		ROCKSDB_NAMESPACE::ColumnFamilyMetaData metadata;
@@ -583,7 +618,7 @@ class ControllerImpl : public Controller {
 		}
 		if (level >= metadata.levels.size()) {
 			RCM_ERROR("invalid level: %d", level);
-			return true;
+			return false;
 		}
 
 		std::vector<int>::size_type target_level = level + 1;
@@ -593,7 +628,7 @@ class ControllerImpl : public Controller {
 		}
 		if (target_level >= metadata.levels.size()) {
 			RCM_ERROR("invalid target_level: %d");
-			return true;
+			return false;
 		}
 
 		auto &l = metadata.levels[level];
@@ -621,6 +656,7 @@ class ControllerImpl : public Controller {
 				RCM_PRINT("done!");
 			} else {
 				RCM_ERROR("failed!");
+				return false;
 			}
 		}
 
@@ -628,12 +664,14 @@ class ControllerImpl : public Controller {
 	}
 
 	bool handle_test(CommandLine& cmd) {
-		if (cmd.command != "test")
-			return false;
+		RCM_DEBUG("start command handler");
 
 		RCM_PRINT("test response: OK!");
 		for (const auto &i : cmd.params) {
 			RCM_PRINT("\tcmd.params[%s] = %s", i.first.c_str(), i.second.c_str());
+		}
+		for (const auto &i : cmd.tags_before) {
+			RCM_PRINT("\tcmd.tags_before[%s] = %s", i.first.c_str(), i.second.c_str());
 		}
 		for (const auto &i : cmd.tags) {
 			RCM_PRINT("\tcmd.tags[%s] = %s", i.first.c_str(), i.second.c_str());
