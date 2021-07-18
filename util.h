@@ -33,10 +33,11 @@ using fmt::format;
 #undef __CLASS__
 #define __CLASS__ ""
 
-#define DEBUG_MSG(format, ...) spdlog::debug("[{}] " __CLASS__ "{}(): " format, __LINE__, __func__ , ##__VA_ARGS__)
+#define DEBUG_F spdlog::debug
+#define DEBUG_MSG(format, ...) DEBUG_F("[{}] " __CLASS__ "{}(): " format, __LINE__, __func__ , ##__VA_ARGS__)
 #define DEBUG_OUT(format, ...) \
 	if (loglevel.level <= Log::LOG_DEBUG_OUT) \
-		spdlog::debug("[{}] " __CLASS__ "{}(): " format, __LINE__, __func__ , ##__VA_ARGS__)
+		DEBUG_F("[{}] " __CLASS__ "{}(): " format, __LINE__, __func__ , ##__VA_ARGS__)
 
 ////////////////////////////////////////////////////////////////////////////////////
 

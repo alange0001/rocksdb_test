@@ -58,6 +58,14 @@ class ExperimentTask {
 		print(data);
 	}
 
+	const string get_name() {
+		return name;
+	}
+
+	virtual string send_command(const string& cmd) {
+		return "not implemented";
+	}
+
 	void print(nlohmann::ordered_json& j) {
 		if (j.size() == 0)
 			spdlog::warn("no data in task {}", name);

@@ -8,6 +8,7 @@
 #include <string>
 #include <stdexcept>
 #include <functional>
+#include <filesystem>
 
 #include <gflags/gflags.h>
 #include <spdlog/spdlog.h>

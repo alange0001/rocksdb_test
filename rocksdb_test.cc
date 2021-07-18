@@ -590,6 +590,10 @@ class YCSB : public ExperimentTask {
 		}
 	}
 
+	string send_command(const string& cmd) {
+		return "TODO: implement";
+	}
+
 };
 
 ////////////////////////////////////////////////////////////////////////////////////
@@ -652,6 +656,7 @@ class AccessTime3 : public ExperimentTask {
 		ret += (args->at_o_dsync[number].length() > 0) ?
 		       format("    --o_dsync=\"{}\"                              \\\n", args->at_o_dsync[number]) : "";
 		ret += format("    --command_script=\"{}\"                       \\\n", args->at_script[number]);
+		ret += format("    --socket=/tmp/host/access_time3.sock          \\\n");
 		ret += format("    {} 2>&1 ", args->at_params[number]);
 
 		return ret;
@@ -670,6 +675,11 @@ class AccessTime3 : public ExperimentTask {
 			}
 		}
 	}
+
+	string send_command(const string& cmd) {
+		return "TODO: implement";
+	}
+
 };
 
 ////////////////////////////////////////////////////////////////////////////////////
@@ -858,6 +868,8 @@ class Program {
 				at_list[i]->start();
 			}
 
+			command_server.reset(new CommandServer(*this));
+
 			if (args->perfmon)
 				perfmon.reset(new PerformanceMonitorClient(clock.get(), args.get()));
 
@@ -919,6 +931,7 @@ class Program {
 			is_reseting = true;
 			ignore_signals = 0;
 
+			command_server.reset(nullptr);
 			dbbench_list.reset(nullptr);
 			ycsb_list.reset(nullptr);
 			at_list.reset(nullptr);
@@ -975,7 +988,151 @@ class Program {
 			exit(1);
 		}
 	}
-};
+
+	//===================================================================
+#	undef __CLASS__
+#	define __CLASS__ "Program::CommandServer::"
+
+	class CommandServer {
+		bool stop_ = false;
+		Program& program;
+		std::unique_ptr<alutils::Socket> socket_server;
+		uint32_t msg_count = 0;
+
+		std::map<std::string, ExperimentTask*> experiments;
+
+		public:
+		CommandServer(Program& program_) : program(program_) {
+			DEBUG_MSG("constructor");
+
+			if (program.args->socket != "") {
+				spdlog::info("initiating command socket: {}", program.args->socket);
+				auto handler_l = [this](alutils::Socket::HandlerData* data)->void{socket_handler(data);};
+				alutils::Socket::Params p; p.buffer_size=4096;
+				socket_server.reset(new alutils::Socket(
+						alutils::Socket::tServer,
+						program.args->socket.c_str(),
+						handler_l,
+						p
+				));
+			}
+
+		}
+
+		~CommandServer() {
+			DEBUG_MSG("destructor begin");
+			stop_ = true;
+			socket_server.reset(nullptr);
+		}
+
+		private:
+		void socket_handler(alutils::Socket::HandlerData* data) {
+			if (stop_) return;
+			std::smatch sm;
+			auto count = ++msg_count;
+
+			std::regex_search(data->msg, sm, std::regex("^(.*)"));
+			if (sm.size() >= 2)
+				spdlog::info("command [{}] received from socket: {}", count, sm.str(1));
+			else
+				spdlog::info("command [{}] received from socket: {}", count, data->msg);
+
+			std::regex_search(data->msg, sm, std::regex("^([^\\s]+)\\s*(.*)"));
+			if (sm.size() >= 3) {
+				if (sm.str(1) == "test") { // command: test
+					print(otInfo, count, data, "test OK! parameters: {}", sm.str(2));
+
+				} else if (sm.str(1) == "list") { // command: list
+					auto exp_list = list_experiments();
+					string ret;
+					for (const auto& i : exp_list) {
+						if (ret.length() > 0) ret += ", ";
+						ret += i;
+					}
+					print(otInfo, count, data, "list of experiments: {}", ret);
+
+				} else { // experiment commands
+					auto exp_ptr = find_experiment(sm.str(1));
+					if (exp_ptr != nullptr) {
+						auto ret = exp_ptr->send_command(sm.str(2));
+						print(otInfo, count, data, "return from experiment {}: {}", sm.str(1), ret);
+					} else {
+						print(otError, count, data, "invalid command or experiment name: {}", sm.str(1));
+					}
+				}
+			}
+		}
+
+		ExperimentTask* find_experiment(const std::string name) {
+#			define find_exp(e_list, e_count) \
+				for (uint32_t i=0; i<program.args->e_count; i++) { \
+					if (program.e_list.get() != nullptr \
+					&& program.e_list[i].get() != nullptr \
+					&& program.e_list[i]->get_name() == name) \
+					{ \
+						return program.e_list[i].get(); \
+					} \
+				}
+			find_exp(dbbench_list, num_dbs);
+			find_exp(ycsb_list, num_ydbs);
+			find_exp(at_list, num_at);
+#			undef find_exp
+			return nullptr;
+		}
+
+		std::vector<string> list_experiments() {
+			std::vector<string> ret;
+#			define find_exp(e_list, e_count) \
+				for (uint32_t i=0; i<program.args->e_count; i++) { \
+					if (program.e_list.get() != nullptr \
+					&& program.e_list[i].get() != nullptr) \
+					{ \
+						ret.push_back(program.e_list[i]->get_name()); \
+					} \
+				}
+			find_exp(dbbench_list, num_dbs);
+			find_exp(ycsb_list, num_ydbs);
+			find_exp(at_list, num_at);
+#			undef find_exp
+			return ret;
+		}
+
+		enum outType {
+			otDebug, otInfo, otWarn, otError
+		};
+
+		template<typename... Types>
+		void print(outType type, uint32_t count, alutils::Socket::HandlerData* data, const string& formatstr, Types... args) {
+#			define GET_SPD_FORMAT string("command [") + std::to_string(count) + "]: " + formatstr
+			if (type == otDebug && loglevel.level <= LogLevel::LOG_DEBUG) {
+				spdlog::debug(GET_SPD_FORMAT, args...);
+				if (data != nullptr) {
+					data->send(format(string("DEBUG: ") + formatstr + "\n", args...), false);
+				}
+			} else if (type == otInfo) {
+				spdlog::info(GET_SPD_FORMAT, args...);
+				if (data != nullptr) {
+					data->send(format(formatstr + "\n", args...), false);
+				}
+			} else if (type == otWarn) {
+				spdlog::warn(GET_SPD_FORMAT, args...);
+				if (data != nullptr) {
+					data->send(format(string("WARN: ") + formatstr + "\n", args...), false);
+				}
+			} else if (type == otError) {
+				spdlog::info(GET_SPD_FORMAT, args...);
+				if (data != nullptr) {
+					data->send(format(string("ERROR: ") + formatstr + "\n", args...), false);
+				}
+			}
+#			undef GET_SPD_FORMAT
+		}
+
+	}; // class CommandServer
+
+	unique_ptr<CommandServer> command_server;
+
+}; // class Program
 Program* Program::this_;
 
 ////////////////////////////////////////////////////////////////////////////////////

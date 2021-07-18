@@ -7,9 +7,8 @@
 
 #include <stdexcept>
 #include <regex>
+#include <filesystem>
 
-#include <spdlog/spdlog.h>
-#include <fmt/format.h>
 #include <gflags/gflags.h>
 #include <alutils/string.h>
 
@@ -83,6 +82,14 @@ CommandScript& CommandScript::operator=(const string& script) {
 
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
+#define __CLASS__ "OutputController::"
+
+OutputController::OutputController(out_t output_lambda_) : output_lambda(output_lambda_) {
+	debug = (FLAGS_log_level == "debug");
+}
+
+////////////////////////////////////////////////////////////////////////////////////
+#undef __CLASS__
 #define __CLASS__ "Args::"
 
 Args::Args(int argc, char** argv) {
@@ -120,7 +127,31 @@ Args::Args(int argc, char** argv) {
 	}
 }
 
+string Args::strStat() {
+	string ret;
+
+#	define addArgStr(name) ret += fmt::format("{}\"{}\":\"{}\"", (ret.length()>0) ?", " :"", #name, name)
+	addArgStr(wait);
+	addArgStr(filesize);
+	addArgStr(block_size);
+	addArgStr(iodepth);
+	addArgStr(flush_blocks);
+	addArgStr(write_ratio);
+	addArgStr(random_ratio);
+#	undef addArgStr
+
+	return ret;
+}
+
 void Args::executeCommand(const string& command_line) {
+	OutputController oc;
+	executeCommand(command_line, oc);
+}
+
+#undef DEBUG_F
+#define DEBUG_F oc.print_debug
+
+void Args::executeCommand(const string& command_line, OutputController& oc) {
 	DEBUG_MSG("command_line: \"{}\"", command_line);
 
 	auto aux = alutils::split_str(command_line, "=");
@@ -128,7 +159,7 @@ void Args::executeCommand(const string& command_line) {
 	string value( (aux.size() < 2) ? "" : aux[1].c_str() );
 
 	if (command == "help") {
-		spdlog::info(
+		oc.print_info(
 				"COMMANDS:\n"
 				"    stop           - terminate\n"
 				"    wait           - (true|false)\n"
@@ -144,7 +175,7 @@ void Args::executeCommand(const string& command_line) {
 #	define parseLineCommand(name, parser, required, default_) \
 		if (command == #name) { \
 				name = parser(value, required, default_, "invalid value for the command " #name); \
-				spdlog::info("set {}={}", command, name); \
+				oc.print_info("set {}={}", command, name); \
 				return; \
 		}
 #	define parseLineCommandValidate(name, parser, immutable_condition) \
@@ -153,7 +184,7 @@ void Args::executeCommand(const string& command_line) {
 				auto aux = parser(value, true); \
 				validate_##name(command.c_str(), aux); \
 				name = aux; \
-				spdlog::info("set {}={}", command, aux); \
+				oc.print_info("set {}={}", command, aux); \
 				changed = true; \
 				return; \
 		}
@@ -167,20 +198,4 @@ void Args::executeCommand(const string& command_line) {
 #	undef parseLineCommandValidate
 
 	throw invalid_argument(fmt::format("Invalid command: {}", command));
-}
-
-string Args::strStat() {
-	string ret;
-
-#	define addArgStr(name) ret += fmt::format("{}\"{}\":\"{}\"", (ret.length()>0) ?", " :"", #name, name)
-	addArgStr(wait);
-	addArgStr(filesize);
-	addArgStr(block_size);
-	addArgStr(iodepth);
-	addArgStr(flush_blocks);
-	addArgStr(write_ratio);
-	addArgStr(random_ratio);
-#	undef addArgStr
-
-	return ret;
 }

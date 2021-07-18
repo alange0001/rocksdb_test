@@ -30,6 +30,7 @@
 #include <fmt/format.h>
 #include <alutils/io.h>
 #include <alutils/process.h>
+#include <alutils/socket.h>
 
 #include "access_time3_args.h"
 #include "util.h"
@@ -887,14 +888,28 @@ class Reader {
 	std::exception_ptr thread_exception;
 	bool               stop_ = false;
 
+	std::unique_ptr<alutils::Socket> socket_server;
+
 	public: //---------------------------------------------------------------------
 	Reader(Args* args_) : args(args_) {
 		DEBUG_MSG("constructor");
 		thread = std::thread( [this]{this->threadMain();} );
+		if (args->socket != "") {
+			spdlog::info("initiating command socket: {}", args->socket);
+			auto handler_l = [this](alutils::Socket::HandlerData* data)->void{socket_handler(data);};
+			alutils::Socket::Params p; p.buffer_size=4096;
+			socket_server.reset(new alutils::Socket(
+					alutils::Socket::tServer,
+					args->socket.c_str(),
+					handler_l,
+					p
+			));
+		}
 	}
 	~Reader() {
 		DEBUG_MSG("destructor");
 		stop_ = true;
+		socket_server.reset(nullptr);
 		if (thread.joinable())
 			thread.join();
 	}
@@ -918,7 +933,11 @@ class Reader {
 					spdlog::info("stop command received");
 					stop_ = true;
 				} else {
-					args->executeCommand(command);
+					try {
+						args->executeCommand(command);
+					} catch (std::exception& e) {
+						spdlog::error("{}", e.what());
+					}
 				}
 			}
 			stop_ = true;
@@ -927,6 +946,39 @@ class Reader {
 			thread_exception = std::current_exception();
 		}
 		DEBUG_MSG("command reader thread finished");
+	}
+
+	void socket_handler(alutils::Socket::HandlerData* data) {
+		if (stop_) return;
+		OutputController oc([&, data](const string& msg){data->send(msg + "\n", false);});
+		try {
+			spdlog::info("command received from socket: {}", data->msg);
+			oc.print_debug("message received: {}", data->msg);
+
+			std::smatch sm;
+			std::regex_search(data->msg, sm, std::regex("^(.*)"));
+
+			if (sm.size() >= 2) {
+				string command = sm.str(1);
+				//alutils::inplace_strip(command);
+
+				if (command == "stop") {
+					oc.print_info("stop command received");
+					stop_ = true;
+				} else {
+					try {
+						args->executeCommand(command, oc);
+					} catch (std::exception& e) {
+						oc.print_error("{}", e.what());
+					}
+				}
+			} else {
+				oc.print_error("invalid command");
+			}
+		} catch (std::exception& e) {
+			spdlog::error("socket exception: {}", e.what());
+			oc.print_error("{}", e.what());
+		}
 	}
 
 	bool isActive() {

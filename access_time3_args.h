@@ -8,6 +8,10 @@
 #include <string>
 #include <deque>
 #include <atomic>
+#include <functional>
+
+#include <spdlog/spdlog.h>
+#include <fmt/format.h>
 
 using std::string;
 using std::atomic;
@@ -29,6 +33,11 @@ const uint32_t max_iodepth = 128;
 		"print date and time in each line",                       \
 		true,                                                     \
 		if (!value) spdlog::set_pattern("[%l] %v"))               \
+	_f(socket, string, DEFINE_string,                             \
+		"",                                                       \
+		"Socket used to control the experiment",                  \
+		value == "" || !std::filesystem::exists(value),           \
+		nullptr)                                                  \
 	_f(duration, uint32_t, DEFINE_uint32,                         \
 		0,                                                        \
 		"duration time of the experiment (seconds)",              \
@@ -118,7 +127,6 @@ const uint32_t max_iodepth = 128;
 #define ALL_ARGS_F( _f )     \
 	ALL_ARGS_Direct_F( _f )
 
-
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
 #define __CLASS__ "CommandLine::"
@@ -137,6 +145,59 @@ public:
 
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
+#define __CLASS__ "OutputController::"
+
+class OutputController {
+	public:
+	typedef std::function<void(const std::string&)> out_t;
+
+	private:
+	bool debug = false;
+	out_t output_lambda = nullptr;
+
+	public:
+	OutputController(out_t output_lambda_ = nullptr);
+
+	template<typename... Types>
+	void print_debug(Types... args) {
+		if (!debug) return;
+		if (output_lambda == nullptr)
+			spdlog::debug(args...);
+		else {
+			output_lambda(string("DEBUG: ") + fmt::format(args...));
+		}
+	}
+
+	template<typename... Types>
+	void print_info(Types... args) {
+		if (output_lambda == nullptr)
+			spdlog::info(args...);
+		else {
+			output_lambda(fmt::format(args...));
+		}
+	}
+
+	template<typename... Types>
+	void print_warn(Types... args) {
+		if (output_lambda == nullptr)
+			spdlog::warn(args...);
+		else {
+			output_lambda(string("WARN: ") + fmt::format(args...));
+		}
+	}
+
+	template<typename... Types>
+	void print_error(Types... args) {
+		if (output_lambda == nullptr)
+			spdlog::error(args...);
+		else {
+			output_lambda(string("DEBUG: ") + fmt::format(args...));
+		}
+	}
+};
+
+////////////////////////////////////////////////////////////////////////////////////
+#undef __CLASS__
 #define __CLASS__ "Args::"
 
 struct Args {
@@ -148,6 +209,7 @@ struct Args {
 
 	Args(int argc, char** argv);
 	void executeCommand(const string& command_line);
+	void executeCommand(const string& command_line, OutputController& oc);
 	string strStat();
 };
 
