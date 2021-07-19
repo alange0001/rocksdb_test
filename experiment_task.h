@@ -19,19 +19,27 @@ using std::string;
 using std::runtime_error;
 using fmt::format;
 
+extern std::unique_ptr<TmpDir> tmpdir;
+
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
 #define __CLASS__ "ExperimentTask::"
 
 const char* stat_format = "Task {}, STATS: {}";
+typedef std::function<void(OutType, const std::string&)> command_return_f;
 
 class ExperimentTask {
 	protected: //------------------------------------------------------------------
 	string name = "";
+	string container_name;
 	Clock* clock = nullptr;
 	nlohmann::ordered_json data;
 	std::unique_ptr<alutils::ProcessController> process;
 	uint64_t warm_period_s;
+	bool stop_ = false;
+
+	bool   have_socket = false;
+	string socket_name;
 
 	ExperimentTask() {}
 
@@ -44,13 +52,15 @@ class ExperimentTask {
 	}
 	virtual ~ExperimentTask() {
 		DEBUG_MSG("destructor of task {}", name);
+		stop_ = true;
 		process.reset(nullptr);
 		DEBUG_MSG("destructor finished");
 	}
-	bool isActive() {
-		return (process.get() != nullptr && process->isActive(true));
+	bool isActive(bool throwexcept = true) {
+		return (process.get() != nullptr && process->isActive(throwexcept));
 	}
 	void stop() {
+		stop_ = true;
 		process.reset(nullptr);
 	}
 
@@ -62,8 +72,35 @@ class ExperimentTask {
 		return name;
 	}
 
-	virtual string send_command(const string& cmd) {
-		return "not implemented";
+	void send_command(const string& cmd, command_return_f return_function) {
+		if (!have_socket) {
+			return_function(otError, "experiment does not implent socket or it is not active");
+		}
+		if (stop_) {
+			return_function(otError, "not active");
+			return;
+		}
+
+		try {
+			auto socket_path = (tmpdir->getContainerDir(container_name) / socket_name);
+			spdlog::info("initiating socket client: {}", socket_path.string());
+
+			alutils::Socket socket_client(
+					alutils::Socket::tClient,
+					socket_path.string(),
+					[return_function](alutils::Socket::HandlerData* data)->void{ return_function(otInfo, data->msg);},
+					alutils::Socket::Params{.buffer_size=4096}
+			);
+			socket_client.send_msg(cmd);
+
+			for (int i=0; i<10; i++) {
+				if (stop_ || !socket_client.isActive()) break;
+				std::this_thread::sleep_for(std::chrono::milliseconds(200));
+			}
+			spdlog::info("socket client closed: {}", socket_path.string());
+		} catch (std::exception &e) {
+			return_function(otError, format("exception received: {}", e.what()));
+		}
 	}
 
 	void print(nlohmann::ordered_json& j) {

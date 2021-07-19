@@ -69,6 +69,10 @@ struct LogLevel {
 
 extern LogLevel loglevel;
 
+enum OutType {
+	otDebug, otInfo, otWarn, otError
+};
+
 ////////////////////////////////////////////////////////////////////////////////////
 
 template <typename T>

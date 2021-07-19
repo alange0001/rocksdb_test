@@ -191,7 +191,7 @@ class OutputController {
 		if (output_lambda == nullptr)
 			spdlog::error(args...);
 		else {
-			output_lambda(string("DEBUG: ") + fmt::format(args...));
+			output_lambda(string("ERROR: ") + fmt::format(args...));
 		}
 	}
 };

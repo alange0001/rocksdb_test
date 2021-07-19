@@ -47,7 +47,7 @@ using fmt::format;
 #undef __CLASS__
 #define __CLASS__ ""
 
-unique_ptr<TmpDir> tmpdir;
+std::unique_ptr<TmpDir> tmpdir;
 
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
@@ -56,7 +56,6 @@ unique_ptr<TmpDir> tmpdir;
 class DBBench : public ExperimentTask {
 	Args* args;
 	uint number;
-	string container_name;
 
 	public:    //------------------------------------------------------------------
 	DBBench(Clock* clock_, Args* args_, uint number_) : ExperimentTask(format("db_bench[{}]", number_), clock_, args_->warm_period * 60), args(args_), number(number_) {
@@ -66,6 +65,7 @@ class DBBench : public ExperimentTask {
 
 	~DBBench() {
 		DEBUG_MSG("destructor");
+		stop_ = true;
 		try {
 			alutils::command_output(format("docker rm -f {}", container_name).c_str());
 			process.reset(nullptr);
@@ -362,7 +362,6 @@ class DBBench : public ExperimentTask {
 class YCSB : public ExperimentTask {
 	Args* args;
 	uint number;
-	string container_name;
 
 	unique_ptr<alutils::Socket> socket_client;
 	nlohmann::ordered_json data2;
@@ -371,15 +370,21 @@ class YCSB : public ExperimentTask {
 	string workload_ycsb;
 
 	public:    //------------------------------------------------------------------
-	YCSB(Clock* clock_, Args* args_, uint number_) : ExperimentTask(format("ycsb[{}]", number_), clock_, args_->warm_period * 60), args(args_), number(number_) {
+	YCSB(Clock* clock_, Args* args_, uint number_)
+	: ExperimentTask(format("ycsb[{}]", number_), clock_, args_->warm_period * 60),
+	  args(args_),
+	  number(number_)
+	{
 		DEBUG_MSG("constructor");
 		container_name = format("ycsb_{}", number_);
+		socket_name = "rocksdb.sock";
 
 		set_workload_params();
 	}
 
 	~YCSB() {
 		DEBUG_MSG("destructor");
+		stop_ = true;
 		try {
 			alutils::command_output(format("docker rm -f {}", container_name).c_str());
 			process.reset(nullptr);
@@ -436,8 +441,8 @@ class YCSB : public ExperimentTask {
 		if (loglevel.level == LogLevel::LOG_DEBUG_OUT || loglevel.level == LogLevel::LOG_DEBUG) { ret +=
 			format("  -e ROCKSDB_RCM_DEBUG=1                           \\\n");
 		}
-		if (args->ydb_socket) { ret +=
-			format("  -e ROCKSDB_RCM_SOCKET=/tmp/host/rocksdb.sock     \\\n");
+		if (args->ydb_socket) { have_socket = true; ret +=
+			format("  -e ROCKSDB_RCM_SOCKET=/tmp/host/{}               \\\n", socket_name);
 		}
 		if (sleep > 0) { ret +=
 			format("  -e YCSB_SLEEP={}m                               \\\n", sleep);
@@ -548,7 +553,7 @@ class YCSB : public ExperimentTask {
 						socket_client.reset(nullptr);
 					}
 					if (socket_client.get() == nullptr) {
-						auto socket_path = (tmpdir->getContainerDir(container_name) / "rocksdb.sock");
+						auto socket_path = (tmpdir->getContainerDir(container_name) / socket_name);
 						spdlog::info("initiating socket client: {}", socket_path.string());
 						socket_client.reset(new alutils::Socket(
 								alutils::Socket::tClient,
@@ -589,11 +594,6 @@ class YCSB : public ExperimentTask {
 			spdlog::error("exception received in the socket handler of task {}: {}", name, e.what());
 		}
 	}
-
-	string send_command(const string& cmd) {
-		return "TODO: implement";
-	}
-
 };
 
 ////////////////////////////////////////////////////////////////////////////////////
@@ -603,15 +603,22 @@ class YCSB : public ExperimentTask {
 class AccessTime3 : public ExperimentTask {
 	Args* args;
 	uint number;
-	string container_name;
 
 	public:    //------------------------------------------------------------------
-	AccessTime3(Clock* clock_, Args* args_, uint number_) : ExperimentTask(format("access_time3[{}]", number_), clock_, args_->warm_period * 60), args(args_), number(number_) {
+	AccessTime3(Clock* clock_, Args* args_, uint number_)
+	: ExperimentTask(format("access_time3[{}]", number_), clock_, args_->warm_period * 60),
+	  args(args_),
+	  number(number_)
+	{
 		container_name = format("at3_{}", number_);
+		socket_name = "access_time3.sock";
+		have_socket = true;
 		DEBUG_MSG("constructor");
 	}
+
 	~AccessTime3() {
 		DEBUG_MSG("destructor");
+		stop_ = true;
 		try {
 			alutils::command_output(format("docker rm -f {}", container_name).c_str());
 			process.reset(nullptr);
@@ -656,7 +663,7 @@ class AccessTime3 : public ExperimentTask {
 		ret += (args->at_o_dsync[number].length() > 0) ?
 		       format("    --o_dsync=\"{}\"                              \\\n", args->at_o_dsync[number]) : "";
 		ret += format("    --command_script=\"{}\"                       \\\n", args->at_script[number]);
-		ret += format("    --socket=/tmp/host/access_time3.sock          \\\n");
+		ret += format("    --socket=/tmp/host/{}                         \\\n", socket_name);
 		ret += format("    {} 2>&1 ", args->at_params[number]);
 
 		return ret;
@@ -675,11 +682,6 @@ class AccessTime3 : public ExperimentTask {
 			}
 		}
 	}
-
-	string send_command(const string& cmd) {
-		return "TODO: implement";
-	}
-
 };
 
 ////////////////////////////////////////////////////////////////////////////////////
@@ -1008,7 +1010,7 @@ class Program {
 			if (program.args->socket != "") {
 				spdlog::info("initiating command socket: {}", program.args->socket);
 				auto handler_l = [this](alutils::Socket::HandlerData* data)->void{socket_handler(data);};
-				alutils::Socket::Params p; p.buffer_size=4096;
+				alutils::Socket::Params p; p.buffer_size=4096; p.thread_handler = true;
 				socket_server.reset(new alutils::Socket(
 						alutils::Socket::tServer,
 						program.args->socket.c_str(),
@@ -1054,8 +1056,11 @@ class Program {
 				} else { // experiment commands
 					auto exp_ptr = find_experiment(sm.str(1));
 					if (exp_ptr != nullptr) {
-						auto ret = exp_ptr->send_command(sm.str(2));
-						print(otInfo, count, data, "return from experiment {}: {}", sm.str(1), ret);
+						exp_ptr->send_command(
+								sm.str(2),
+								[&, this, data, count, sm](OutType type, const std::string& msg){
+									print(type, count, data, "return from experiment {}: {}", sm.str(1), msg);
+								});
 					} else {
 						print(otError, count, data, "invalid command or experiment name: {}", sm.str(1));
 					}
@@ -1097,12 +1102,8 @@ class Program {
 			return ret;
 		}
 
-		enum outType {
-			otDebug, otInfo, otWarn, otError
-		};
-
 		template<typename... Types>
-		void print(outType type, uint32_t count, alutils::Socket::HandlerData* data, const string& formatstr, Types... args) {
+		void print(OutType type, uint32_t count, alutils::Socket::HandlerData* data, const string& formatstr, Types... args) {
 #			define GET_SPD_FORMAT string("command [") + std::to_string(count) + "]: " + formatstr
 			if (type == otDebug && loglevel.level <= LogLevel::LOG_DEBUG) {
 				spdlog::debug(GET_SPD_FORMAT, args...);

@@ -960,7 +960,7 @@ class Reader {
 
 			if (sm.size() >= 2) {
 				string command = sm.str(1);
-				//alutils::inplace_strip(command);
+				alutils::inplace_strip(command);
 
 				if (command == "stop") {
 					oc.print_info("stop command received");
