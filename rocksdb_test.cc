@@ -1030,42 +1030,99 @@ class Program {
 		private:
 		void socket_handler(alutils::Socket::HandlerData* data) {
 			if (stop_) return;
-			std::smatch sm;
-			auto count = ++msg_count;
 
-			std::regex_search(data->msg, sm, std::regex("^(.*)"));
-			if (sm.size() >= 2)
-				spdlog::info("command [{}] received from socket: {}", count, sm.str(1));
-			else
-				spdlog::info("command [{}] received from socket: {}", count, data->msg);
+			std::vector<std::thread> thread_list;
+			uint32_t command_time = 0;
+			Clock* clock_ptr = program.clock.get();
+			bool* stop_ptr = &stop_;
 
-			std::regex_search(data->msg, sm, std::regex("^([^\\s]+)\\s*(.*)"));
-			if (sm.size() >= 3) {
-				if (sm.str(1) == "test") { // command: test
-					print(otInfo, count, data, "test OK! parameters: {}", sm.str(2));
+			std::istringstream line_stream(data->msg);
+			string command_line;
+			while (std::getline(line_stream, command_line)) {
+				spdlog::info("command line received from socket: {}", command_line);
 
-				} else if (sm.str(1) == "list") { // command: list
-					auto exp_list = list_experiments();
-					string ret;
-					for (const auto& i : exp_list) {
-						if (ret.length() > 0) ret += ", ";
-						ret += i;
+				std::istringstream item_stream(command_line);
+				string command_item;
+				while (std::getline(item_stream, command_item, '#')) {
+					if (stop_) return;
+
+					std::smatch sm;
+					auto count = ++msg_count;
+					alutils::inplace_strip(command_item);
+					spdlog::info("processing command [{}]: {}", count, command_item);
+
+					std::regex_search(command_item, sm, std::regex("^([^\\s]+)\\s*(.*)"));
+					if (sm.size() >= 3) {
+						auto cmd_name = sm.str(1);
+						auto cmd_params = sm.str(2);
+
+						std::regex_search(cmd_name, sm, std::regex("^(\\+?)([0-9]+)([sm])"));
+
+						if (cmd_name == "test") { // command: test
+							print(otInfo, count, data, "test OK! parameters: {}\ncommand_time = {}", cmd_params, command_time);
+
+						} else if (cmd_name == "help") { // command: help
+							print(otInfo, count, data,
+							      "Help:\n"
+							      "\ttest - response test\n"
+							      "\tlist - list the running experiments\n"
+							      "\tNs or Nm - set the next experiment commands to be N seconds or N minutes after the begin of the experiment\n"
+							      "\t+Ns or +Nm - set the next experiment commands to be N seconds or N minutes from now\n"
+							      "\t{{experiment_name}} {{command}} {{parameters...}} - send a command and parameters to the experiment\n"
+							      );
+
+						} else if (cmd_name == "list") { // command: list
+							auto exp_list = list_experiments();
+							string ret;
+							for (const auto& i : exp_list) {
+								if (ret.length() > 0) ret += ", ";
+								ret += i;
+							}
+							print(otInfo, count, data, "list of experiments: {}", ret);
+
+						} else if (sm.size() >= 4) { // command_time
+							uint32_t t = std::strtol(sm.str(2).c_str(), nullptr, 10);
+							if (sm.str(3) == "m")
+								t = t * 60;
+							if (sm.str(1) == "+")
+								t += clock_ptr->s();
+							command_time = t;
+							print(otInfo, count, data, "set command_time = {}", command_time);
+
+						} else { // experiment commands
+							auto exp_ptr = find_experiment(cmd_name);
+							if (exp_ptr != nullptr) {
+								auto thread_function = [this, data, count, exp_ptr, cmd_name, cmd_params, command_time, clock_ptr, stop_ptr](){
+									print(otDebug, count, data, "thread initiated");
+
+									while (clock_ptr->s() < command_time && !*stop_ptr) {
+										std::this_thread::sleep_for(std::chrono::milliseconds(300));
+									}
+									if (*stop_ptr) return;
+
+									exp_ptr->send_command(
+											cmd_params,
+											[&, this, data, count, cmd_name](OutType type, const std::string& msg){
+												print(type, count, data, "return from experiment {}: {}", cmd_name, msg);
+											});
+									print(otDebug, count, data, "thread finished");
+								};
+								DEBUG_MSG("call thread for command [{}]: {}", count, command_item);
+								thread_list.push_back(std::thread(thread_function));
+							} else {
+								print(otError, count, data, "invalid command or experiment name: {}", cmd_name);
+							}
+						}
 					}
-					print(otInfo, count, data, "list of experiments: {}", ret);
+				} // while command_item
+			} // while command_line
 
-				} else { // experiment commands
-					auto exp_ptr = find_experiment(sm.str(1));
-					if (exp_ptr != nullptr) {
-						exp_ptr->send_command(
-								sm.str(2),
-								[&, this, data, count, sm](OutType type, const std::string& msg){
-									print(type, count, data, "return from experiment {}: {}", sm.str(1), msg);
-								});
-					} else {
-						print(otError, count, data, "invalid command or experiment name: {}", sm.str(1));
-					}
+			for (auto& thr: thread_list) {
+				if (thr.joinable()) {
+					thr.join();
 				}
 			}
+			spdlog::info("socket handler terminated");
 		}
 
 		ExperimentTask* find_experiment(const std::string name) {
@@ -1104,7 +1161,7 @@ class Program {
 
 		template<typename... Types>
 		void print(OutType type, uint32_t count, alutils::Socket::HandlerData* data, const string& formatstr, Types... args) {
-#			define GET_SPD_FORMAT string("command [") + std::to_string(count) + "]: " + formatstr
+#			define GET_SPD_FORMAT string("output command [") + std::to_string(count) + "]: " + formatstr
 			if (type == otDebug && loglevel.level <= LogLevel::LOG_DEBUG) {
 				spdlog::debug(GET_SPD_FORMAT, args...);
 				if (data != nullptr) {
