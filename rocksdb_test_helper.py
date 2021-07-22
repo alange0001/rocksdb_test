@@ -194,7 +194,7 @@ class GenericExperiment:
 		('ydb_workload_list',   {'group': 'ydb', 'type': str,  'default': 'workloadb', 'register': False, 'help': 'List of YCSB workloads (space separated).' }),
 		('at_block_size_list',  {'group': 'at3', 'type': str,  'default': '512',       'register': False, 'help': 'List of block sizes used in the experiments with access_time3 (space separated).' }),
 		('at_iodepth_list',     {'group': 'at3', 'type': str,  'default': '1',         'register': False, 'help': 'List of iodepths used in the experiments with access_time3 (space separated).' }),
-		('at_script_gen',       {'group': 'at3', 'type': int,  'default': 1,           'register': True,  'help': 'Access_time3 script generator (1 or 2).' }),
+		('at_script_gen',       {'group': 'at3', 'type': int,  'default': 1,           'register': True,  'help': 'Access_time3 script generator (0 - 3).' }),
 		('at_interval',         {'group': 'at3', 'type': int,  'default': 2,           'register': False, 'help': 'Interval between changes in the access pattern of the access_time3 instances.' }),
 		('at_random_ratio',     {'group': 'at3', 'type': float,'default': 0.5,         'register': False, 'help': 'Random ratio (--random_ratio) used by access_time3 instances.' }),
 		('at_file_size',        {'group': 'at3', 'type': int,  'default': 10000,       'register': False, 'help': 'Interval between changes in the access pattern of the access_time3 instances.' }),
@@ -937,9 +937,14 @@ def get_at3_script(script_gen: int = 1, warm: int = 0, w0: int = 10, instances: 
 	wait = warm
 	while wait < warm+w0: wait += interval
 
+	jc = wait
 	ret = []
-	if script_gen == 1:
-		jc = wait
+	if script_gen == 0:
+		for i in range(0, instances):
+			ret.append(f"0:wait;0:write_ratio=0")
+		jc += interval
+
+	elif script_gen == 1:
 		for i in range(0, instances):
 			ret.append(f"0:wait;0:write_ratio=0;{jc}m:wait=false")
 			jc += interval
@@ -949,7 +954,6 @@ def get_at3_script(script_gen: int = 1, warm: int = 0, w0: int = 10, instances: 
 				jc += interval
 
 	elif script_gen == 2:
-		jc = wait
 		for i in range(0, instances):
 			ret.append(f"0:wait;0:write_ratio=0;{jc}m:wait=false")
 			jc += interval
@@ -964,7 +968,6 @@ def get_at3_script(script_gen: int = 1, warm: int = 0, w0: int = 10, instances: 
 		jc += interval
 
 	elif script_gen == 3:
-		jc = wait
 		for i in range(0, instances):
 			ret.append(f"0:wait;0:write_ratio=0;{jc}m:wait=false")
 			jc += interval
@@ -976,7 +979,7 @@ def get_at3_script(script_gen: int = 1, warm: int = 0, w0: int = 10, instances: 
 			jc += interval
 
 	else:
-		raise Exception(f'Invalid at_script_gen = "{script_gen}". Must be [1-3].')
+		raise Exception(f'Invalid at_script_gen = "{script_gen}". Must be [0-3].')
 	return '#'.join(ret), jc
 
 
