@@ -1008,6 +1008,8 @@ class Program {
 			DEBUG_MSG("constructor");
 
 			if (program.args->socket != "") {
+				get_experiments();
+
 				spdlog::info("initiating command socket: {}", program.args->socket);
 				auto handler_l = [this](alutils::Socket::HandlerData* data)->void{socket_handler(data);};
 				alutils::Socket::Params p; p.buffer_size=4096; p.thread_handler = true;
@@ -1028,22 +1030,35 @@ class Program {
 		}
 
 		private:
+		void get_experiments() {
+#			define find_exp(e_list, e_count) \
+				for (uint32_t i=0; i<program.args->e_count; i++) { \
+					if (program.e_list.get() != nullptr \
+					&& program.e_list[i].get() != nullptr) \
+					{ \
+						experiments[program.e_list[i]->get_name()] = program.e_list[i].get(); \
+					} \
+				}
+			find_exp(dbbench_list, num_dbs);
+			find_exp(ycsb_list, num_ydbs);
+			find_exp(at_list, num_at);
+#			undef find_exp
+		}
+
 		void socket_handler(alutils::Socket::HandlerData* data) {
 			if (stop_) return;
 
 			std::vector<std::thread> thread_list;
 			uint32_t command_time = 0;
-			Clock* clock_ptr = program.clock.get();
-			bool* stop_ptr = &stop_;
 
 			std::istringstream line_stream(data->msg);
 			string command_line;
-			while (std::getline(line_stream, command_line)) {
+			while (std::getline(line_stream, command_line)) { // for each line received by socket
 				spdlog::info("command line received from socket: {}", command_line);
 
 				std::istringstream item_stream(command_line);
 				string command_item;
-				while (std::getline(item_stream, command_item, '#')) {
+				while (std::getline(item_stream, command_item, '#')) { // for each command separated by '#'
 					if (stop_) return;
 
 					std::smatch sm;
@@ -1056,12 +1071,12 @@ class Program {
 						auto cmd_name = sm.str(1);
 						auto cmd_params = sm.str(2);
 
-						std::regex_search(cmd_name, sm, std::regex("^(\\+?)([0-9]+)([sm])"));
+						std::regex_search(cmd_name, sm, std::regex("^(\\+?)([0-9]+)([sm])")); // command_time pattern
 
-						if (cmd_name == "test") { // command: test
-							print(otInfo, count, data, "test OK! parameters: {}\ncommand_time = {}", cmd_params, command_time);
+						if (cmd_name == "test") { // test command -------------------------------------------
+							print(otInfo, count, data, "test OK! parameters: {}\ncurrent time = {}\ncommand_time = {}", cmd_params, program.clock->s(), command_time);
 
-						} else if (cmd_name == "help") { // command: help
+						} else if (cmd_name == "help") { // help command ------------------------------------
 							print(otInfo, count, data,
 							      "Help:\n"
 							      "\ttest - response test\n"
@@ -1071,49 +1086,73 @@ class Program {
 							      "\t{{experiment_name}} {{command}} {{parameters...}} - send a command and parameters to the experiment\n"
 							      );
 
-						} else if (cmd_name == "list") { // command: list
-							auto exp_list = list_experiments();
+						} else if (cmd_name == "list") { // list command -------------------------------------
 							string ret;
-							for (const auto& i : exp_list) {
+							for (const auto& i : experiments) {
 								if (ret.length() > 0) ret += ", ";
-								ret += i;
+								ret += i.first;
 							}
 							print(otInfo, count, data, "list of experiments: {}", ret);
 
-						} else if (sm.size() >= 4) { // command_time
+						} else if (sm.size() >= 4) { // command_time -----------------------------------------
 							uint32_t t = std::strtol(sm.str(2).c_str(), nullptr, 10);
 							if (sm.str(3) == "m")
 								t = t * 60;
 							if (sm.str(1) == "+")
-								t += clock_ptr->s();
+								t += program.clock->s();
 							command_time = t;
 							print(otInfo, count, data, "set command_time = {}", command_time);
 
-						} else { // experiment commands
-							auto exp_ptr = find_experiment(cmd_name);
-							if (exp_ptr != nullptr) {
-								auto thread_function = [this, data, count, exp_ptr, cmd_name, cmd_params, command_time, clock_ptr, stop_ptr](){
+						} else { // experiment commands ------------------------------------------------------
+							std::map<std::string, ExperimentTask*> exp_commands;
+
+							if (experiments.count(cmd_name) > 0) { // only one experiment selected
+								exp_commands[cmd_name] = experiments[cmd_name];
+
+							} else { // selecting experiments with wild card '*'
+								std::smatch sm2;
+								std::regex_search(cmd_name, sm2, std::regex("^([^\\*]*)\\*([^\\*]*)"));
+								if (sm2.size() >= 3) {
+									auto strbegin = sm2.str(1);
+									auto strend = sm2.str(2);
+									for (const auto& i : experiments) {
+										if ((strbegin == "" || i.first.find(strbegin) == 0)
+										&&  (strend == "" || i.first.find(strend) == (i.first.length()-strend.length()))) {
+											exp_commands[i.first] = i.second;
+										}
+									}
+								}
+							}
+
+							// for each experiment selected
+							for (const auto& exp_i: exp_commands) {
+								auto exp_name = exp_i.first;
+								auto exp_ptr = exp_i.second;
+
+								auto thread_function = [this, data, count, exp_ptr, exp_name, cmd_params, command_time](){
 									print(otDebug, count, data, "thread initiated");
 
-									while (clock_ptr->s() < command_time && !*stop_ptr) {
+									while (program.clock->s() < command_time && !stop_) {
 										std::this_thread::sleep_for(std::chrono::milliseconds(300));
 									}
-									if (*stop_ptr) return;
+									if (stop_) return;
 
 									exp_ptr->send_command(
 											cmd_params,
-											[&, this, data, count, cmd_name](OutType type, const std::string& msg){
-												print(type, count, data, "return from experiment {}: {}", cmd_name, msg);
+											[&, this, data, count, exp_name](OutType type, const std::string& msg){
+												print(type, count, data, "return from experiment {}: {}", exp_name, msg);
 											});
 									print(otDebug, count, data, "thread finished");
 								};
 								DEBUG_MSG("call thread for command [{}]: {}", count, command_item);
 								thread_list.push_back(std::thread(thread_function));
-							} else {
+							}
+
+							if (exp_commands.size() == 0){ // invalid command ------------------------------------
 								print(otError, count, data, "invalid command or experiment name: {}", cmd_name);
 							}
 						}
-					}
+					} // if (sm.size() >= 3)
 				} // while command_item
 			} // while command_line
 
@@ -1123,40 +1162,6 @@ class Program {
 				}
 			}
 			spdlog::info("socket handler terminated");
-		}
-
-		ExperimentTask* find_experiment(const std::string name) {
-#			define find_exp(e_list, e_count) \
-				for (uint32_t i=0; i<program.args->e_count; i++) { \
-					if (program.e_list.get() != nullptr \
-					&& program.e_list[i].get() != nullptr \
-					&& program.e_list[i]->get_name() == name) \
-					{ \
-						return program.e_list[i].get(); \
-					} \
-				}
-			find_exp(dbbench_list, num_dbs);
-			find_exp(ycsb_list, num_ydbs);
-			find_exp(at_list, num_at);
-#			undef find_exp
-			return nullptr;
-		}
-
-		std::vector<string> list_experiments() {
-			std::vector<string> ret;
-#			define find_exp(e_list, e_count) \
-				for (uint32_t i=0; i<program.args->e_count; i++) { \
-					if (program.e_list.get() != nullptr \
-					&& program.e_list[i].get() != nullptr) \
-					{ \
-						ret.push_back(program.e_list[i]->get_name()); \
-					} \
-				}
-			find_exp(dbbench_list, num_dbs);
-			find_exp(ycsb_list, num_ydbs);
-			find_exp(at_list, num_at);
-#			undef find_exp
-			return ret;
 		}
 
 		template<typename... Types>
