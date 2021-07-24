@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 #include <queue>
+#include <set>
 #include <memory>
 #include <regex>
 
@@ -1002,6 +1003,8 @@ class Program {
 		uint32_t msg_count = 0;
 
 		std::map<std::string, ExperimentTask*> experiments;
+		std::set<uint32_t> canceled_commands;
+		std::mutex canceled_commands_mutex;
 
 		public:
 		CommandServer(Program& program_) : program(program_) {
@@ -1084,6 +1087,7 @@ class Program {
 							      "\tNs or Nm - set the next experiment commands to be N seconds or N minutes after the begin of the experiment\n"
 							      "\t+Ns or +Nm - set the next experiment commands to be N seconds or N minutes from now\n"
 							      "\t{{experiment_name}} {{command}} {{parameters...}} - send a command and parameters to the experiment\n"
+							      "\tcancel N - cancel scheduled commands [N]\n"
 							      );
 
 						} else if (cmd_name == "list") { // list command -------------------------------------
@@ -1094,6 +1098,12 @@ class Program {
 							}
 							print(otInfo, count, data, "list of experiments: {}", ret);
 
+						} else if (cmd_name == "cancel") { // cancel command ---------------------------------
+							uint32_t t = std::strtol(cmd_params.c_str(), nullptr, 10);
+							{std::lock_guard<std::mutex> lg(canceled_commands_mutex);
+							canceled_commands.insert(t);}
+							print(otInfo, count, data, "canceling commands = {}", t);
+
 						} else if (sm.size() >= 4) { // command_time -----------------------------------------
 							uint32_t t = std::strtol(sm.str(2).c_str(), nullptr, 10);
 							if (sm.str(3) == "m")
@@ -1101,7 +1111,7 @@ class Program {
 							if (sm.str(1) == "+")
 								t += program.clock->s();
 							command_time = t;
-							print(otInfo, count, data, "set command_time = {}", command_time);
+							print(otInfo, count, data, "scheduling commands [{}] to time = {}", count, command_time);
 
 						} else { // experiment commands ------------------------------------------------------
 							std::map<std::string, ExperimentTask*> exp_commands;
@@ -1136,6 +1146,10 @@ class Program {
 										std::this_thread::sleep_for(std::chrono::milliseconds(300));
 									}
 									if (stop_) return;
+									{
+										std::lock_guard<std::mutex> lg(canceled_commands_mutex);
+										if (canceled_commands.count(count) > 0) return;
+									}
 
 									exp_ptr->send_command(
 											cmd_params,
