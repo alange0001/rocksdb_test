@@ -997,14 +997,23 @@ class Program {
 #	define __CLASS__ "Program::CommandServer::"
 
 	class CommandServer {
-		bool stop_ = false;
+		std::atomic<bool> stop_ = false;
 		Program& program;
 		std::unique_ptr<alutils::Socket> socket_server;
-		uint32_t msg_count = 0;
+		std::atomic<uint32_t> msg_count = 0;
 
 		std::map<std::string, ExperimentTask*> experiments;
 		std::set<uint32_t> canceled_commands;
-		std::mutex canceled_commands_mutex;
+		std::mutex         canceled_commands_mutex;
+
+		struct Command {
+			std::string name;
+			std::string params;
+			uint64_t time_issued;
+			uint64_t time_sched;
+		};
+		std::map<uint32_t, Command> command_list;
+		std::mutex                  command_list_mutex;
 
 		public:
 		CommandServer(Program& program_) : program(program_) {
@@ -1074,23 +1083,27 @@ class Program {
 						auto cmd_name = sm.str(1);
 						auto cmd_params = sm.str(2);
 
-						std::regex_search(cmd_name, sm, std::regex("^(\\+?)([0-9]+)([sm])")); // command_time pattern
+						std::smatch sm_time;
+						std::regex_search(cmd_name, sm_time, std::regex("^(\\+?)([0-9]+)([sm])")); // command_time pattern
 
-						if (cmd_name == "test") { // test command -------------------------------------------
+						if (cmd_name == "test") { // test command ---------------------------------------------
 							print(otInfo, count, data, "test OK! parameters: {}\ncurrent time = {}\ncommand_time = {}", cmd_params, program.clock->s(), command_time);
 
-						} else if (cmd_name == "help") { // help command ------------------------------------
+						} else if (cmd_name == "help") { // help command --------------------------------------
 							print(otInfo, count, data,
 							      "Help:\n"
-							      "\ttest - response test\n"
-							      "\tlist - list the running experiments\n"
-							      "\tNs or Nm - set the next experiment commands to be N seconds or N minutes after the begin of the experiment\n"
-							      "\t+Ns or +Nm - set the next experiment commands to be N seconds or N minutes from now\n"
+							      "\ttest        - response test\n"
+							      "\tlist-exp    - list the running experiments\n"
+							      "\tlist-cmd    - list the issued commands\n"
+							      "\tlist-sched  - list the scheduled commands\n"
+							      "\tNs or Nm    - set the next experiment commands to be N seconds or N minutes after the warm-up period\n"
+							      "\t0Ns or 0Nm  - set the next experiment commands to be N seconds or N minutes after the begin of the experiment\n"
+							      "\t+Ns or +Nm  - set the next experiment commands to be N seconds or N minutes from now\n"
+							      "\tcancel N    - cancel scheduled command [N]\n"
 							      "\t{{experiment_name}} {{command}} {{parameters...}} - send a command and parameters to the experiment\n"
-							      "\tcancel N - cancel scheduled commands [N]\n"
 							      );
 
-						} else if (cmd_name == "list") { // list command -------------------------------------
+						} else if (cmd_name == "list-exp") { // list-exp command -----------------------------
 							string ret;
 							for (const auto& i : experiments) {
 								if (ret.length() > 0) ret += ", ";
@@ -1098,22 +1111,86 @@ class Program {
 							}
 							print(otInfo, count, data, "list of experiments: {}", ret);
 
-						} else if (cmd_name == "cancel") { // cancel command ---------------------------------
-							uint32_t t = std::strtol(cmd_params.c_str(), nullptr, 10);
-							{std::lock_guard<std::mutex> lg(canceled_commands_mutex);
-							canceled_commands.insert(t);}
-							print(otInfo, count, data, "canceling commands = {}", t);
+						} else if (cmd_name == "list-cmd" || cmd_name == "list-sched") { // list-cmd and list-sched
+							bool cmd_issued = (cmd_name == "list-cmd");
+							auto t = program.clock->s();
 
-						} else if (sm.size() >= 4) { // command_time -----------------------------------------
-							uint32_t t = std::strtol(sm.str(2).c_str(), nullptr, 10);
-							if (sm.str(3) == "m")
+							std::string ret = format("Current time: {}", t);
+							ret += cmd_issued ? "\nIssued commands:" : "\nScheduled commands:";
+
+							{
+								std::lock_guard<std::mutex> lg1(command_list_mutex);
+								std::lock_guard<std::mutex> lg2(canceled_commands_mutex);
+								int reported = 0;
+								for (const auto& i: command_list) {
+									if (cmd_issued || i.second.time_sched >= t) {
+										ret += format("\n\t{:>3}: issued_time:{:<6} sched_time:{:<6} {:<10} : {} {}",
+												i.first,
+												i.second.time_issued,
+												i.second.time_sched,
+												(canceled_commands.count(i.first)>0) ? "[canceled]" : "",
+												i.second.name,
+												i.second.params);
+										reported++;
+									}
+								}
+								if (reported == 0) {
+									ret += "\n\t(empty)";
+								}
+							}
+							print(otInfo, count, data, "{}", ret);
+
+						} else if (cmd_name == "cancel") { // cancel command ----------------------------------
+							uint32_t cmd_number = std::strtol(cmd_params.c_str(), nullptr, 10);
+							enum Status {stNotFound, stFound, stExecuted} status = stNotFound;
+							auto cur_t = program.clock->s();
+							{
+								std::lock_guard<std::mutex> lg1(command_list_mutex);
+								std::lock_guard<std::mutex> lg2(canceled_commands_mutex);
+								for (const auto& i: command_list) {
+									if (i.first == cmd_number) {
+										if (cur_t < i.second.time_sched) {
+											command_list[count] = Command{.name = cmd_name, .params = cmd_params, .time_issued=cur_t, .time_sched=cur_t};
+											canceled_commands.insert(cmd_number);
+											status = stFound;
+										} else {
+											status = stExecuted;
+										}
+										break;
+									}
+								}
+							}
+
+							switch (status) {
+							case stFound:
+								print(otInfo, count, data, "canceling command = {}", cmd_number);
+								break;
+							case stNotFound:
+								print(otError, count, data, "command number {} not found", cmd_number);
+								break;
+							case stExecuted:
+								print(otError, count, data, "command number {} already executed", cmd_number);
+								break;
+							}
+
+						} else if (sm_time.size() >= 4) { // command_time -------------------------------------
+							uint32_t t = std::strtol(sm_time.str(2).c_str(), nullptr, 10);
+							if (sm_time.str(3) == "m")
 								t = t * 60;
-							if (sm.str(1) == "+")
+							if (sm_time.str(1) == "+")
 								t += program.clock->s();
-							command_time = t;
-							print(otInfo, count, data, "scheduling commands [{}] to time = {}", count, command_time);
+							else if (sm_time.str(2)[0] != '0')
+								t += program.args->warm_period * 60;
+							auto cur_t = program.clock->s();
+							if (t > cur_t) {
+								command_time = t;
+								print(otInfo, count, data, "scheduling the next commands to time = {}", command_time);
+							} else {
+								print(otError, count, data, "Schedule time {} is inferior than current time {}. Canceling the subsequent commands in this line.", t, cur_t);
+								break;
+							}
 
-						} else { // experiment commands ------------------------------------------------------
+						} else { // experiment commands -------------------------------------------------------
 							std::map<std::string, ExperimentTask*> exp_commands;
 
 							if (experiments.count(cmd_name) > 0) { // only one experiment selected
@@ -1132,6 +1209,17 @@ class Program {
 										}
 									}
 								}
+							}
+
+							if (exp_commands.size() == 0){ // invalid command ------------------------------------
+								print(otError, count, data, "invalid command or experiment name: {}", cmd_name);
+							} else {
+								auto cur_t = program.clock->s();
+								std::lock_guard<std::mutex> lg(command_list_mutex);
+								command_list[count] = Command{
+									.name = cmd_name,   .params = cmd_params,
+									.time_issued=cur_t, .time_sched = (command_time>0)?command_time:cur_t
+								};
 							}
 
 							// for each experiment selected
@@ -1160,10 +1248,6 @@ class Program {
 								};
 								DEBUG_MSG("call thread for command [{}]: {}", count, command_item);
 								thread_list.push_back(std::thread(thread_function));
-							}
-
-							if (exp_commands.size() == 0){ // invalid command ------------------------------------
-								print(otError, count, data, "invalid command or experiment name: {}", cmd_name);
 							}
 						}
 					} // if (sm.size() >= 3)
