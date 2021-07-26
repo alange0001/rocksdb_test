@@ -342,7 +342,7 @@ class GenericExperiment:
 				p_func = coalesce(v.get('p_func'), def_p_func)
 				cmd += p_func(k, v)
 
-		cmd += f' > "{args_d["output"]}"'
+		cmd += f' |nice -n 10 xz -c9 > "{args_d["output"]}.xz"'
 		
 		self.before_run(args_d)
 
