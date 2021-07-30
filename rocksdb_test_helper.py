@@ -187,6 +187,7 @@ class GenericExperiment:
 		('data_path',           {'group': 'gen', 'type': str,  'default': None,        'register': True,  'help': 'Directory used to store both database and access_time3 files.' }),
 		('output_prefix',       {'group': 'gen', 'type': str,  'default': '',          'register': True,  'help': 'Output prefix.' }),
 		('output_suffix',       {'group': 'gen', 'type': str,  'default': '',          'register': True,  'help': 'Output suffix.' }),
+		('compress_output',     {'group': 'gen', 'type': bool, 'default': True,        'register': True,  'help': 'Compress the output file during the experiment.' }),
 		('before_run_cmd',      {'group': 'gen', 'type': str,  'default': None,        'register': True,  'help': 'Execute this command before running the rocksdb_test.' }),
 		('after_run_cmd',       {'group': 'gen', 'type': str,  'default': None,        'register': True,  'help': 'Execute this command after running the rocksdb_test.' }),
 		('backup_dbbench',      {'group': 'dbb', 'type': str,  'default': None,        'register': True,  'help': 'Restore the database backup used by the db_bench instances from this .tar file (don\'t use subdir).' }),
@@ -342,8 +343,11 @@ class GenericExperiment:
 				p_func = coalesce(v.get('p_func'), def_p_func)
 				cmd += p_func(k, v)
 
-		cmd += f' |nice -n 10 xz -c9 > "{args_d["output"]}.xz"'
-		
+		if args_d.get('compress_output') is True:
+			cmd += f' |nice -n 10 xz -c9 --flush-timeout=60000 > "{args_d["output"]}.xz"'
+		else:
+			cmd += f' > "{args_d["output"]}"'
+
 		self.before_run(args_d)
 
 		try:
