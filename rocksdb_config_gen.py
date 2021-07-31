@@ -14,6 +14,7 @@ import re
 import sys
 import argparse
 import traceback
+import copy
 
 
 # =============================================================================
@@ -121,7 +122,13 @@ class Config:
 	_config_header = ''
 
 	def create_templates(self):
-		pass
+		d = copy.deepcopy(self._config_templates['08'].copy())
+		d['cf']['compression_per_level'] = 'kNoCompression:kZSTD:kZSTD:kZSTD:kZSTD:kZSTD:kZSTD'
+		d['cf']['bottommost_compression_opts'] = '{level=4}'
+		d['cf']['level0_file_num_compaction_trigger'] = '2'
+		d['cf']['level_compaction_dynamic_level_bytes'] = 'false'
+		d['cf']['num_levels'] = '5'
+		self._config_templates['07'] = d
 
 	def __init__(self, template, argv):
 		self.create_templates()
@@ -134,7 +141,7 @@ class Config:
 			f'#   Template: {template}\n' + \
 			f'#   Modifiers: {" ".join(argv)}\n\n'
 
-		config = self._config_templates[template].copy()
+		config = copy.deepcopy(self._config_templates[template])
 		for i in argv:
 			self.parse_arg(config, i)
 		self._config = config
