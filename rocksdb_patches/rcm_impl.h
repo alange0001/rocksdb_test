@@ -245,11 +245,11 @@ struct CommandLine {
 
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
-#define __CLASS__ "RCM::Controller::"
+#define __CLASS__ "RCM::ControllerImpl::"
 
 class ControllerImpl : public Controller {
-	RCM::Env env;
-	RCM::OutputHandler output;
+	Env env;
+	OutputHandler output;
 	bool     debug  = false;
 	bool     stop_  = false;
 	bool     active = false;
@@ -422,12 +422,14 @@ class ControllerImpl : public Controller {
 			bool update_last = false;
 
 #			define handle_cmd(name, ulast) if (!handled && cmd.command == #name) {handled = true; update_last = ulast; success = handle_##name(cmd);}
-			handle_cmd(report,        false);
-			handle_cmd(metadata,      false);
-			handle_cmd(getoptions,    false);
-			handle_cmd(setoptions,    true);
-			handle_cmd(compact_level, true);
-			handle_cmd(test,          false);
+			handle_cmd(report,         false);
+			handle_cmd(metadata,       false);
+			handle_cmd(listproperties, false);
+			handle_cmd(getproperty,    false);
+			handle_cmd(getoptions,     false);
+			handle_cmd(setoptions,     true);
+			handle_cmd(compact_level,  true);
+			handle_cmd(test,           false);
 #			undef handle_cmd
 
 			RCM_DEBUG("handled = %s, success = %s", v2s(handled), v2s(success));
@@ -509,6 +511,67 @@ class ControllerImpl : public Controller {
 
 		RCM_DEBUG("reporting stats");
 		RCM_REPORT("socket_server.json: %s", rep.dump().c_str());
+		return true;
+	}
+
+	bool handle_listproperties(CommandLine& cmd) {
+		RCM_DEBUG("start command handler");
+
+		std::string ret;
+
+		const auto& stats_info = ROCKSDB_NAMESPACE::InternalStats::ppt_name_to_info;
+		for (const auto& i: stats_info) {
+			ret += i.first + " "
+				+  ((i.second.handle_string        != nullptr) ? "(str)" : "")
+				+  ((i.second.handle_int           != nullptr) ? "(int)" : "")
+				+  ((i.second.handle_map           != nullptr) ? "(map)" : "")
+				+  ((i.second.handle_string_dbimpl != nullptr) ? "(str_dbimpl)" : "")
+				+ "\n";
+		}
+
+		RCM_REPORT("Property list:\n%s", ret.c_str());
+		return true;
+	}
+
+	bool handle_getproperty(CommandLine& cmd) {
+		RCM_DEBUG("start command handler");
+
+		auto cfhandle = get_cfhandle(cmd);
+		if (cfhandle == nullptr) return false;
+		std::string cfname(cmd.params.count("column_family") > 0 ? cmd.params["column_family"] : "default");
+		std::string name(cmd.params.count("name") > 0 ? cmd.params["name"] : "rocksdb");
+		std::string type(cmd.params.count("type") > 0 ? cmd.params["type"] : "str");
+
+		if (type == "str") {
+			std::string ret;
+			if (! db->GetProperty(cfhandle, name.c_str(), &ret)) {
+				RCM_ERROR("failed to retrieve property \"%s\" from column_family=%s", name.c_str(), cfname.c_str());
+				return false;
+			}
+			RCM_REPORT("Property %s: %s", name.c_str(), ret.c_str());
+		} else if (type == "int") {
+			uint64_t ret;
+			if (! db->GetIntProperty(cfhandle, name.c_str(), &ret)) {
+				RCM_ERROR("failed to retrieve property \"%s\" from column_family=%s", name.c_str(), cfname.c_str());
+				return false;
+			}
+			RCM_REPORT("Property %s: %s", name.c_str(), v2s(ret));
+		} else if (type == "map") {
+			std::map<std::string, std::string> mstats;
+			if (! db->GetMapProperty(cfhandle, name.c_str(), &mstats)) {
+				RCM_ERROR("failed to retrieve property \"%s\" from column_family=%s", name.c_str(), cfname.c_str());
+				return false;
+			}
+			std::string ret;
+			for (const auto& i: mstats) {
+				ret += std::string("\t") + i.first + ": " + i.second + "\n";
+			}
+			RCM_REPORT("Properties:\n%s", ret.c_str());
+		} else {
+			RCM_ERROR("invalid type \"%s\". Must be str, int, or map.", type.c_str());
+			return false;
+		}
+
 		return true;
 	}
 
