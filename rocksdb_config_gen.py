@@ -122,6 +122,7 @@ class Config:
 	_config_header = ''
 
 	def create_templates(self):
+		# template 07
 		d = copy.deepcopy(self._config_templates['08'].copy())
 		d['cf']['compression_per_level'] = 'kNoCompression:kZSTD:kZSTD:kZSTD:kZSTD:kZSTD:kZSTD'
 		d['cf']['bottommost_compression_opts'] = '{level=4}'
@@ -176,17 +177,20 @@ class Config:
   		       '  options_file_version=1.1\n\n'
 
 		ret += '[DBOptions]\n'
-		for k, v in self._config['db'].items():
+		for k in sorted(self._config['db']):
+			v = self._config['db'][k]
 			ret += f'  {k}={v}\n'
 		ret += '\n'
 
 		for cf in self._column_families:
 			ret += f'[CFOptions "{cf}"]\n'
-			for k, v in self._config['cf'].items():
+			for k in sorted(self._config['cf']):
+				v = self._config['cf'][k]
 				ret += f'  {k}={v}\n'
 			ret += '\n'
 			ret += f'[TableOptions/BlockBasedTable "{cf}"]\n'
-			for k, v in self._config['tb'].items():
+			for k in sorted(self._config['tb']):
+				v = self._config['tb'][k]
 				ret += f'  {k}={v}\n'
 			ret += '\n'
 
