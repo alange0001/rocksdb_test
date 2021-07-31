@@ -901,40 +901,35 @@ def value_setf(args, arg_name):
 	return value, setf
 
 
-def search_file(name):
-	pwd_path = os.environ.get('PWD')
-	if pwd_path is not None:
-		f = os.path.join(pwd_path, name)
-		log.debug(f'search_file: {f} ...')
-		if os.path.isfile(f):
-			log.debug(f'search_file: {f} FOUND')
-			return f
-		f = os.path.join(pwd_path, 'build', name)
-		log.debug(f'search_file: {f} ...')
-		if os.path.isfile(f):
-			log.debug(f'search_file: {f} FOUND')
-			return f
-		f = os.path.join(pwd_path, 'release', name)
-		log.debug(f'search_file: {f} ...')
-		if os.path.isfile(f):
-			log.debug(f'search_file: {f} FOUND')
-			return f
-	appdir_path = os.environ.get('APPIMAGE')
-	if appdir_path is not None:
-		f = os.path.join(os.path.dirname(appdir_path), name)
-		log.debug(f'search_file: {f} ...')
-		if os.path.isfile(f):
-			log.debug(f'search_file: {f} FOUND')
-			return f
+def search_file(name: str) -> list:
+	ret = []
+
+	base_search = ['.']
+	if os.environ.get('APPIMAGE') is not None:
+		base_search.append(os.environ.get('APPIMAGE'))
 	try:
-		f = os.path.join(os.path.dirname(__file__), name)
-		log.debug(f'search_file: {f} ...')
-		if os.path.isfile(f):
-			log.debug(f'search_file: {f} FOUND')
-			return f
+		base_search.append(os.path.dirname(__file__))
 	finally:
 		pass
-	return None
+
+	last_p = None
+	for p in base_search:
+		while os.path.isdir(p):
+			p = os.path.abspath(p)
+			if p == last_p:
+				break
+			# print(f'p = {p}')
+			for f in [os.path.join(p, name)] + \
+				     [os.path.join(p, i, name) for i in ['build', 'release']]:
+				log.debug(f'search_file: {f} ...')
+				if f not in ret and os.path.isfile(f):
+					log.debug(f'search_file: {f} FOUND')
+					ret.append(f)
+			last_p = p
+			p = os.path.join(p, '..')
+
+	# print(ret)
+	return ret
 
 
 def get_at3_script(script_gen: int = 1, warm: int = 0, w0: int = 10, instances: int = 4, interval: int = 2) -> set:
@@ -1000,7 +995,7 @@ def get_at3_script(script_gen: int = 1, warm: int = 0, w0: int = 10, instances: 
 
 def get_default_rocksdb_options():
 	o = os.environ.get('ROCKSDB_OPTIONS_FILE')
-	f = coalesce_file(o, search_file('rocksdb.options'), access=os.R_OK)
+	f = coalesce_file(o, *search_file('rocksdb.options'), access=os.R_OK)
 	if f is None:
 		f = ''
 	log.debug(f'get_default_rocksdb_options: {f}')
@@ -1008,7 +1003,7 @@ def get_default_rocksdb_options():
 
 
 def get_rocksdb_bin():
-	f = coalesce_file(os.environ.get('ROCKSDB_TEST_PATH'), search_file('rocksdb_test'), access=os.X_OK)
+	f = coalesce_file(os.environ.get('ROCKSDB_TEST_PATH'), *search_file('rocksdb_test'), access=os.X_OK)
 	if f is None:
 		f = 'rocksdb_test'
 	log.debug(f'get_rocksdb_bin: {f}')
