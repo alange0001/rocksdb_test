@@ -37,6 +37,9 @@ class ArgsWrapper:  # single global instance of "args"
 		parser.add_argument('--template', type=str,
 			default='08',
 			help='Template number.')
+		parser.add_argument('--list',
+			default=False, action='store_true',
+			help='List the available templates.')
 
 		args, remainargv = parser.parse_known_args()
 
@@ -120,6 +123,7 @@ class Config:
 
 	_config = None
 	_config_header = ''
+	_list = False
 
 	def create_templates(self):
 		# template 07
@@ -131,21 +135,23 @@ class Config:
 		d['cf']['num_levels'] = '5'
 		self._config_templates['07'] = d
 
-	def __init__(self, template, argv):
+	def __init__(self, template, argv, list_templates=False):
+		self._list = list_templates
 		self.create_templates()
 
-		if template not in self._config_templates.keys():
-			raise Exception(f'template "{args.template}" not found')
+		if not self._list:
+			if template not in self._config_templates.keys():
+				raise Exception(f'template "{args.template}" not found')
 
-		self._config_header = \
-			f'# rocksdb_config_gen:\n' + \
-			f'#   Template: {template}\n' + \
-			f'#   Modifiers: {" ".join(argv)}\n\n'
+			self._config_header = \
+				f'# rocksdb_config_gen:\n' + \
+				f'#   Template: {template}\n' + \
+				f'#   Modifiers: {" ".join(argv)}\n\n'
 
-		config = copy.deepcopy(self._config_templates[template])
-		for i in argv:
-			self.parse_arg(config, i)
-		self._config = config
+			config = copy.deepcopy(self._config_templates[template])
+			for i in argv:
+				self.parse_arg(config, i)
+			self._config = config
 
 	def parse_arg(self, config, arg_str):
 		r = re.findall(r'(db:|cf:|tb:)?([^=]+)=(.*)', arg_str)
@@ -197,15 +203,20 @@ class Config:
 		return ret
 
 	def save(self, filename):
+		if self._list:
+			print('Available Templates: ' + ', '.join(sorted(self._config_templates)))
+			return
+
 		if filename in ['', 'stdout']:
 			print(self)
 		else:
 			with open(filename, 'wt') as f:
 				f.write(str(self))
 
+
 def main() -> int:
 	try:
-		config = Config(args.template, remainargv)
+		config = Config(args.template, remainargv, args.list)
 		config.save(args.output)
 
 	except Exception as e:
