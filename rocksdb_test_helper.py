@@ -344,7 +344,7 @@ class GenericExperiment:
 				cmd += p_func(k, v)
 
 		if args_d.get('compress_output') is True:
-			cmd += f' |nice -n 10 xz -c9 --flush-timeout=60000 > "{args_d["output"]}.xz"'
+			cmd += f' |nice -n 10 xz -c9 --flush-timeout=30000 > "{args_d["output"]}.xz"'
 		else:
 			cmd += f' > "{args_d["output"]}"'
 
