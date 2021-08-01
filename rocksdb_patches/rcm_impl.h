@@ -428,6 +428,7 @@ class ControllerImpl : public Controller {
 			handle_cmd(getproperty,    false);
 			handle_cmd(getoptions,     false);
 			handle_cmd(setoptions,     true);
+			handle_cmd(setdboptions,   true);
 			handle_cmd(compact_level,  true);
 			handle_cmd(test,           false);
 #			undef handle_cmd
@@ -656,7 +657,25 @@ class ControllerImpl : public Controller {
 
 		auto s = db->SetOptions(cfhandle, options);
 		if (!s.ok()) {
-			RCM_ERROR("SetOptions returned error");
+			RCM_ERROR("SetOptions: %s", s.ToString().c_str());
+			return false;
+		}
+
+		RCM_PRINT("done!");
+		return true;
+	}
+
+	bool handle_setdboptions(CommandLine& cmd) {
+		RCM_DEBUG("start command handler");
+
+		std::unordered_map<std::string, std::string> options;
+		for (const auto& i : cmd.params) {
+			options[i.first] = i.second;
+		}
+
+		auto s = db->SetDBOptions(options);
+		if (!s.ok()) {
+			RCM_ERROR("SetDBOptions: %s", s.ToString().c_str());
 			return false;
 		}
 
