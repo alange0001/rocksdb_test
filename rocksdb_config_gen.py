@@ -135,6 +135,12 @@ class Config:
 		d['cf']['num_levels'] = '5'
 		self._config_templates['07'] = d
 
+		# template 09 - 4K block
+		d = copy.deepcopy(self._config_templates['08'].copy())
+		d['tb']['block_size'] = str(4 * K)
+		d['tb']['filter_policy'] = 'bloomfilter:12:false'
+		self._config_templates['09'] = d
+
 	def __init__(self, template, argv, list_templates=False):
 		self._list = list_templates
 		self.create_templates()
