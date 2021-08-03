@@ -3,25 +3,17 @@
 // LICENSE.GPLv2 file in the root directory) and Apache 2.0 License
 // (found in the LICENSE.Apache file in the root directory).
 
-#include <deque>
-#include <map>
+#include <csignal>
+#include <errno.h>
+#include <spdlog/spdlog.h>
+
 #include <set>
-#include <algorithm>
+#include <random>
+#include <chrono>
 #include <regex>
 #include <filesystem>
 
-#include <csignal>
-#include <errno.h>
-
-#include <spdlog/spdlog.h>
-#include <alutils/process.h>
-/*
-#include <fmt/format.h>
-#include <gflags/gflags.h>
-*/
-
 #include "util.h"
-
 
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
@@ -43,9 +35,12 @@ int main(int argc, char** argv) {
 	spdlog::set_level(spdlog::level::debug);
 	DEBUG_MSG("Initiating...");
 
-	try {
-		
+	DEBUG_MSG("argc = {}", argc);
+	for (int i=0; i<argc; i++) {
+		DEBUG_MSG("argv[{}] = {}", i, argv[i]);
+	}
 
+	try {
 
 	} catch (const std::exception& e) {
 		spdlog::error("Exception received: {}", e.what());
