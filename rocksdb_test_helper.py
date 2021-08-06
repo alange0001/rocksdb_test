@@ -235,6 +235,7 @@ class GenericExperiment:
 		('at_script',           {'group': 'at3', 'type': str,  'default': None,         'register':False, 'help': 'Access_time3 script (separated by "#"). Generated automatically by experiments ycsb_at3 and dbbench_at3.' }),
 	#	('perfmon',             {'group': 'gen', 'type': str,  'default': None,         'register':True,  'help': 'Connect to performancemonitor.' }),
 	#	('perfmon_port',        {'group': 'gen', 'type': int,  'default': None,         'register':True,  'help': 'performancemonitor port' }),
+		('commands',            {'group': 'gen', 'type': str,  'default': None,         'register':True,  'help': 'Commands used to control the experiments.' }),
 		('params',              {'group': 'gen', 'type': str,  'default': None,         'register':True,  'help': 'Extra rocksdb_test arguments.' }),
 		])
 

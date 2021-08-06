@@ -872,6 +872,8 @@ class Program {
 			}
 
 			command_server.reset(new CommandServer(*this));
+			if (args->commands.length() > 0)
+				command_server->arg_command_handler(args->commands);
 
 			if (args->perfmon)
 				perfmon.reset(new PerformanceMonitorClient(clock.get(), args.get()));
@@ -1015,6 +1017,8 @@ class Program {
 		std::map<uint32_t, Command> command_list;
 		std::mutex                  command_list_mutex;
 
+		std::unique_ptr<std::thread> arg_thread;
+
 		public:
 		CommandServer(Program& program_) : program(program_) {
 			DEBUG_MSG("constructor");
@@ -1039,6 +1043,14 @@ class Program {
 			DEBUG_MSG("destructor begin");
 			stop_ = true;
 			socket_server.reset(nullptr);
+			if (arg_thread.get() != nullptr && arg_thread->joinable()) {
+				arg_thread->join();
+			}
+		}
+
+		void arg_command_handler(const std::string& commands) {
+			if (stop_) return;
+			arg_thread.reset(new std::thread([this, commands](){parse_and_execute(commands, nullptr);}));
 		}
 
 		private:
@@ -1059,14 +1071,19 @@ class Program {
 
 		void socket_handler(alutils::Socket::HandlerData* data) {
 			if (stop_) return;
+			parse_and_execute(data->msg, data);
+		}
+
+		void parse_and_execute(const std::string& sent_command, alutils::Socket::HandlerData* data) {
+			if (stop_) return;
 
 			std::vector<std::thread> thread_list;
 			uint32_t command_time = 0;
 
-			std::istringstream line_stream(data->msg);
+			std::istringstream line_stream(sent_command);
 			string command_line;
-			while (std::getline(line_stream, command_line)) { // for each line received by socket
-				spdlog::info("command line received from socket: {}", command_line);
+			while (std::getline(line_stream, command_line)) { // for each line received
+				spdlog::info("command line received: {}", command_line);
 
 				std::istringstream item_stream(command_line);
 				string command_item;
@@ -1259,11 +1276,11 @@ class Program {
 					thr.join();
 				}
 			}
-			spdlog::info("socket handler terminated");
+			spdlog::info("command parser and executer terminated");
 		}
 
 		template<typename... Types>
-		void print(OutType type, uint32_t count, alutils::Socket::HandlerData* data, const string& formatstr, Types... args) {
+		void print(OutType type, uint32_t count, alutils::Socket::HandlerData* data, const string& formatstr, const Types&... args) {
 #			define GET_SPD_FORMAT string("output command [") + std::to_string(count) + "]: " + formatstr
 			if (type == otDebug && loglevel.level <= LogLevel::LOG_DEBUG) {
 				spdlog::debug(GET_SPD_FORMAT, args...);

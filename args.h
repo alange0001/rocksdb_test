@@ -24,11 +24,6 @@ using std::function;
 		"Log level (output,debug,info)",                          \
 		true,                                                     \
 		setLogLevel(value))                                       \
-	_f(socket, string, DEFINE_string,                             \
-		"",                                                       \
-		"Socket used to control the experiment",                  \
-		value == "" || !std::filesystem::exists(value),           \
-		nullptr)                                                  \
 	_f(duration, uint32_t, DEFINE_uint32,                         \
 		60,                                                       \
 		"Duration of the experiment (minutes) including warm_period", \
@@ -97,6 +92,16 @@ using std::function;
 	_f(docker_params, string, DEFINE_string,                      \
 		"",                                                       \
 		"additional docker parameters",                           \
+		true,                                                     \
+		nullptr)                                                  \
+	_f(socket, string, DEFINE_string,                             \
+		"",                                                       \
+		"Socket used to control the experiment",                  \
+		value == "" || !std::filesystem::exists(value),           \
+		nullptr)                                                  \
+	_f(commands, string, DEFINE_string,                           \
+		"",                                                       \
+		"Commands used to control the experiments",               \
 		true,                                                     \
 		nullptr)                                                  \
 	_f(perfmon, bool, DEFINE_bool,                                \
