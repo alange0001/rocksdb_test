@@ -734,6 +734,8 @@ class PerformanceMonitorClient {
 	void threadMain(alutils::ThreadController::stop_t stop) {
 		// based on: https://www.geeksforgeeks.org/socket-programming-cc/
 
+		Defer close_sock([this](){ close(this->sock); });
+
 		uint32_t buffer_size = 1024 * 1024;
 		char buffer[buffer_size +1]; buffer[buffer_size] = '\0';
 		std::cmatch cm;
@@ -751,7 +753,6 @@ class PerformanceMonitorClient {
 
 			auto r = read(sock , buffer, buffer_size);
 			if (r < 0) {
-				close(sock);
 				throw runtime_error(format("failed to read stats from performancemonitor (errno={})", errno));
 			} else if (r == 0) {
 				spdlog::warn("failed to read stats from performancemonitor (zero bytes received)");
@@ -760,7 +761,6 @@ class PerformanceMonitorClient {
 				DEBUG_MSG("message \"{}\" sent", alive_msg);
 				r = read(sock , buffer, buffer_size);
 				if (r <= 0) {
-					close(sock);
 					throw runtime_error(format("failed to read alive status from performancemonitor (errno={})", errno));
 				}
 				continue;
@@ -780,7 +780,6 @@ class PerformanceMonitorClient {
 		}
 		send(sock, "stop", sizeof("stop"), 0);
 		DEBUG_MSG("close connection");
-		close(sock);
 	}
 };
 
