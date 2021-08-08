@@ -206,6 +206,7 @@ class GenericExperiment:
 		('docker_params',       {'group': 'gen', 'type': str,  'default': None,         'register':True,  'help': 'Additional docker arguments.' }),
 		('duration',            {'group': 'gen', 'type': int,  'default': None,         'register':True,  'help': 'Duration of the experiment (in minutes).' }),
 		('warm_period',         {'group': 'gen', 'type': int,  'default': None,         'register':True,  'help': 'Warm period (in minutes).' }),
+		('stats_interval',      {'group': 'gen', 'type': int,  'default': None,         'register':True,  'help': 'Stats report interval.' }),
 		('rocksdb_config_file', {'group': 'gen', 'type': str,  'default': None,         'register':False, 'help': 'Rocksdb config file used to create the database.' }),
 		('num_dbs',             {'group': 'dbb', 'type': int,  'default': 0,            'register':True,  'help': 'Number of db_bench instances.' }),
 		('db_create',           {'group': 'dbb', 'type': str,  'default': 'true',       'register':False, 'help': None }),
@@ -324,7 +325,6 @@ class GenericExperiment:
 		log.info('==========================================')
 
 		cmd  = f'{bin_path} \\\n'
-		cmd += f'	--stats_interval=5  \\\n'
 
 		output_path = coalesce(args_d.get('output_path'), '')
 		if self.output_filename is None:
