@@ -11,7 +11,7 @@
 #include <random>
 #include <chrono>
 #include <regex>
-#include <filesystem>
+#include <any>
 
 #include "util.h"
 
@@ -24,6 +24,7 @@ void signalHandler(int signal) {
 	std::signal(signal, SIG_DFL);
 	std::raise(signal);
 }
+
 
 int main(int argc, char** argv) {
 	std::signal(SIGTERM, signalHandler);
@@ -41,6 +42,11 @@ int main(int argc, char** argv) {
 	}
 
 	try {
+		std::vector<std::string> cmd_list;
+		for (int i = 1; i < argc; i++) {
+			cmd_list.push_back(argv[i]);
+		}
+
 
 	} catch (const std::exception& e) {
 		spdlog::error("Exception received: {}", e.what());
