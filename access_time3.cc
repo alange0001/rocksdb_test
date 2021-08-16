@@ -890,6 +890,10 @@ class Reader {
 
 	std::unique_ptr<alutils::Socket> socket_server;
 
+	const int max_shift_report_time_tries = 2;
+	std::atomic<int> shift_report_time_tries = 0;
+	std::atomic<long int> shift_report_time_ms = 0;
+
 	public: //---------------------------------------------------------------------
 	Reader(Args* args_) : args(args_) {
 		DEBUG_MSG("constructor");
@@ -914,6 +918,20 @@ class Reader {
 			thread.join();
 	}
 
+	bool isActive() {
+		if (thread_exception) std::rethrow_exception(thread_exception);
+		return !stop_;
+	}
+
+	void stop() noexcept {
+		stop_ = true;
+	}
+
+	long int shiftReportTime_ms() {
+		return shift_report_time_ms.exchange(0);
+	}
+
+	private: //--------------------------------------------------------------------
 	void threadMain() noexcept {
 		try {
 			DEBUG_MSG("command reader thread initiated");
@@ -928,17 +946,7 @@ class Reader {
 
 				command = buffer;
 				alutils::inplace_strip(command);
-
-				if (command == "stop") {
-					spdlog::info("stop command received");
-					stop_ = true;
-				} else {
-					try {
-						args->executeCommand(command);
-					} catch (std::exception& e) {
-						spdlog::error("{}", e.what());
-					}
-				}
+				handle_commands(command);
 			}
 			stop_ = true;
 		} catch (std::exception& e) {
@@ -961,17 +969,8 @@ class Reader {
 			if (sm.size() >= 2) {
 				string command = sm.str(1);
 				alutils::inplace_strip(command);
+				handle_commands(command, oc);
 
-				if (command == "stop") {
-					oc.print_info("stop command received");
-					stop_ = true;
-				} else {
-					try {
-						args->executeCommand(command, oc);
-					} catch (std::exception& e) {
-						oc.print_error("{}", e.what());
-					}
-				}
 			} else {
 				oc.print_error("invalid command");
 			}
@@ -981,12 +980,46 @@ class Reader {
 		}
 	}
 
-	bool isActive() {
-		if (thread_exception) std::rethrow_exception(thread_exception);
-		return !stop_;
+	void handle_commands(const std::string& command) {
+		OutputController oc;
+		handle_commands(command, oc);
 	}
-	void stop() noexcept {
-		stop_ = true;
+
+	void handle_commands(const std::string& command, OutputController& oc) {
+		if (command == "stop") {
+			oc.print_info("stop command received");
+			stop_ = true;
+		} else {
+			try {
+				std::smatch sm1;
+				std::regex_search(command, sm1, std::regex("^(shift_report_time) (-?[0-9]+)"));
+				if (sm1.size() >= 3) {
+					auto aux = std::strtol(sm1.str(2).c_str(), nullptr, 10);
+
+					uint32_t limit = 700*args->stats_interval;
+					if (std::abs(aux) >= limit)
+						throw std::runtime_error(fmt::format("Invalid shift time. Must be between -{} and {} ms.", limit, limit).c_str());
+
+					long int expected = 0;
+					if (shift_report_time_ms.compare_exchange_weak(expected, aux)) {
+						shift_report_time_tries = 0;
+						oc.print_info("set shift_report_time = {}ms", aux);
+					} else if (shift_report_time_tries >= max_shift_report_time_tries) {
+						shift_report_time_tries = 0;
+						shift_report_time_ms = aux;
+						oc.print_info("set shift_report_time = {}ms (overrided)", aux);
+					} else {
+						shift_report_time_tries++;
+						oc.print_error("Failed to set shift_report_time = {}ms. The old value was applied yet. Try again later.", aux);
+					}
+
+				} else {
+					args->executeCommand(command, oc);
+				}
+			} catch (std::exception& e) {
+				oc.print_error("{}", e.what());
+			}
+		}
 	}
 };
 
@@ -999,6 +1032,14 @@ class Program {
 	std::unique_ptr<Args>   args;
 	std::unique_ptr<EngineController> engine_controller;
 	std::unique_ptr<Reader> reader;
+
+	Clock execution_clock;
+
+	std::atomic<bool> stop_ = false;
+
+	std::thread report_thread;
+	std::atomic<bool> report_thread_active = false;
+	std::pair<bool, std::string> report_thread_exception {false, ""};
 
 	public: //---------------------------------------------------------------------
 	Program() {
@@ -1021,76 +1062,41 @@ class Program {
 		try {
 			args.reset(new Args(argc, argv));
 
-			system_clock::time_point time_init = system_clock::now();
-			system_clock::time_point time_elapsed = time_init;
-			system_clock::time_point time_aux;
-
-			Stats    elapsed_stats;
-			uint64_t elapsed_ms;
-			uint64_t stats_interval_ms = args->stats_interval * 1000;
-
 			engine_controller.reset(new EngineController(args.get()));
 			reader.reset(new Reader(args.get()));
+			report_thread = std::thread([this](){ reportThreadMain(); });
 
-			bool stop = false;
+			Defer df1([this]{ resetAll(); });
+
 			while (engine_controller->isActive() && reader->isActive()) {
-
-				auto cur_sec = duration_cast<seconds>(system_clock::now() - time_init).count();
+				auto cur_sec = execution_clock.s();
 				while (args->command_script.size() > 0 && args->command_script[0].time < cur_sec) {
 					CommandLine c = args->command_script.front();
 					args->command_script.pop_front();
 					spdlog::info("command_script time={}, command: {}", c.time, c.command);
 					if (c.command == "stop") {
-						stop = true;
-						reader->stop();
-						engine_controller->stop();
+						stop_ = true;
+						break;
 					} else {
 						args->executeCommand(c.command);
 					}
 				}
-				if (stop) break;
+				if (stop_) break;
 
-				if (args->duration > 0 && duration_cast<seconds>(system_clock::now() - time_init).count() > args->duration) {
+				if (args->duration > 0 && execution_clock.s() > args->duration) {
 					spdlog::info("duration time exceeded: {} seconds", args->duration);
-					reader->stop();
-					engine_controller->stop();
 					break;
 				}
 
-				std::this_thread::sleep_for(milliseconds(200));
-
-				//// print statistics ////
-				time_aux = system_clock::now();
-				elapsed_ms = duration_cast<milliseconds>(time_aux - time_elapsed).count();
-				if (elapsed_ms > stats_interval_ms) {
-					auto cur_stats = engine_controller->stats;
-					//DEBUG_MSG("cur_stats: KB_read={}, KB_write={}", cur_stats.KB_read, cur_stats.KB_write);
-					if (! args->changed) {
-						std::string aux_args = args->strStat();
-						auto delta = cur_stats - elapsed_stats;
-						//DEBUG_MSG("delta: KB_read={}, KB_write={}", delta.KB_read, delta.KB_write);
-						std::string aux_str =
-							fmt::format("\"time\":\"{}\"", duration_cast<seconds>(time_aux - time_init).count()) +
-							fmt::format(", \"total_MiB/s\":\"{:.2f}\"", static_cast<double>((delta.KB_read + delta.KB_write) * 1000)/static_cast<double>(elapsed_ms * 1024) ) +
-							fmt::format(", \"read_MiB/s\":\"{:.2f}\"",  static_cast<double>(delta.KB_read  * 1000)/static_cast<double>(elapsed_ms * 1024) ) +
-							fmt::format(", \"write_MiB/s\":\"{:.2f}\"", static_cast<double>(delta.KB_write * 1000)/static_cast<double>(elapsed_ms * 1024) ) +
-							fmt::format(", \"blocks/s\":\"{:.1f}\"",    static_cast<double>(delta.blocks   * 1000)/static_cast<double>(elapsed_ms) ) +
-							fmt::format(", \"blocks_read/s\":\"{:.1f}\"",  static_cast<double>(delta.blocks_read  * 1000)/static_cast<double>(elapsed_ms) ) +
-							fmt::format(", \"blocks_write/s\":\"{:.1f}\"", static_cast<double>(delta.blocks_write * 1000)/static_cast<double>(elapsed_ms) ) ;
-						spdlog::info("STATS: {{{}, {}}}", aux_str, aux_args);
-					} else { // args changed. skip stats for one period
-						args->changed = false;
-					}
-					time_elapsed         = time_aux;
-					elapsed_stats        = cur_stats;
+				if (report_thread_exception.first) {
+					throw std::runtime_error(report_thread_exception.second.c_str());
 				}
-			}
 
-			resetAll();
+				std::this_thread::sleep_for(milliseconds(500));
+			}
 
 		} catch (const std::exception& e) {
 			spdlog::error(e.what());
-			resetAll();
 			spdlog::info("exit(1)");
 			return 1;
 		}
@@ -1099,7 +1105,79 @@ class Program {
 	}
 
 	private: //--------------------------------------------------------------------
+
+	void reportThreadMain() noexcept {
+		report_thread_active = true;
+		spdlog::info("report thread initiated");
+		try {
+			Clock correction_clock;
+			uint64_t stats_interval_us = args->stats_interval * 1000000;
+			uint64_t last_ms = 0;
+
+			auto elapsed_stats = engine_controller->stats;
+			args->changed = true;
+
+			while (!stop_) {
+				auto shift_us = reader->shiftReportTime_ms() * 1000;
+				DEBUG_MSG("shift_us = {}", shift_us);
+				uint64_t sleep_us = stats_interval_us - correction_clock.us() + shift_us;
+				if (sleep_us >= (2*stats_interval_us))
+					throw std::runtime_error(fmt::format("BUG: invalid sleep time in report thread: {}us", sleep_us).c_str());
+
+				DEBUG_MSG("sleep_us = {}", sleep_us);
+				std::this_thread::sleep_for(microseconds(sleep_us));
+				if (stop_) break;
+				correction_clock.reset();
+
+				auto cur_ms = execution_clock.ms();
+				auto cur_stats = engine_controller->stats;
+
+				//DEBUG_MSG("cur_stats: KB_read={}, KB_write={}", cur_stats.KB_read, cur_stats.KB_write);
+				if (! args->changed) {
+					uint64_t elapsed_ms = cur_ms - last_ms;
+					std::string aux_args = args->strStat();
+					auto delta = cur_stats - elapsed_stats;
+
+					//DEBUG_MSG("delta: KB_read={}, KB_write={}", delta.KB_read, delta.KB_write);
+					std::string aux_str =
+						fmt::format("\"time\":\"{}\"", execution_clock.s()) +
+						fmt::format(", \"total_MiB/s\":\"{:.2f}\"", static_cast<double>((delta.KB_read + delta.KB_write) * 1000)/static_cast<double>(elapsed_ms * 1024) ) +
+						fmt::format(", \"read_MiB/s\":\"{:.2f}\"",  static_cast<double>(delta.KB_read  * 1000)/static_cast<double>(elapsed_ms * 1024) ) +
+						fmt::format(", \"write_MiB/s\":\"{:.2f}\"", static_cast<double>(delta.KB_write * 1000)/static_cast<double>(elapsed_ms * 1024) ) +
+						fmt::format(", \"blocks/s\":\"{:.1f}\"",    static_cast<double>(delta.blocks   * 1000)/static_cast<double>(elapsed_ms) ) +
+						fmt::format(", \"blocks_read/s\":\"{:.1f}\"",  static_cast<double>(delta.blocks_read  * 1000)/static_cast<double>(elapsed_ms) ) +
+						fmt::format(", \"blocks_write/s\":\"{:.1f}\"", static_cast<double>(delta.blocks_write * 1000)/static_cast<double>(elapsed_ms) ) ;
+					spdlog::info("STATS: {{{}, {}}}", aux_str, aux_args);
+
+				} else { // args changed. skip stats for one period
+					args->changed = false;
+				}
+
+				elapsed_stats = cur_stats;
+				last_ms = cur_ms;
+			}
+		} catch (const std::exception& e) {
+			report_thread_exception = {true, e.what()};
+		}
+		spdlog::info("report thread finished");
+		report_thread_active = false;
+	}
+
 	void resetAll() noexcept {
+		stop_ = true;
+		if (reader.get() != nullptr)
+			reader->stop();
+		if (engine_controller.get() != nullptr)
+			engine_controller->stop();
+		if (report_thread.joinable()) {
+			for (int i = 0; i < 20 && report_thread_active; i++) {
+				std::this_thread::sleep_for(milliseconds(100));
+			}
+			if (report_thread_active)
+				report_thread.detach();
+			else
+				report_thread.join();
+		}
 		engine_controller.reset(nullptr);
 		reader.reset(nullptr);
 	}
@@ -1110,11 +1188,8 @@ class Program {
 	}
 	void signalHandler(int signal) noexcept {
 		spdlog::warn("received signal {}", signal);
-
 		std::signal(signal, SIG_DFL);
-
 		resetAll();
-
 		std::raise(signal);
 	}
 };
