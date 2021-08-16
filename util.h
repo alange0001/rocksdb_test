@@ -21,6 +21,8 @@
 using std::string;
 using std::vector;
 using std::function;
+using std::chrono::nanoseconds;
+using std::chrono::microseconds;
 using std::chrono::milliseconds;
 using std::chrono::seconds;
 using std::chrono::system_clock;
@@ -116,6 +118,63 @@ struct Clock {
 	uint64_t ms() {
 		auto time_cur = system_clock::now();
 		return std::chrono::duration_cast<milliseconds>(time_cur - time_init).count();
+	}
+	uint64_t us() {
+		auto time_cur = system_clock::now();
+		return std::chrono::duration_cast<microseconds>(time_cur - time_init).count();
+	}
+	uint64_t ns() {
+		auto time_cur = system_clock::now();
+		return std::chrono::duration_cast<nanoseconds>(time_cur - time_init).count();
+	}
+};
+
+////////////////////////////////////////////////////////////////////////////////////
+#undef __CLASS__
+#define __CLASS__ "TimeSync::"
+
+class TimeSync {
+	const long int fuzzy = 100;
+	long int stats_interval_ms;
+	long int stats_interval_ms_half;
+	std::chrono::time_point<std::chrono::system_clock> base_time;
+	bool have_report = false;
+	std::atomic_ullong last_report = 0;
+
+	public:
+	TimeSync(long int stats_interval_s) :
+		stats_interval_ms(stats_interval_s * 1000),
+		stats_interval_ms_half(stats_interval_ms/2)
+	{
+		base_time = std::chrono::system_clock::now();
+	}
+
+	void new_report() {
+		last_report = std::chrono::duration_cast<milliseconds>(std::chrono::system_clock::now() - base_time).count();
+		have_report = true;
+		DEBUG_MSG("new report");
+	}
+
+	long int get_time_shift(const char* exp_name=nullptr) { // time difference in milliseconds
+		if (! have_report)
+			return 0;
+
+		unsigned long long last_rep_copy = last_report;
+		unsigned long long now = std::chrono::duration_cast<milliseconds>(std::chrono::system_clock::now() - base_time).count();
+		long int delta = now - last_rep_copy;
+		if (delta >= 2*stats_interval_ms)
+			return 0;
+		delta %= stats_interval_ms;
+		if (delta <= stats_interval_ms_half)
+			delta *= -1;
+		else
+			delta = stats_interval_ms - delta;
+		if (std::abs(delta) > fuzzy) {
+			spdlog::info("Task {}, shift report time: {}", (exp_name != nullptr) ? exp_name : "undefined", delta);
+			return delta;
+		} else {
+			return 0;
+		}
 	}
 };
 
