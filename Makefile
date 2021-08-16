@@ -1,5 +1,5 @@
 
-VERSION = 1.14
+VERSION = 1.15
 BUILD_TYPE ?= Release
 
 bin: bin-deps
