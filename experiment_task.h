@@ -27,6 +27,14 @@ extern std::unique_ptr<TmpDir> tmpdir;
 
 const char* stat_format = "Task {}, STATS: {}";
 typedef std::function<void(OutType, const std::string&)> command_return_f;
+void default_command_return(OutType type, const std::string& msg) {
+	switch (type) {
+		case otDebug: spdlog::debug(msg); break;
+		case otInfo:  spdlog::info(msg);  break;
+		case otWarn:  spdlog::warn(msg);  break;
+		case otError: spdlog::error(msg); break;
+	}
+}
 
 class ExperimentTask {
 	protected: //------------------------------------------------------------------
