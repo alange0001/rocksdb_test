@@ -3,8 +3,6 @@
 // LICENSE.GPLv2 file in the root directory) and Apache 2.0 License
 // (found in the LICENSE.Apache file in the root directory).
 
-#include "version.h"
-
 #include <string>
 #include <vector>
 #include <queue>
@@ -49,6 +47,7 @@ using fmt::format;
 #define __CLASS__ ""
 
 std::unique_ptr<TmpDir> tmpdir;
+std::unique_ptr<TimeSync> tsync;
 
 ////////////////////////////////////////////////////////////////////////////////////
 #undef __CLASS__
@@ -57,9 +56,15 @@ std::unique_ptr<TmpDir> tmpdir;
 class DBBench : public ExperimentTask {
 	Args* args;
 	uint number;
+	bool tsync_primary = false;
 
 	public:    //------------------------------------------------------------------
-	DBBench(Clock* clock_, Args* args_, uint number_) : ExperimentTask(format("db_bench[{}]", number_), clock_, args_->warm_period * 60), args(args_), number(number_) {
+	DBBench(Clock* clock_, Args* args_, uint number_, bool tsync_primary_) :
+		ExperimentTask(format("db_bench[{}]", number_), clock_, args_->warm_period * 60),
+		args(args_),
+		number(number_),
+		tsync_primary(tsync_primary_)
+	{
 		DEBUG_MSG("constructor");
 		container_name = format("db_bench_{}", number_);
 	}
@@ -349,6 +354,8 @@ class DBBench : public ExperimentTask {
 			data["stall_percent"] = cm.str(2);
 			//DEBUG_OUT("line parsed    : {}", buffer);
 
+			if (tsync_primary && tsync.get() != nullptr)
+				tsync->new_report();
 			print();
 			ops = 0;
 			ops_per_s = 0;
@@ -363,6 +370,7 @@ class DBBench : public ExperimentTask {
 class YCSB : public ExperimentTask {
 	Args* args;
 	uint number;
+	bool tsync_primary = false;
 
 	unique_ptr<alutils::Socket> socket_client;
 	nlohmann::ordered_json data2;
@@ -371,10 +379,11 @@ class YCSB : public ExperimentTask {
 	string workload_ycsb;
 
 	public:    //------------------------------------------------------------------
-	YCSB(Clock* clock_, Args* args_, uint number_)
+	YCSB(Clock* clock_, Args* args_, uint number_, bool tsync_primary_)
 	: ExperimentTask(format("ycsb[{}]", number_), clock_, args_->warm_period * 60),
 	  args(args_),
-	  number(number_)
+	  number(number_),
+	  tsync_primary(tsync_primary_)
 	{
 		DEBUG_MSG("constructor");
 		container_name = format("ycsb_{}", number_);
@@ -547,6 +556,9 @@ class YCSB : public ExperimentTask {
 				}
 			}
 
+			if (tsync_primary && tsync.get() != nullptr)
+				tsync->new_report();
+
 			if (args->ydb_socket) {
 				try {
 					if (socket_client.get() != nullptr && !socket_client->isActive()) {
@@ -604,12 +616,14 @@ class YCSB : public ExperimentTask {
 class AccessTime3 : public ExperimentTask {
 	Args* args;
 	uint number;
+	bool tsync_primary = false;
 
 	public:    //------------------------------------------------------------------
-	AccessTime3(Clock* clock_, Args* args_, uint number_)
+	AccessTime3(Clock* clock_, Args* args_, uint number_, bool tsync_primary_)
 	: ExperimentTask(format("access_time3[{}]", number_), clock_, args_->warm_period * 60),
 	  args(args_),
-	  number(number_)
+	  number(number_),
+	  tsync_primary(tsync_primary_)
 	{
 		container_name = format("at3_{}", number_);
 		socket_name = "access_time3.sock";
@@ -680,6 +694,16 @@ class AccessTime3 : public ExperimentTask {
 			auto clock_s = clock->s();
 			if (clock_s > warm_period_s) {
 				spdlog::info("Task {}, STATS: {} \"time\":\"{}\", {} {}", name, "{", clock_s - warm_period_s, cm.str(1), "}");
+				if (args->sync_stats && tsync.get() != nullptr){
+					if (tsync_primary) {
+						tsync->new_report();
+					} else {
+						auto shift = tsync->get_time_shift(name.c_str());
+						if (shift != 0) {
+							send_command(format("shift_report_time {}", shift), default_command_return);
+						}
+					}
+				}
 			}
 		}
 	}
@@ -744,9 +768,17 @@ class PerformanceMonitorClient {
 		send(sock, send_msg.c_str(), send_msg.length(), 0);
 		DEBUG_MSG("message \"{}\" sent", send_msg);
 
+		Clock correction_clock;
+		long int report_time_shift_ms = 0;
+
 		send_msg = "stats";
 		while (! stop()) {
-			std::this_thread::sleep_for(seconds(args->stats_interval));
+			uint64_t sleep_time_us = (1000000*args->stats_interval) - correction_clock.us() + (1000 * report_time_shift_ms);
+			DEBUG_MSG("sleep for {} us", sleep_time_us);
+			std::this_thread::sleep_for(microseconds(sleep_time_us));
+
+			correction_clock.reset();
+			report_time_shift_ms = 0;
 
 			send(sock, send_msg.c_str(), send_msg.length(), 0);
 			DEBUG_MSG("message \"{}\" sent", send_msg);
@@ -775,6 +807,8 @@ class PerformanceMonitorClient {
 				regex_search(buffer, cm, regex("STATS: \\{(.+)"));
 				if (cm.size() > 0) {
 					spdlog::info("Task performancemonitor, STATS: {{\"time\": {}, {}", clock_s - warm_period_s, cm.str(1));
+					if (tsync.get() != nullptr && args->sync_stats)
+						report_time_shift_ms = tsync->get_time_shift("performancemonitor");
 				}
 			}
 		}
@@ -830,6 +864,7 @@ class Program {
 			args.reset(new Args(argc, argv));
 			clock.reset(new Clock());
 			tmpdir.reset(new TmpDir());
+			tsync.reset(new TimeSync(args->stats_interval));
 
 			auto num_dbs = args->num_dbs;
 			auto num_ydbs = args->num_ydbs;
@@ -842,13 +877,15 @@ class Program {
 			// create DBBench instances and create DBs, if necessary
 			dbbench_list.reset(new unique_ptr<DBBench>[num_dbs]);
 			for (uint32_t i=0; i<num_dbs; i++) {
-				dbbench_list[i].reset(new DBBench(clock.get(), args.get(), i));
+				bool tsync_primary = (i == 0 && args->sync_stats && num_ydbs == 0);
+				dbbench_list[i].reset(new DBBench(clock.get(), args.get(), i, tsync_primary));
 				dbbench_list[i]->checkCreate();
 			}
 			// create YCSB instances and create DBs, if necessary
 			ycsb_list.reset(new unique_ptr<YCSB>[num_ydbs]);
 			for (uint32_t i=0; i<num_ydbs; i++) {
-				ycsb_list[i].reset(new YCSB(clock.get(), args.get(), i));
+				bool tsync_primary = (i == 0 && args->sync_stats);
+				ycsb_list[i].reset(new YCSB(clock.get(), args.get(), i, tsync_primary));
 				ycsb_list[i]->checkCreate();
 			}
 
@@ -866,7 +903,8 @@ class Program {
 			// create and start access_time3 instances
 			at_list.reset(new unique_ptr<AccessTime3>[num_at]);
 			for (uint32_t i=0; i<num_at; i++) {
-				at_list[i].reset(new AccessTime3(clock.get(), args.get(), i));
+				bool tsync_primary = (i == 0 && args->sync_stats && num_ydbs == 0 && num_dbs == 0);
+				at_list[i].reset(new AccessTime3(clock.get(), args.get(), i, tsync_primary));
 				at_list[i]->start();
 			}
 
