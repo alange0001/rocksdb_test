@@ -159,7 +159,7 @@ class OutputController {
 	OutputController(out_t output_lambda_ = nullptr);
 
 	template<typename... Types>
-	void print_debug(Types... args) {
+	void print_debug(const Types&... args) {
 		if (!debug) return;
 		if (output_lambda == nullptr)
 			spdlog::debug(args...);
@@ -169,7 +169,7 @@ class OutputController {
 	}
 
 	template<typename... Types>
-	void print_info(Types... args) {
+	void print_info(const Types&... args) {
 		if (output_lambda == nullptr)
 			spdlog::info(args...);
 		else {
@@ -178,7 +178,7 @@ class OutputController {
 	}
 
 	template<typename... Types>
-	void print_warn(Types... args) {
+	void print_warn(const Types&... args) {
 		if (output_lambda == nullptr)
 			spdlog::warn(args...);
 		else {
@@ -187,7 +187,7 @@ class OutputController {
 	}
 
 	template<typename... Types>
-	void print_error(Types... args) {
+	void print_error(const Types&... args) {
 		if (output_lambda == nullptr)
 			spdlog::error(args...);
 		else {
