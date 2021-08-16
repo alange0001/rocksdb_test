@@ -9,6 +9,7 @@
 #include <vector>
 #include <functional>
 
+#include "version.h"
 #include "util.h"
 
 using std::string;
@@ -38,6 +39,11 @@ using std::function;
 		5,                                                        \
 		"Statistics interval (seconds)",                          \
 		value > 0,                                                \
+		nullptr)                                                  \
+	_f(sync_stats, bool, DEFINE_bool,                             \
+		true,                                                     \
+		"Synchronize statistics whenever possible",               \
+		true,                                                     \
 		nullptr)                                                  \
 	_f(num_dbs, uint32_t, DEFINE_uint32,                          \
 		0,                                                        \
@@ -85,7 +91,7 @@ using std::function;
 		true,                                                     \
 		nullptr)                                                  \
 	_f(docker_image, string, DEFINE_string,                       \
-		"alange0001/rocksdb_test:5",                              \
+		"alange0001/rocksdb_test:" ROCKSDB_TEST_VERSION,          \
 		"docker image used for each container",                   \
 		value.length() > 0,                                       \
 		nullptr)                                                  \
