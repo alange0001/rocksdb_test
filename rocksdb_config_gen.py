@@ -137,7 +137,6 @@ class Config:
 
 		# template 09 - 4K block
 		d = copy.deepcopy(self._config_templates['08'].copy())
-		d['cf']['compression_per_level'] = 'kNoCompression:kZSTD:kZSTD:kZSTD:kZSTD:kZSTD:kZSTD'
 		d['tb']['block_size'] = str(4 * K)
 		d['tb']['filter_policy'] = 'bloomfilter:12:false'
 		self._config_templates['09'] = d
