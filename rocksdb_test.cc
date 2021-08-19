@@ -618,6 +618,8 @@ class AccessTime3 : public ExperimentTask {
 	uint number;
 	bool tsync_primary = false;
 
+	Clock last_shift_request;
+
 	public:    //------------------------------------------------------------------
 	AccessTime3(Clock* clock_, Args* args_, uint number_, bool tsync_primary_)
 	: ExperimentTask(format("access_time3[{}]", number_), clock_, args_->warm_period * 60),
@@ -699,7 +701,8 @@ class AccessTime3 : public ExperimentTask {
 						tsync->new_report();
 					} else {
 						auto shift = tsync->get_time_shift(name.c_str());
-						if (shift != 0) {
+						if (shift != 0 && last_shift_request.s() > args->stats_interval*2) {
+							last_shift_request.reset();
 							send_command(format("shift_report_time {}", shift), default_command_return);
 						}
 					}
